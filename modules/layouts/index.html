@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>CoreWatch Host Engine Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- 1. TOP NAVIGATION ZONE (Segment Control Anchor) -->
+    <div class="top-action-bar">
+        <div class="segment-container">
+            <button id="btnCompact" class="segment-btn active" onclick="SetViewState(false)">Compact View</button>
+            <button id="btnExpanded" class="segment-btn" onclick="SetViewState(true)">Expanded Diagnostics</button>
+        </div>
+    </div>
+
+    <!-- 2. MASTER 2X2 METRIC PROPORTIONAL MESH PANEL -->
+    <div class="dashboard-grid">
+        
+        <!-- Compute Card -->
+        <div class="dashboard-card" id="cardCompute">
+            <h2>CPU COMPUTE CLUSTER</h2>
+            <div class="metric-row">
+                <div class="metric-metadata"><span>Total CPU Load</span><span id="lblCpuLoad">24%</span></div>
+                <div class="track-bg"><div id="barCpuLoad" class="track-fill" style="width: 24%;"></div></div>
+            </div>
+            <div class="metric-row">
+                <div class="metric-metadata"><span>Overall GPU Load</span><span id="lblGpuLoad">12%</span></div>
+                <div class="track-bg"><div id="barGpuLoad" class="track-fill" style="width: 12%;"></div></div>
+            </div>
+            <!-- Expanded Progressive Block -->
+            <div class="expanded-content hidden">
+                <div class="metric-metadata text-secondary"><span>HAGS Scheduling State:</span><span id="lblHagsState">Enabled (Registry Verified)</span></div>
+            </div>
+        </div>
+
+        <!-- Memory Card -->
+        <div class="dashboard-card" id="cardMemory">
+            <h2>MEMORY & KERNEL</h2>
+            <div class="metric-row">
+                <div class="metric-metadata"><span>Physical RAM Ingestion</span><span id="lblRamUsage">6.42 / 32.00 GB</span></div>
+                <div class="track-bg"><div id="barRamUsage" class="track-fill" style="width: 20%;"></div></div>
+            </div>
+            <div class="metric-row no-track">
+                <div class="metric-metadata"><span>System Runtime Uptime</span><span id="lblUptime">02d 04h 12m</span></div>
+            </div>
+        </div>
+
+        <!-- Storage Card (Click-to-Explore Action Hook) -->
+        <div class="dashboard-card interactive" id="cardStorage" onclick="RequestStorageScan()">
+            <h2>STORAGE & VOLUMETRIC</h2>
+            <div class="metric-row">
+                <div class="metric-metadata"><span>System Volume Capacity (C:)</span><span id="lblStorageText">Click Card to Index Drive</span></div>
+                <div class="track-bg"><div id="barStorage" class="track-fill" style="width: 45%;"></div></div>
+            </div>
+        </div>
+
+        <!-- Infrastructure Card -->
+        <div class="dashboard-card" id="cardPower">
+            <h2>POWER & INFRASTRUCTURE</h2>
+            <div class="metric-row no-track">
+                <div class="metric-metadata"><span>Motherboard Node Profile</span><span id="lblMotherboard">B550 AORUS MASTER</span></div>
+            </div>
+            <div class="metric-row no-track">
+                <div class="metric-metadata"><span>Chassis Status Tracking</span><span>Isolated Host Operational</span></div>
+            </div>
+        </div>
+
+        <!-- 3. WIDE NETWORK SUB-CONSOLE & DYNAMIC EXPLORER PANEL -->
+        <div class="wide-sub-console" id="cardNetwork">
+            <div class="console-header-row">
+                <h2 id="lblConsoleHeader">NETWORK SUB-CONSOLE</h2>
+                <!-- Return toggle only shows up when viewing deep explorer scans -->
+                <button id="btnResetConsole" class="console-reset-btn hidden" onclick="RestoreNetworkView()">Back to Network Matrix</button>
+            </div>
+            
+            <!-- Context State A: The Core Network Matrix View -->
+            <div id="panelNetworkMatrix" class="network-matrix-grid">
+                <div class="net-data-node"><strong>Private IPv4:</strong> <span id="lblNetIp">192.168.1.142</span></div>
+                <div class="net-data-node"><strong>Subnet Mask:</strong> <span id="lblNetMask">255.255.255.0</span></div>
+                <div class="net-data-node"><strong>Gateway Node:</strong> <span id="lblNetGateway">192.168.1.1</span></div>
+                <div class="net-data-node"><strong>Profile State:</strong> <span id="lblNetProfile" class="badge-private">Private Network</span></div>
+                <div class="net-data-node"><strong>WLAN SSID Link:</strong> <span id="lblWlanSsid">LOFT_NET_5G</span></div>
+                <div class="net-data-node"><strong>Public WAN IP:</strong> <span id="lblPublicIp">Resolving Endpoint...</span></div>
+                
+                <!-- Extended Network Diagnostics (Hidden in Compact Mode) -->
+                <div class="net-data-node expanded-content hidden"><strong>Link Capacity:</strong> <span id="lblLinkSpeed">10 Gbps Duplex</span></div>
+                <div class="net-data-node expanded-content hidden"><strong>Discovery State:</strong> <span id="lblNetDiscovery">Active / ResPub Engaged</span></div>
+            </div>
+
+            <!-- Context State B: The Interactive Terminal Shell Output (Hidden on boot) -->
+            <div id="panelConsoleOutput" class="console-box hidden">
+                [CoreWatch Runtime Initialized Successfully: Select an asset above to project system metrics inline.]
+            </div>
+        </div>
+
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

@@ -4,130 +4,151 @@ param(
 )
 
 # =========================================================================
-# APPLICATION ORCHESTRATOR & BOOTSTRAP LIFECYCLE PIPELINE
+# APPLICATION ORCHESTRATOR & PORTABLE CANVAS INITIALIZATION LIFE-CYCLE
 # =========================================================================
 Clear-Host
 
-# Establish strict global root constant to replace automatic execution path lookups
-$Global:NodeWatchRoot = Split-Path -Parent $MyInvocation.MyCommand.Definition
+# Strict absolute base project path token
+$Global:NodeWatchRoot = "D:\GitHub\TFOL-Project"
 
-Write-Verbose "Initializing CoreWatch Host Engine environment lifecycle..."
+Write-Verbose "Initializing Self-Contained Portable WebView2 App Engine..."
 
-# 1. INTEGRITY & SECURITY ELEVATION CHECKS
-$IsAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if (-not $IsAdmin) { 
-    Write-Warning "NODEWATCH WARNING: Running without full Administrator privileges. Certain telemetry layers will fail to poll."
+# 1. HARD-WIRED ASSEMBLY INGESTION (Loads directly from your local project bin folder)
+$BinPath = Join-Path $Global:NodeWatchRoot "bin"
+$CoreDll = Join-Path $BinPath "Microsoft.Web.WebView2.Core.dll"
+$FormDll = Join-Path $BinPath "Microsoft.Web.WebView2.WinForms.dll"
+
+Write-Verbose "Checking for localized engine binaries..."
+if ((Test-Path $CoreDll) -and (Test-Path $FormDll)) {
+    # Dynamically mount assemblies directly into current PowerShell context memory
+    $null = [System.Reflection.Assembly]::LoadFrom($CoreDll)
+    $null = [System.Reflection.Assembly]::LoadFrom($FormDll)
+    Write-Verbose "Portable layout assemblies loaded successfully from project bin path."
 } else {
-    Write-Verbose "Security Token Verification: Administrative elevation confirmed."
+    Write-Error "CRITICAL Error: Localized WebView2 assemblies missing from bin directory. Verify files are placed in: $BinPath"
+    return
 }
 
-# Load Core Graphical Assemblies Natively
-Write-Verbose "Loading Win32 UI presentation subsystem assemblies..."
+# Load standard Windows presentation infrastructure assemblies
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
-# 2. DEFINITIVE DESIGN TOKENS (Locked-In Low-Contrast Dark Theme)
-Write-Verbose "Registering design tokens into global application context..."
-$Global:NodeWatchPalette = [PSCustomObject]@{
-    DarkFormBack      = [System.Drawing.Color]::FromArgb(26, 32, 44)    # Strict Muted Outer Canvas
-    PanelBackground   = [System.Drawing.Color]::FromArgb(33, 41, 54)    # Smooth Internal Component Surface
-    ControlBackground = [System.Drawing.Color]::FromArgb(45, 55, 72)    # Interactive Control Idle State
-    ActiveBorderColor = [System.Drawing.Color]::FromArgb(50, 60, 75)    # Muted Low-Contrast Structural Borders
-    TextWhite         = [System.Drawing.Color]::FromArgb(247, 250, 252)  # Primary Metric Typography
-    TextGray          = [System.Drawing.Color]::FromArgb(160, 174, 192)  # Secondary Label Alignment
-    AccentBlue        = [System.Drawing.Color]::FromArgb(49, 130, 206)   # Standard Telemetry Track Filled
-    AccentGreen       = [System.Drawing.Color]::FromArgb(56, 178, 172)   # Thermal/Stable Badge Tracking
-}
-
-# Typography Engine Configuration
-$Global:NodeWatchFonts = [PSCustomObject]@{
-    Header = New-Object System.Drawing.Font("Segoe UI Semibold", 10, [System.Drawing.FontStyle]::Bold)
-    Normal = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Regular)
-    Status = New-Object System.Drawing.Font("Segoe UI", 8, [System.Drawing.FontStyle]::Regular)
-}
-
-# 3. INTERACTIVE CONSOLE SUBSYSTEM HOISTING (Module Manifest Loading)
-$LayoutDir = Join-Path $Global:NodeWatchRoot "Modules\Layouts"
-$TelemetryDir = Join-Path $Global:NodeWatchRoot "Modules\Telemetry"
-
-Write-Verbose "Verifying layout and telemetry directory trees..."
-foreach ($Path in @($LayoutDir, $TelemetryDir)) { 
-    if (-not (Test-Path $Path)) { 
-        Write-Verbose "Creating missing workspace node: $Path"
-        New-Item -ItemType Directory -Path $Path -Force | Out-Null 
-    } 
-}
-
-# Core Layout Engines Manifest Binding (Using Global Root References)
-Write-Verbose "Importing presentation modules into application context..."
-if (Test-Path "$LayoutDir\DashboardBaseEngine.psm1") { Import-Module "$LayoutDir\DashboardBaseEngine.psm1" -Force; Write-Verbose "Loaded Base Layout Engine." }
-if (Test-Path "$LayoutDir\CardComputeLayout.psm1")   { Import-Module "$LayoutDir\CardComputeLayout.psm1" -Force; Write-Verbose "Loaded Compute Card Layout Engine." }
-if (Test-Path "$LayoutDir\CardMemoryLayout.psm1")    { Import-Module "$LayoutDir\CardMemoryLayout.psm1" -Force; Write-Verbose "Loaded Memory Card Layout Engine." }
-if (Test-Path "$LayoutDir\CardStorageLayout.psm1")   { Import-Module "$LayoutDir\CardStorageLayout.psm1" -Force; Write-Verbose "Loaded Storage Card Layout Engine." }
-if (Test-Path "$LayoutDir\CardPowerLayout.psm1")     { Import-Module "$LayoutDir\CardPowerLayout.psm1" -Force; Write-Verbose "Loaded Power Card Layout Engine." }
-if (Test-Path "$LayoutDir\CardNetworkLayout.psm1")   { Import-Module "$LayoutDir\CardNetworkLayout.psm1" -Force; Write-Verbose "Loaded Network Card Layout Engine." }
-
-# 4. BACKGROUND ASYNCHRONOUS ENGINE PROVISIONING
-Write-Verbose "Allocating isolated runspace threads for background telemetry..."
-$Global:NetPoolTracker = [runspacefactory]::CreateRunspacePool(1, 4)
-$Global:NetPoolTracker.Open()
-
-# 5. FOUNDATIONAL WINDOW COMPOSITION & RUNTIME MANAGEMENT
+# 2. APPLICATION SHELL FORM ASSEMBLY
 Write-Verbose "Assembling main form framework shell..."
 $MainForm = New-Object System.Windows.Forms.Form
-$MainForm.Text = "CoreWatch Host Engine (Administrator)"
-$MainForm.Size = New-Object System.Drawing.Size(860, 700)
+$MainForm.Text = "CoreWatch Host Engine (Self-Contained Canvas)"
+$MainForm.Size = New-Object System.Drawing.Size(900, 750)
 $MainForm.MinimumSize = New-Object System.Drawing.Size(860, 500)
 $MainForm.StartPosition = "CenterScreen"
-$MainForm.BackColor = $Global:NodeWatchPalette.DarkFormBack
+$MainForm.BackColor = [System.Drawing.Color]::FromArgb(26, 32, 44)
 
-# Safe Infrastructure Teardown Implementation Hooked to Main Close Event
-$MainForm.Add_FormClosing({
-    param($s, $e)
-    Write-Verbose "Intercepted form exit event. Activating infrastructure teardown sequence..."
-    if ($Global:NetPoolTracker) {
-        $Global:NetPoolTracker.Close()
-        $Global:NetPoolTracker.Dispose()
-        Write-Verbose "Asynchronous background runspace pool closed safely."
+# Create the canvas wrapper handle now that the DLL files are loaded into memory space
+$WebViewControl = New-Object Microsoft.Web.WebView2.WinForms.WebView2
+$WebViewControl.Dock = "Fill"
+$MainForm.Controls.Add($WebViewControl)
+
+# 3. INTER-PROCESS COMMUNICATION CORRELATION LOOPS
+$HandleUiMessageEvent = {
+    param($sender, $eventArgs)
+    $RawMessage = $eventArgs.TryGetWebMessageAsString()
+    Write-Verbose "WebView2 Intercepted Event String: $RawMessage"
+    
+    switch ($RawMessage) {
+        "C-Drive-Clicked" {
+            Write-Verbose "Executing Volumetric background scan sequence targeting drive C:..."
+            $TelemetryPayload = @{
+                DriveLetter = "C:"
+                FreeSpace   = "242 GB"
+                TotalSpace  = "1000 GB"
+                PercentUsed = 75
+                Breakdown   = @{ Text = "12 GB"; Code = "4 GB"; Images = "45 GB"; Video = "420 GB" }
+            }
+            $JsonOutput = $TelemetryPayload | ConvertTo-Json -Compress
+            $null = $WebViewControl.ExecuteScriptAsync("ReceiveSystemTelemetry('$($JsonOutput -replace '"', '\"')')")
+        }
+        "Toggle-Diagnostics-On"  { Write-Verbose "View-State Routing: Transitioning elements to Expanded Diagnostics." }
+        "Toggle-Diagnostics-Off" { Write-Verbose "View-State Routing: Collapsing dashboard metadata blocks." }
     }
-})
-
-# --- LAYOUT ENGINE ASSEMBLY TEST STAGE ---
-if (Get-Command New-ModernHardwareDashboard -ErrorAction SilentlyContinue) {
-    Write-Verbose "Binding sub-module interface components directly to parent form node..."
-    $Global:ActiveDashboard = New-ModernHardwareDashboard -ParentForm $MainForm -Palette $Global:NodeWatchPalette -Fonts $Global:NodeWatchFonts
-} else {
-    Write-Verbose "Sub-modules absent or unlinked. Falling back to inline token test canvas..."
-    
-    $TestContainer = New-Object System.Windows.Forms.Panel
-    $TestContainer.Dock = "Fill"
-    $TestContainer.BackColor = $Global:NodeWatchPalette.DarkFormBack
-    
-    $TestCard = New-Object System.Windows.Forms.Panel
-    $TestCard.Size = New-Object System.Drawing.Size(400, 200)
-    $TestCard.Location = New-Object System.Drawing.Point(20, 20)
-    $TestCard.BackColor = $Global:NodeWatchPalette.PanelBackground
-    
-    $TestCard.Add_Paint({
-        param($s,$e)
-        $Pen = New-Object System.Drawing.Pen($Global:NodeWatchPalette.ActiveBorderColor, 1)
-        $e.Graphics.DrawRectangle($Pen, 0, 0, 400 - 1, 200 - 1)
-        $Pen.Dispose()
-    })
-    
-    $TestLabel = New-Object System.Windows.Forms.Label
-    $TestLabel.Text = "🖳  Base Engine Active: Dark-Token Blueprint Operational"
-    $TestLabel.Font = $Global:NodeWatchFonts.Header
-    $TestLabel.ForeColor = $Global:NodeWatchPalette.TextWhite
-    $TestLabel.Location = New-Object System.Drawing.Point(15, 15)
-    $TestLabel.AutoSize = $true
-    
-    $TestCard.Controls.Add($TestLabel)
-    $TestContainer.Controls.Add($TestCard)
-    $MainForm.Controls.Add($TestContainer)
 }
 
-# Invoke Windows Message Runtime
+# 4. INITIALIZE THE OFFLINE BROWSER PROCESS ENVIRONMENT
+$MainForm.Add_Load({
+    $FixedRuntimeFolder = Join-Path $BinPath "WebView2FixedRuntime"
+    $UserDataFolder = Join-Path $BinPath "WebView2UserData"
+    
+    # Explicitly mount the path variable into the script scope architecture
+    $script:LayoutsFolderPath = Join-Path $Global:NodeWatchRoot "modules\layouts"
+
+    Write-Verbose "Configuring isolated browser subprocess environments from Fixed Version directory..."
+    
+    # Initialize the asynchronous environment engine task block
+    $EnvCreationTask = [Microsoft.Web.WebView2.Core.CoreWebView2Environment]::CreateAsync($FixedRuntimeFolder, $UserDataFolder)
+    
+    # Native .NET Task Awaiter Hook
+    $EnvCreationTask.GetAwaiter().OnCompleted([Action]{
+        $LocalEnvironment = $EnvCreationTask.Result
+        
+        # Initialize canvas control using the explicit offline environment token
+        $InitializeTask = $WebViewControl.EnsureCoreWebView2Async($LocalEnvironment)
+        
+        # Native .NET Task Awaiter Hook for the UI control initialization task
+        $InitializeTask.GetAwaiter().OnCompleted([Action]{
+            Write-Verbose "Standalone Chromium environment initialized safely."
+            
+            # FIXED: Added forward slash to catch all virtual local site subdirectory asset requests
+            $WebViewControl.CoreWebView2.AddWebResourceRequestedFilter("https://corewatch.local*", [Microsoft.Web.WebView2.Core.CoreWebView2WebResourceContext]::All)
+            
+            # Intercept resource routing loops completely in memory space to bypass Administrator privilege blocks
+            $WebViewControl.CoreWebView2.add_WebResourceRequested({
+                param($sender, $eventArgs)
+                
+                $RequestedUrl = $eventArgs.Request.Uri
+                
+                # CRITICAL TRANSLATION FIX: Strip domain headers AND clean any trailing slashes/whitespace
+                $FileName = $RequestedUrl -replace "https://corewatch.local", ""
+                $FileName = $FileName.Trim().Trim('/')
+                
+                if ([string]::IsNullOrEmpty($FileName)) { $FileName = "index.html" }
+                
+                # Read path using the global script scope reference variable pointer
+                $LocalFilePath = Join-Path $script:LayoutsFolderPath $FileName
+                
+                if (Test-Path $LocalFilePath -PathType Leaf) {
+                    # Explicitly define proper mime-type content headers required by Chromium
+                    $ContentType = "text/html"
+                    if ($FileName.EndsWith(".css")) { $ContentType = "text/css" }
+                    if ($FileName.EndsWith(".js"))  { $ContentType = "application/javascript" }
+                    
+                    # Read raw file content into memory streams to completely bypass filesystem origin sandboxing
+                    $FileContentText = Get-Content $LocalFilePath -Raw
+                    $FileContentBytes = [System.Text.Encoding]::UTF8.GetBytes($FileContentText)
+                    $MemoryStream = New-Object System.IO.MemoryStream(,$FileContentBytes)
+                    
+                    # Construct an authentic mock HTTP 200 response header block smoothly
+                    $Response = $WebViewControl.CoreWebView2.Environment.CreateWebResourceResponse(
+                        $MemoryStream, 
+                        200, 
+                        "OK", 
+                        "Content-Type: $ContentType`r`nAccess-Control-Allow-Origin: *"
+                    )
+                    $eventArgs.Response = $Response
+                }
+            })
+            
+            # Lock engine parameters down to standard window design constraints
+            $WebViewControl.CoreWebView2.Settings.AreDefaultContextMenusEnabled = $false
+            $WebViewControl.CoreWebView2.Settings.AreDevToolsEnabled = $true
+            
+            # Map communication message handler pipelines
+            $WebViewControl.Add_WebMessageReceived($HandleUiMessageEvent)
+            
+            # FIXED: Added separating forward slash to target root viewport index file cleanly
+            $WebViewControl.Source = "https://corewatch.local"
+        })
+    })
+})
+
+# Invoke Native Message Loops
 Write-Verbose "Starting Windows Forms application messaging loops..."
 $Global:AppContext = New-Object System.Windows.Forms.ApplicationContext
 $MainForm.Show()

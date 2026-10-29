@@ -1,0 +1,185 @@
+/* =========================================================================
+   DESIGN TOKENS (Locked-In Low-Contrast Dark Palette Configuration)
+   ========================================================================= */
+body {
+    background-color: #1a202c; /* Strict Muted Outer Canvas */
+    color: #f7fafc; /* Primary Metric Typography */
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    margin: 0;
+    padding: 15px;
+    user-select: none;
+    overflow: hidden;
+}
+
+.top-action-bar {
+    height: 40px;
+    display: flex;
+    align-items: center;
+    margin-bottom: 5px;
+}
+
+.segment-container {
+    background-color: #212936; /* Smooth Internal Component Surface */
+    border: 1px solid #323c4b; /* Muted Low-Contrast Structural Borders */
+    display: flex;
+    padding: 2px;
+}
+
+.segment-btn {
+    background: none;
+    border: none;
+    color: #a0aec0; /* Secondary Label Alignment */
+    padding: 4px 16px;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.segment-btn.active {
+    background-color: #3182ce; /* Standard Telemetry Track Filled Blue */
+    color: #f7fafc;
+}
+
+/* --- THE DATA GRID MESH --- */
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-gap: 12px;
+}
+
+.dashboard-card {
+    background-color: #212936;
+    border: 1px solid #323c4b;
+    padding: 15px;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    min-height: 140px;
+}
+
+.dashboard-card.interactive {
+    cursor: pointer;
+    transition: border-color 0.2s ease;
+}
+
+.dashboard-card.interactive:hover {
+    border-color: #4a5568;
+}
+
+.wide-sub-console {
+    grid-column: span 2;
+    background-color: #212936;
+    border: 1px solid #323c4b;
+    padding: 15px;
+    min-height: 150px;
+}
+
+.console-header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 15px;
+}
+
+.console-header-row h2 {
+    margin-bottom: 0;
+}
+
+.console-reset-btn {
+    background-color: #2d3748;
+    border: 1px solid #4a5568;
+    color: #a0aec0;
+    font-family: 'Segoe UI', sans-serif;
+    font-size: 11px;
+    padding: 2px 10px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.console-reset-btn:hover {
+    background-color: #323c4b;
+    color: #f7fafc;
+}
+
+h2 {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    margin-top: 0;
+    margin-bottom: 15px;
+    color: #f7fafc;
+}
+
+/* --- METRIC SECTIONS & PROGRESS TRACKS --- */
+.metric-row {
+    margin-bottom: 14px;
+}
+
+.metric-row.no-track {
+    margin-bottom: 8px;
+}
+
+.metric-metadata {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    color: #a0aec0;
+    margin-bottom: 5px;
+}
+
+.text-secondary {
+    font-size: 12px;
+    margin-top: 8px;
+}
+
+.track-bg {
+    background-color: #2d3748;
+    height: 6px;
+    width: 100%;
+}
+
+.track-fill {
+    background-color: #3182ce;
+    height: 100%;
+    width: 0%;
+    transition: width 0.4s cubic-bezier(0.1, 0.8, 0.3, 1);
+}
+
+/* --- NETWORK MATRIX SUBSYSTEM GRID --- */
+.network-matrix-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    grid-gap: 12px;
+    font-size: 13px;
+    color: #a0aec0;
+}
+
+.net-data-node {
+    margin-bottom: 4px;
+}
+
+.net-data-node strong {
+    color: #f7fafc;
+    font-weight: 500;
+}
+
+.badge-private {
+    background-color: #234e52;
+    color: #81e6d9;
+    padding: 1px 6px;
+    font-size: 11px;
+    font-family: monospace;
+}
+
+.console-box {
+    font-family: 'Consolas', monospace;
+    font-size: 12px;
+    color: #a0aec0;
+    line-height: 1.6;
+}
+
+/* --- PROGRESSIVE DISCLOSURE VISIBILITY CONFIGURATIONS --- */
+.hidden {
+    display: none !important;
+}

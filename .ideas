@@ -23,3 +23,4 @@ Modules
             --- Testing prefix, suffix
     - Jitterbug : A visual representation of inturupts/studders you system experiences. 
     - Bottlenek : A performance test to tell if your system has any substantail bottlenecks. 
+    - Host Tracker : A tracker for host changes, when last windows update: what was updated, file changes per drive. 
