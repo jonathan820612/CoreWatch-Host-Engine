@@ -1,155 +1,102 @@
 [CmdletBinding()]
-param(
-    [Switch]$ForceRefreshModules
-)
+param([Switch]$ForceRefreshModules)
 
-# =========================================================================
-# APPLICATION ORCHESTRATOR & PORTABLE CANVAS INITIALIZATION LIFE-CYCLE
-# =========================================================================
 Clear-Host
-
-# Strict absolute base project path token
 $Global:NodeWatchRoot = "D:\GitHub\TFOL-Project"
-
-Write-Verbose "Initializing Self-Contained Portable WebView2 App Engine..."
-
-# 1. HARD-WIRED ASSEMBLY INGESTION (Loads directly from your local project bin folder)
 $BinPath = Join-Path $Global:NodeWatchRoot "bin"
 $CoreDll = Join-Path $BinPath "Microsoft.Web.WebView2.Core.dll"
 $FormDll = Join-Path $BinPath "Microsoft.Web.WebView2.WinForms.dll"
 
-Write-Verbose "Checking for localized engine binaries..."
 if ((Test-Path $CoreDll) -and (Test-Path $FormDll)) {
-    # Dynamically mount assemblies directly into current PowerShell context memory
     $null = [System.Reflection.Assembly]::LoadFrom($CoreDll)
     $null = [System.Reflection.Assembly]::LoadFrom($FormDll)
-    Write-Verbose "Portable layout assemblies loaded successfully from project bin path."
-} else {
-    Write-Error "CRITICAL Error: Localized WebView2 assemblies missing from bin directory. Verify files are placed in: $BinPath"
-    return
-}
+} else { return }
 
-# Load standard Windows presentation infrastructure assemblies
-Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 
-# 2. APPLICATION SHELL FORM ASSEMBLY
-Write-Verbose "Assembling main form framework shell..."
+$StorageEnginePath = Join-Path $Global:NodeWatchRoot "modules\telemetry\StorageEngine.psm1"
+if (Test-Path $StorageEnginePath) { Import-Module $StorageEnginePath -Force -ErrorAction SilentlyContinue }
+$MetricsEnginePath = Join-Path $Global:NodeWatchRoot "modules\telemetry\GetSystemMetrics.psm1"
+if (Test-Path $MetricsEnginePath) { Import-Module $MetricsEnginePath -Force -ErrorAction SilentlyContinue }
+
+$script:DataExchange = [hashtable]::Synchronized(@{ LoopActive = $true })
+
+[System.Threading.Tasks.Task]::Run([Action]{
+    try { Start-TelemetryCollection -DataExchange $script:DataExchange } catch {}
+})
+
 $MainForm = New-Object System.Windows.Forms.Form
-$MainForm.Text = "CoreWatch Host Engine (Self-Contained Canvas)"
-$MainForm.Size = New-Object System.Drawing.Size(900, 750)
-$MainForm.MinimumSize = New-Object System.Drawing.Size(860, 500)
+$MainForm.Text = "CoreWatch Host Engine Dashboard Framework"
+$MainForm.Size = New-Object System.Drawing.Size(1000, 850)
+$MainForm.MinimumSize = New-Object System.Drawing.Size(950, 750)
 $MainForm.StartPosition = "CenterScreen"
+$MainForm.FormBorderStyle = "FixedSingle"
 $MainForm.BackColor = [System.Drawing.Color]::FromArgb(26, 32, 44)
 
-# Create the canvas wrapper handle now that the DLL files are loaded into memory space
-$WebViewControl = New-Object Microsoft.Web.WebView2.WinForms.WebView2
-$WebViewControl.Dock = "Fill"
-$MainForm.Controls.Add($WebViewControl)
+$global:WebViewControl = New-Object Microsoft.Web.WebView2.WinForms.WebView2
+$global:WebViewControl.Dock = "Fill"
+$MainForm.Controls.Add($global:WebViewControl)
 
-# 3. INTER-PROCESS COMMUNICATION CORRELATION LOOPS
 $HandleUiMessageEvent = {
     param($sender, $eventArgs)
     $RawMessage = $eventArgs.TryGetWebMessageAsString()
-    Write-Verbose "WebView2 Intercepted Event String: $RawMessage"
-    
     switch ($RawMessage) {
-        "C-Drive-Clicked" {
-            Write-Verbose "Executing Volumetric background scan sequence targeting drive C:..."
-            $TelemetryPayload = @{
-                DriveLetter = "C:"
-                FreeSpace   = "242 GB"
-                TotalSpace  = "1000 GB"
-                PercentUsed = 75
-                Breakdown   = @{ Text = "12 GB"; Code = "4 GB"; Images = "45 GB"; Video = "420 GB" }
-            }
-            $JsonOutput = $TelemetryPayload | ConvertTo-Json -Compress
-            $null = $WebViewControl.ExecuteScriptAsync("ReceiveSystemTelemetry('$($JsonOutput -replace '"', '\"')')")
+        "Exit-App" { $MainForm.Close() }
+        "Request-Storage-Refresh" {
+            $LatestStorage = Get-SystemStoragePayload | ConvertTo-Json -Compress
+            $B64Storage = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($LatestStorage))
+            $null = $global:WebViewControl.ExecuteScriptAsync("ReceiveStorageBase64('$B64Storage')")
         }
-        "Toggle-Diagnostics-On"  { Write-Verbose "View-State Routing: Transitioning elements to Expanded Diagnostics." }
-        "Toggle-Diagnostics-Off" { Write-Verbose "View-State Routing: Collapsing dashboard metadata blocks." }
     }
 }
 
-# 4. INITIALIZE THE OFFLINE BROWSER PROCESS ENVIRONMENT
 $MainForm.Add_Load({
-    $FixedRuntimeFolder = Join-Path $BinPath "WebView2FixedRuntime"
-    $UserDataFolder = Join-Path $BinPath "WebView2UserData"
+    $script:UiTimer = New-Object System.Windows.Forms.Timer
+    $script:UiTimer.Interval = 1000
     
-    # Explicitly mount the path variable into the script scope architecture
-    $script:LayoutsFolderPath = Join-Path $Global:NodeWatchRoot "modules\layouts"
-
-    Write-Verbose "Configuring isolated browser subprocess environments from Fixed Version directory..."
-    
-    # Initialize the asynchronous environment engine task block
-    $EnvCreationTask = [Microsoft.Web.WebView2.Core.CoreWebView2Environment]::CreateAsync($FixedRuntimeFolder, $UserDataFolder)
-    
-    # Native .NET Task Awaiter Hook
+    $EnvCreationTask = [Microsoft.Web.WebView2.Core.CoreWebView2Environment]::CreateAsync((Join-Path $BinPath "WebView2FixedRuntime"), (Join-Path $BinPath "WebView2UserData"))
     $EnvCreationTask.GetAwaiter().OnCompleted([Action]{
-        $LocalEnvironment = $EnvCreationTask.Result
-        
-        # Initialize canvas control using the explicit offline environment token
-        $InitializeTask = $WebViewControl.EnsureCoreWebView2Async($LocalEnvironment)
-        
-        # Native .NET Task Awaiter Hook for the UI control initialization task
+        $InitializeTask = $global:WebViewControl.EnsureCoreWebView2Async($EnvCreationTask.Result)
         $InitializeTask.GetAwaiter().OnCompleted([Action]{
-            Write-Verbose "Standalone Chromium environment initialized safely."
+            $global:WebViewControl.CoreWebView2.Settings.AreDefaultContextMenusEnabled = $false
+            $global:WebViewControl.CoreWebView2.Settings.AreDevToolsEnabled = $true
+            $global:WebViewControl.Add_WebMessageReceived($HandleUiMessageEvent)
+            $global:WebViewControl.Source = "file:///" + ((Join-Path $Global:NodeWatchRoot "modules\layouts\index.html") -replace '\\', '/')
             
-            # FIXED: Added forward slash to catch all virtual local site subdirectory asset requests
-            $WebViewControl.CoreWebView2.AddWebResourceRequestedFilter("https://corewatch.local*", [Microsoft.Web.WebView2.Core.CoreWebView2WebResourceContext]::All)
+            $LatestStorage = Get-SystemStoragePayload | ConvertTo-Json -Compress
+            $B64Init = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($LatestStorage))
+            $null = $global:WebViewControl.ExecuteScriptAsync("ReceiveStorageBase64('$B64Init')")
             
-            # Intercept resource routing loops completely in memory space to bypass Administrator privilege blocks
-            $WebViewControl.CoreWebView2.add_WebResourceRequested({
-                param($sender, $eventArgs)
-                
-                $RequestedUrl = $eventArgs.Request.Uri
-                
-                # CRITICAL TRANSLATION FIX: Strip domain headers AND clean any trailing slashes/whitespace
-                $FileName = $RequestedUrl -replace "https://corewatch.local", ""
-                $FileName = $FileName.Trim().Trim('/')
-                
-                if ([string]::IsNullOrEmpty($FileName)) { $FileName = "index.html" }
-                
-                # Read path using the global script scope reference variable pointer
-                $LocalFilePath = Join-Path $script:LayoutsFolderPath $FileName
-                
-                if (Test-Path $LocalFilePath -PathType Leaf) {
-                    # Explicitly define proper mime-type content headers required by Chromium
-                    $ContentType = "text/html"
-                    if ($FileName.EndsWith(".css")) { $ContentType = "text/css" }
-                    if ($FileName.EndsWith(".js"))  { $ContentType = "application/javascript" }
-                    
-                    # Read raw file content into memory streams to completely bypass filesystem origin sandboxing
-                    $FileContentText = Get-Content $LocalFilePath -Raw
-                    $FileContentBytes = [System.Text.Encoding]::UTF8.GetBytes($FileContentText)
-                    $MemoryStream = New-Object System.IO.MemoryStream(,$FileContentBytes)
-                    
-                    # Construct an authentic mock HTTP 200 response header block smoothly
-                    $Response = $WebViewControl.CoreWebView2.Environment.CreateWebResourceResponse(
-                        $MemoryStream, 
-                        200, 
-                        "OK", 
-                        "Content-Type: $ContentType`r`nAccess-Control-Allow-Origin: *"
-                    )
-                    $eventArgs.Response = $Response
-                }
-            })
-            
-            # Lock engine parameters down to standard window design constraints
-            $WebViewControl.CoreWebView2.Settings.AreDefaultContextMenusEnabled = $false
-            $WebViewControl.CoreWebView2.Settings.AreDevToolsEnabled = $true
-            
-            # Map communication message handler pipelines
-            $WebViewControl.Add_WebMessageReceived($HandleUiMessageEvent)
-            
-            # FIXED: Added separating forward slash to target root viewport index file cleanly
-            $WebViewControl.Source = "https://corewatch.local"
+            $script:UiTimer.Start()
         })
     })
 })
 
-# Invoke Native Message Loops
-Write-Verbose "Starting Windows Forms application messaging loops..."
-$Global:AppContext = New-Object System.Windows.Forms.ApplicationContext
-$MainForm.Show()
-[System.Windows.Forms.Application]::Run($Global:AppContext)
+$script:UiTimer.Add_Tick({
+    if ($global:WebViewControl.CoreWebView2) {
+        $Payload = @{
+            CpuLoad = [int]($script:DataExchange.CpuLoad); GpuLoad = [int]($script:DataExchange.GpuLoad)
+            RamUsageText = "$($script:DataExchange.RamUsedGB) / $($script:DataExchange.RamTotalGB) GB"
+            RamPercent = [int]($script:DataExchange.RamPercent); UptimeText = "$($script:DataExchange.UptimeString)"
+            HostName = "$($script:DataExchange.HostName)"; Workgroup = "$($script:DataExchange.Workgroup)"
+            OsEdition = "$($script:DataExchange.OsEdition)"; CpuModel = "$($script:DataExchange.CpuModel)"
+            GpuModel = "$($script:DataExchange.GpuModel)"; PowerPlan = "$($script:DataExchange.PowerPlan)"
+            Virtualization = "$($script:DataExchange.Virtualization)"; ChassisType = "$($script:DataExchange.ChassisType)"
+            PsVersion = "$($script:DataExchange.PsVersion)"; BiosVersion = "$($script:DataExchange.BiosVersion)"
+            SecureBoot = "$($script:DataExchange.SecureBoot)"; WindowsBuild = "$($script:DataExchange.WindowsBuild)"
+            WindowsUpdateLevel = "$($script:DataExchange.WindowsUpdateLevel)"; DirectXVersion = "DirectX 12 Core System"
+            CpuDriverVersion = "$($script:DataExchange.CpuDriverVersion)"; GpuDriverVersion = "$($script:DataExchange.GpuDriverVersion)"
+            NetworkDriverVersion = "$($script:DataExchange.NetworkDriverVersion)"
+            PrivateIp = "$($script:DataExchange.PrivateIp)"; SubnetMask = "$($script:DataExchange.SubnetMask)"
+            Gateway = "$($script:DataExchange.Gateway)"; PublicIp = "$($script:DataExchange.PublicIp)"
+            NetProfile = "$($script:DataExchange.NetProfile)"; NetDiscovery = "$($script:DataExchange.NetDiscovery)"
+            WifiState = "$($script:DataExchange.WifiState)"; LinkSpeed = "$($script:DataExchange.LinkSpeed)"
+        }
+        # FIXED PIPELINE DISPATCH: Post data safely using the native web message channel
+        $JsonMessage = $Payload | ConvertTo-Json -Compress
+        $global:WebViewControl.CoreWebView2.PostWebMessageAsJson($JsonMessage)
+    }
+})
+
+$MainForm.Add_FormClosing({ $script:UiTimer.Stop(); $script:DataExchange.LoopActive = $false })
+[System.Windows.Forms.Application]::Run($MainForm)

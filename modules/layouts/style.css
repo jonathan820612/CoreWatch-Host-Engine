@@ -1,185 +1,155 @@
-/* =========================================================================
-   DESIGN TOKENS (Locked-In Low-Contrast Dark Palette Configuration)
-   ========================================================================= */
 body {
-    background-color: #1a202c; /* Strict Muted Outer Canvas */
-    color: #f7fafc; /* Primary Metric Typography */
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    margin: 0;
-    padding: 15px;
-    user-select: none;
-    overflow: hidden;
-}
-
-.top-action-bar {
-    height: 40px;
-    display: flex;
-    align-items: center;
-    margin-bottom: 5px;
-}
-
-.segment-container {
-    background-color: #212936; /* Smooth Internal Component Surface */
-    border: 1px solid #323c4b; /* Muted Low-Contrast Structural Borders */
-    display: flex;
-    padding: 2px;
-}
-
-.segment-btn {
-    background: none;
-    border: none;
-    color: #a0aec0; /* Secondary Label Alignment */
-    padding: 4px 16px;
-    font-size: 11px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.15s ease;
-}
-
-.segment-btn.active {
-    background-color: #3182ce; /* Standard Telemetry Track Filled Blue */
+    background-color: #1a202c;
     color: #f7fafc;
+    font-family: 'Consolas', 'Segoe UI', monospace;
+    margin: 0;
+    padding: 10px;
+    user-select: none;
+    overflow-y: auto;
 }
 
-/* --- THE DATA GRID MESH --- */
+/* APP NAVIGATION DECK */
+.app-header-deck {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background-color: #212936;
+    border: 1px solid #323c4b;
+    padding: 6px 10px;
+    margin-bottom: 10px;
+}
+.modular-tabs { display: flex; gap: 6px; }
+.tab-btn {
+    background: #2d3748; border: 1px solid #4a5568; color: #a0aec0;
+    font-size: 11px; padding: 4px 10px; cursor: pointer;
+}
+.tab-btn.active { background: #3182ce; color: #fff; border-color: #4299e1; }
+.tab-btn.disabled { opacity: 0.4; cursor: not-allowed; }
+.exit-system-btn {
+    background: #9b2c2c; border: 1px solid #e53e3e; color: #fff;
+    font-size: 11px; font-weight: bold; padding: 4px 12px; cursor: pointer;
+}
+.exit-system-btn:hover { background: #c53030; }
+
+/* DATA GRID LAYOUT MESH */
 .dashboard-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    grid-gap: 12px;
+    grid-gap: 8px;
 }
-
 .dashboard-card {
-    background-color: #212936;
-    border: 1px solid #323c4b;
-    padding: 15px;
-    box-sizing: border-box;
-    display: flex;
-    flex-direction: column;
-    min-height: 140px;
+    background-color: #212936; border: 1px solid #323c4b;
+    padding: 10px; box-sizing: border-box; min-height: 125px;
 }
-
-.dashboard-card.interactive {
-    cursor: pointer;
-    transition: border-color 0.2s ease;
-}
-
-.dashboard-card.interactive:hover {
-    border-color: #4a5568;
-}
-
 .wide-sub-console {
-    grid-column: span 2;
-    background-color: #212936;
-    border: 1px solid #323c4b;
-    padding: 15px;
-    min-height: 150px;
-}
-
-.console-header-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: 15px;
-}
-
-.console-header-row h2 {
-    margin-bottom: 0;
-}
-
-.console-reset-btn {
-    background-color: #2d3748;
-    border: 1px solid #4a5568;
-    color: #a0aec0;
-    font-family: 'Segoe UI', sans-serif;
-    font-size: 11px;
-    padding: 2px 10px;
-    cursor: pointer;
-    transition: all 0.15s ease;
-}
-
-.console-reset-btn:hover {
-    background-color: #323c4b;
-    color: #f7fafc;
+    grid-column: span 2; background-color: #212936;
+    border: 1px solid #323c4b; padding: 10px;
 }
 
 h2 {
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: 0.5px;
-    margin-top: 0;
-    margin-bottom: 15px;
-    color: #f7fafc;
+    font-size: 11px; font-weight: bold; letter-spacing: 0.5px;
+    margin-top: 0; margin-bottom: 8px; color: #4299e1; border-bottom: 1px solid #2d3748; padding-bottom: 4px;
 }
 
-/* --- METRIC SECTIONS & PROGRESS TRACKS --- */
-.metric-row {
-    margin-bottom: 14px;
+/* TYPOGRAPHY DENSITY & ICON ALIGNMENT ADJUSTMENTS */
+.data-field, .data-field-split {
+    font-size: 12px; line-height: 1.4; color: #cbd5e0; margin-bottom: 4px;
+    display: flex; align-items: center; gap: 8px;
+}
+.data-field span:first-child {
+    font-size: 13px; display: inline-block; width: 16px; text-align: center;
+}
+.data-field-split { display: flex; justify-content: space-between; }
+.net-node strong { color: #edf2f7; font-weight: normal; }
+.hint-text { font-size: 10px; color: #718096; margin-top: 5px; }
+
+/* RE-THROTTLED TRACK CONSTRUCTIONS */
+.metric-row { margin-bottom: 6px; }
+.metric-metadata { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 2px; color: #cbd5e0; }
+.track-bg { background-color: #2d3748; height: 5px; width: 100%; position: relative; }
+.track-fill { background-color: #3182ce; height: 100%; width: 0%; transition: width 0.3s ease; }
+
+/* HIGH-DENSITY HARDWARE TAGS */
+.driver-tag {
+    font-size: 10px;
+    color: #a0aec0;
+    margin-top: 2px;
+    margin-bottom: 4px;
+    padding-left: 2px;
 }
 
-.metric-row.no-track {
-    margin-bottom: 8px;
+/* STORAGE VOLUMETRIC METRIC CORRECTIONS */
+.storage-dynamic-mesh-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 115px;
+    overflow-y: auto;
+    padding-right: 4px;
 }
-
-.metric-metadata {
+.dynamic-storage-row { margin-bottom: 2px; }
+.storage-flex-row {
     display: flex;
     justify-content: space-between;
-    font-size: 13px;
-    color: #a0aec0;
-    margin-bottom: 5px;
-}
-
-.text-secondary {
-    font-size: 12px;
-    margin-top: 8px;
-}
-
-.track-bg {
-    background-color: #2d3748;
-    height: 6px;
-    width: 100%;
-}
-
-.track-fill {
-    background-color: #3182ce;
-    height: 100%;
-    width: 0%;
-    transition: width 0.4s cubic-bezier(0.1, 0.8, 0.3, 1);
-}
-
-/* --- NETWORK MATRIX SUBSYSTEM GRID --- */
-.network-matrix-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    grid-gap: 12px;
-    font-size: 13px;
-    color: #a0aec0;
-}
-
-.net-data-node {
-    margin-bottom: 4px;
-}
-
-.net-data-node strong {
-    color: #f7fafc;
-    font-weight: 500;
-}
-
-.badge-private {
-    background-color: #234e52;
-    color: #81e6d9;
-    padding: 1px 6px;
     font-size: 11px;
-    font-family: monospace;
+    margin-bottom: 3px;
+    color: #cbd5e0;
+}
+.clickable-label {
+    cursor: pointer; color: #4299e1; transition: color 0.2s ease;
+}
+.clickable-label:hover {
+    color: #63b3ed; text-decoration: underline;
+}
+.storage-data-numeric-text { font-family: 'Consolas', monospace; color: #a0aec0; }
+.loading-placeholder { font-size: 11px; color: #718096; font-style: italic; }
+
+/* NETWORK ELEMENTS */
+.network-matrix-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; grid-gap: 6px; font-size: 12px; color: #cbd5e0; }
+.net-node { display: flex; align-items: center; gap: 4px; }
+
+/* PERFORMANCE SPEEDTEST DECK */
+.speedtest-wrapper-deck {
+    margin-top: 10px; padding: 8px; background-color: #1a202c;
+    border: 1px solid #2d3748; display: flex; justify-content: space-between; align-items: center;
+}
+.speed-metrics-panel { display: flex; gap: 15px; }
+.speed-data-node { font-size: 11px; color: #a0aec0; }
+.speed-data-node strong { color: #319795; font-size: 12px; }
+.speed-execute-action-btn {
+    background-color: #2d3748; border: 1px solid #4a5568; color: #edf2f7;
+    font-family: 'Consolas', monospace; font-size: 10px; padding: 4px 10px; cursor: pointer;
+}
+.speed-execute-action-btn:hover { background-color: #3182ce; border-color: #4299e1; }
+.speed-execute-action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.net-activity-container { margin-top: 10px; padding-top: 6px; border-top: 1px dashed #2d3748; }
+.activity-metadata { font-size: 11px; color: #718096; margin-bottom: 2px; }
+.activity-bar-fill { background: linear-gradient(90deg, #319795 50%, #b83280 50%); width: 100%; height: 100%; opacity: 0.3; }
+
+/* CONSOLE SYSTEM VIEW */
+.console-header-row { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #2d3748; margin-bottom: 6px; padding-bottom: 4px; }
+.console-header-row h2 { border: none; margin: 0; }
+.console-clear-btn { background: #2d3748; border: 1px solid #4a5568; color: #cbd5e0; font-size: 10px; padding: 1px 6px; cursor: pointer; }
+.console-box { font-family: 'Consolas', monospace; font-size: 11px; color: #a0aec0; max-height: 80px; overflow-y: auto; white-space: pre-wrap; }
+/* IMMEDIATE INTERACTION OVERRIDE DECK FOR SPLASH COVER */
+#appSplashOverlayView {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: #1a202c;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 99999;
+    transition: opacity 0.4s ease-out, visibility 0.4s;
 }
 
-.console-box {
-    font-family: 'Consolas', monospace;
-    font-size: 12px;
-    color: #a0aec0;
-    line-height: 1.6;
-}
-
-/* --- PROGRESSIVE DISCLOSURE VISIBILITY CONFIGURATIONS --- */
-.hidden {
-    display: none !important;
+#appSplashOverlayView.hidden-canvas {
+    opacity: 0 !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
 }
