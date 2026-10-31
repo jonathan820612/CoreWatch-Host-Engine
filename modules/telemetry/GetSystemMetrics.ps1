@@ -1,5 +1,3 @@
-# File: modules/telemetry/GetSystemMetrics.ps1
-
 class SystemTelemetryEngine {
     # =========================================================================
     # CLASS PROPERTIES (Static memory slots populated once on application boot)
@@ -20,7 +18,6 @@ class SystemTelemetryEngine {
     # =========================================================================
     # CONSTRUCTOR (Runs exactly once when the bridge connects at startup)
     # =========================================================================
-    # Suppress the VS Code editor warning bug for the built-in system variables
     [Diagnostics.CodeAnalysis.SuppressMessage("PSUseDeclaredVarsMoreThanOnce", "")]
     SystemTelemetryEngine() {
         try {
@@ -34,7 +31,7 @@ class SystemTelemetryEngine {
             $this.WindowsBuild = $OsInfo.BuildNumber
             $this.CpuModel     = $CpuInfo.Name.Trim()
             $this.BiosVersion  = $BiosInfo.SMBIOSBIOSVersion
-            $this.PsVersion    = $PSVersionTable.PSVersion.ToString()
+            $this.PsVersion    = $global:PSVersionTable.PSVersion.ToString()
             
             # Identify Processor Driver Details
             $CpuDriver = Get-CimInstance -ClassName Win32_PnPSignedDriver | Where-Object { $_.DeviceName -like "*Processor*" } | Select-Object -First 1
@@ -51,10 +48,11 @@ class SystemTelemetryEngine {
             $this.Workgroup    = "WORKGROUP"
             $this.CpuModel     = "Processor Core"
             $this.BiosVersion  = "Unknown BIOS"
+            $this.PsVersion    = "7.x"
         }
     }
     # =========================================================================
-    # METHOD: GET REAL TIME METRICS (Executed on-demand whenever JavaScript requests it)
+    # METHOD: GET REAL TIME METRICS
     # =========================================================================
     [hashtable] GetRealTimeMetrics() {
         try {
@@ -69,12 +67,14 @@ class SystemTelemetryEngine {
             $UsedGB  = [math]::Round(($TotalGB - $FreeGB), 2)
             $RamPct  = [int](($UsedGB / $TotalGB) * 100)
 
-            # 3. Sample Graphics Card Utilization Engine (Safely falls back to 0 if monitor sleeps)
+            # 3. Sample Graphics Card Utilization Engine
             $GpuLoad   = 0
             $GpuSample = Get-Counter -Counter "\GPU Engine(*)\Utilization Percentage" -MaxSamples 1 -ErrorAction SilentlyContinue
             if ($GpuSample) {
                 $MaxGpu = ($GpuSample.CounterSamples.CookedValue | Measure-Object -Maximum).Maximum
-                $GpuLoad = [math]::Round(($MaxGpu || 0), 0)
+                if ($null -ne $MaxGpu) {
+                    $GpuLoad = [math]::Round($MaxGpu, 0)
+                }
             }
             
             $GpuCim = Get-CimInstance -ClassName Win32_VideoController | Select-Object -First 1
@@ -84,18 +84,17 @@ class SystemTelemetryEngine {
             $UptimeSpan = [DateTime]::Now - [Management.ManagementDateTimeConverter]::ToDateTime($BootTime)
             $UptimeStr  = "{0}d {1}h {2:00}m" -f $UptimeSpan.Days, $UptimeSpan.Hours, $UptimeSpan.Minutes
 
-            # Return a perfectly structured data bundle directly back across the fence
+            # Return data bundle
             return @{
                 CpuLoad          = $CpuLoad
                 GpuLoad          = $GpuLoad
                 RamPercent       = $RamPct
                 RamUsageText     = "$UsedGB / $TotalGB GB"
-                GpuModel         = $GpuCim.Name
-                GpuDriverVersion = $GpuCim.DriverVersion
+                GpuModel         = if ($GpuCim) { $GpuCim.Name } else { "Display Adapter" }
+                GpuDriverVersion = if ($GpuCim) { $GpuCim.DriverVersion } else { "Unknown" }
                 UptimeText       = $UptimeStr
             }
         } catch {
-            # Return empty baseline metrics if an individual query stumbles to keep JavaScript from failing
             return @{
                 CpuLoad      = 0
                 GpuLoad      = 0
