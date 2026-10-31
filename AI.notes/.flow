@@ -1,0 +1,112 @@
++---------------------------------------------------------------------------------+
+
+|                                 POWERSHELL BACKEND                              |
+|                                                                                 |
+|  [Network Module] -------->  [Custom Event Broker]  <-------- [CIM Metrics]     |
++--------------------------------------------------------|------------------------+
+                                                         | 
+                                           (JSON Event)  |  [WebView2 Bridge Pipe]
+                                                         v
++---------------------------------------------------------------------------------+
+
+|                                 WEBVIEW2 FRONTEND                               |
+|                                                                                 |
+|  [app.js UI Controller] <--- (Listens for Global UI Events)                     |
++---------------------------------------------------------------------------------+
+
+
+
+UPDATED FLOW 
+
++-------------------------------------------------------------------------+
+
+|                          BROWSER LAYOUT (app.js)                        |
+|                                                                         |
+|  1. JavaScript asks: "Hey, give me current hardware stats."            |
+|     Code: let stats = await window.chrome.webview.hostObjects.hardware; |
++------------------------------------+------------------------------------+
+                                     |
+                                     | (Direct Native Bridge Request)
+                                     v
++-------------------------------------------------------------------------+
+
+|                        POWERSHELL CORE ENGINE                           |
+|                                                                         |
+|  2. Windows executes your pure PowerShell module function instantly     |
+|     and returns a clean, native object back to the browser window.       |
++-------------------------------------------------------------------------+
+
+
+The New Roles of Your Code Files
+
+
+1. The Launcher (Start-NodeWatch.ps1) — The Setup Crew
+
+This file is simplified to only do the startup handshake. It creates the WinForms window, boots WebView2, and registers your telemetry files as an official "Host Object".
+Once it boots, it sits silently in the background acting as an invisible operating system translator. You will never have to edit this file to add metrics or fix broken code.
+
+2. The Native Modules (GetSystemMetrics.ps1) — The Hardware Experts
+
+These are written in pure, native PowerShell. They do not know a user interface exists. They contain a simple function that returns an object, like this:
+powershell
+function Get-HardwareStats {
+    return [PSCustomObject]@{
+        CpuLoad = [math]::Round((Get-Counter "\Processor(_Total)\% Processor Time").CounterSamples.CookedValue)
+        CpuModel = (Get-CimInstance Win32_Processor).Name
+    }
+}
+Use code with caution.
+
+3. The Front-End (app.js) — The Driver's Seat
+
+Instead of waiting for a timer in PowerShell to tick, JavaScript drives the schedule. You set up a standard clock inside JavaScript (setInterval). Every second, JavaScript reaches across the bridge, executes your PowerShell function directly, and maps the values straight onto your layout:
+javascript
+// Inside your new app.js loop
+async function refreshDashboard() {
+    // 1. Reach right across the bridge and execute your PowerShell code natively!
+    const hardware = await window.chrome.webview.hostObjects.hardware;
+    const stats = await hardware.GetHardwareStats();
+
+    // 2. Safely apply the data directly to the HTML canvas mesh
+    document.getElementById('lblCpuLoad').innerText = stats.CpuLoad + "%";
+    document.getElementById('lblCpuModel').innerText = stats.CpuModel;
+}
+
+// Tick the interface smoothly inside the browser
+setInterval(refreshDashboard, 1000);
+Use code with caution.
+
+Why This Architecture Stems Reoccurring Breaks
+
+• Zero Intermediary Bottlenecks: No manual background tasks, thread exchanges, or shared JSON strings. The pipeline is built-in and managed directly by the native Microsoft WebView2 compiler core.
+• True Modular Freedom: If you want to add network stats tomorrow, you just write a standard PowerShell script, expose it to the bridge, and call it from JavaScript. You don't have to touch your main UI window logic or layout timers.
+• Predictable Error Safety: If your PowerShell code glitches, JavaScript catches the error as a standard, catchable web exception, preventing your dashboard frame from turning white or crashing to the desktop.
+Would you like to build out the static code template for the new Start-NodeWatch.ps1 launcher bridge, or should we look at how to structure GetSystemMetrics.ps1 so it works flawlessly with this direct calling method?
+
+___________________________________________________________________________________________________________
+
+[ STAGE 1: SYSTEM HARDWARE ]
+  └── The processor, RAM modules, and graphics cards physically exist.
+         │
+         ▼  (Query via CIM / Perf Counters)
+[ STAGE 2: POWERSHELL TRACKING BACKGROUND ENGINE (GetSystemMetrics.psm1) ]
+  └── Runs on a loop every 900ms.
+  └── populates the synchronized thread pool hashtable:
+      $DataExchange.CpuModel = "Intel Core i7..."
+      $DataExchange.CpuLoad  = 42
+         │
+         ▼  (Read from $DataExchange bucket)
+[ STAGE 3: THE WINFORMS ORCHESTRATOR BRIDGE (Start-NodeWatch.ps1) ]
+  └── The UI Timer ticks every 1000ms.
+  └── Gathers all properties out of $DataExchange.
+  └── Packs them into a structured object ($Payload).
+  └── Converts that payload into a compressed JSON string.
+  └── Executes: $global:WebViewControl.CoreWebView2.PostWebMessageAsJson($JsonMessage)
+         │
+         ▼  (Fires across the native app border)
+[ STAGE 4: THE WEBVIEW2 HTML FRONTEND INTERCEPTOR (app.js) ]
+  └── window.chrome.webview.addEventListener('message', ...) catches the JSON.
+  └── It parses the JSON back into a JavaScript object: data.CpuModel
+  └── It updates the HTML DOM: document.getElementById('lblCpuModel').innerText = data.CpuModel
+
+  ___________________________________________________________________________________________________________

@@ -1,0 +1,35 @@
+📁 TFOL-Project/                    # [root_folder] Main project anchor
+│
+├── ⚙️ Start-NodeWatch.ps1          # [ps_script] App launcher, async runspace pool broker & timer lifecycle orchestrator
+│
+├── 📦 bin/                                        # [folder_binary] Self-contained layout dependencies
+│   ├── 🌐 WebView2FixedRuntime/                   # [folder_chromium] Unpacked isolated browser rendering core binaries
+│   │   └── 📁 156.0.4314.50/                      # Engine version dictionary folder
+│   │       ├── 🚀 msedgewebview2.exe              # Core runtime execution broker process
+│   │       └── 🚀 notification_helper.exe         # Native notification helper background process
+│   │
+│   ├── 🗄️ WebView2UserData/                     # [folder_cache] Local isolated app sandbox data store
+│   ├── 🛠️ Microsoft.Web.WebView2.Core.dll       # [assembly] Core library
+│   ├── 🛠️ Microsoft.Web.WebView2.WinForms.dll   # [assembly] WinForms bridge library
+│   └── 🛠️ WebView2Loader.dll                    # [assembly] Native Win32 bridge link library
+│
+└── 📂 modules/                     # [folder_module] Isolated functional parent folder
+    ├── 🎨 layouts/                 # [folder_view] Consolidated UI presentation layer
+    │   ├── 📜 app.js               # [javascript] Outbound message dispatches & DOM live telemetry injection landing targets
+    │   ├── 🌐 index.html           # [html] Wireframe layout canvas scaffolding mesh
+    │   └── 🎨 style.css            # [css] Unified structural grid alignments & low-contrast styling sheets
+    │
+    ├── 📊 telemetry/                   # [folder_telemetry] Core Data Extraction Layer
+    │   ├── 🟢 GetSystemMetrics.psm1    # [ps_module] [START - REWRITE] High-speed async CIM polling loop runspace engine
+    │   ├── ⚪ GetNetworkMetrics.psm1   # [ps_module] [NOT STARTED] Network information loop 
+    │   ├── ⚪ StorageEngine.psm1       # [ps_module] [NOT STARTED] Local storage array telemetry & disk metric extractor
+    │   ├── ⚪ GetKernelMetrics.psm1    # [ps_module] [NOT STARTED] Kernel hardware information
+    │   └── ⚪ GetHardwareHealth.psm1   # [ps_module] [NOT STARTED] Deep hardware node scans
+    │
+    └── 🛠️ tools/                     # [folder_tools] Standalone Modular Utilities
+        ├── ⚪ FileOrganizer.psm1     # [ps_module] [NOT STARTED] Path monitoring engine
+        ├── ⚪ PortScanner.psm1       # [ps_module] [NOT STARTED] Asynchronous subnet sweeps
+        ├── ⚪ SuperLogger.psm1       # [ps_module] [NOT STARTED] Event consolidator
+        ├── ⚪ FileRenamer.psm1       # [ps_module] [NOT STARTED] Sequential rename masks
+        ├── ⚪ Jitterbug.psm1         # [ps_module] [NOT STARTED] High-precision latency loop
+        └── ⚪ BottleneckTester.psm1  # [ps_module] [NOT STARTED] Resource balance checking kit
