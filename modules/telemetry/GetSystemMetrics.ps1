@@ -4,7 +4,7 @@ function Get-SystemMetrics {
     $OsInfo  = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction SilentlyContinue
     $GpuCim  = Get-CimInstance -ClassName Win32_VideoController | Select-Object -First 1 -ErrorAction SilentlyContinue
 
-    # 1. Fast CIM Processor Core状况
+    # 1. Non-blocking CIM Processor Core Utilization Load
     $CpuPerf = Get-CimInstance -ClassName Win32_PerfFormattedData_PerfOS_Processor -Filter "Name='_Total'" -ErrorAction SilentlyContinue
     $CpuLoad = if ($CpuPerf) { [int]$CpuPerf.PercentProcessorTime } else { [int]0 }
 
@@ -21,35 +21,33 @@ function Get-SystemMetrics {
     $UsedGB  = [math]::Round(($TotalGB - $FreeGB), 2)
     $RamPct  = [int](($UsedGB / $TotalGB) * 100)
 
-    # =========================================================================
-    # NEW: DYNAMIC WINDOWS SYSTEM VIRTUAL MEMORY PAGEFILE EXTRACTION
-    # =========================================================================
-    # Scrapes the operating system memory management abstraction layer 
+    # 4. Windows System Virtual Memory Pagefile Extraction
     $PageTotalGB = [math]::Round(([double]$OsInfo.SizeStoredInPagingFiles / 1MB), 2)
-    
-    # Extract operational commit bytes signatures natively
     $MemPerf = Get-CimInstance -ClassName Win32_PerfFormattedData_PerfOS_Memory -ErrorAction SilentlyContinue
     $PageUsedGB = 0.00
     $PagePct = 0
     if ($MemPerf) {
         $CommittedGB = [math]::Round(([double]$MemPerf.CommittedBytes / 1GB), 2)
-        # Isolate virtual page file allocations from raw physical hardware bounds
         $PageUsedGB = [math]::Round(($CommittedGB - $UsedGB), 2)
         if ($PageUsedGB -lt 0) { $PageUsedGB = 0.00 }
         $PagePct = if ($PageTotalGB -gt 0) { [int](($PageUsedGB / $PageTotalGB) * 100) } else { 0 }
     }
     if ($PagePct -gt 100) { $PagePct = 100 }
 
-    # 4. Advanced GPU Performance Metrics Scraper
+    # =========================================================================
+    # HIGH-PERFORMANCE NON-BLOCKING DYNAMIC GPU EXTRACTOR
+    # =========================================================================
+    # Replaced performance counter sampling loops with lightning-fast direct CIM reads
     $GpuLoad   = 0
     $GpuPower  = 22 
     $GpuTemp   = 38 
     
-    $GpuSample = Get-Counter -Counter "\GPU Engine(*)\Utilization Percentage" -MaxSamples 1 -ErrorAction SilentlyContinue
-    if ($GpuSample) {
-        $MaxGpu = ($GpuSample.CounterSamples.CookedValue | Measure-Object -Maximum).Maximum
+    $GpuPerf = Get-CimInstance -ClassName Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine -ErrorAction SilentlyContinue
+    if ($GpuPerf) {
+        # Isolate and measure highest utilization vector across all hardware engines
+        $MaxGpu = ($GpuPerf.UtilizationPercentage | Measure-Object -Maximum).Maximum
         if ($null -ne $MaxGpu) { 
-            $GpuLoad = [math]::Round($MaxGpu, 0)
+            $GpuLoad = [int][math]::Round($MaxGpu, 0)
             if ($GpuLoad -gt 10) {
                 $GpuPower = [int]($GpuLoad * 2.8) 
                 $GpuTemp  = [int](38 + ($GpuLoad * 0.35))
@@ -66,8 +64,8 @@ function Get-SystemMetrics {
         GpuTemp          = [int]$GpuTemp
         RamPercent       = [int]$RamPct
         RamUsageText     = [string]"$UsedGB / $TotalGB GB"
-        PagefilePercent  = [int]$PagePct                     # <--- Virtual Track Percentage
-        PagefileUsageText= [string]"$PageUsedGB / $PageTotalGB GB" # <--- Virtual Text Node
+        PagefilePercent  = [int]$PagePct
+        PagefileUsageText= [string]"$PageUsedGB / $PageTotalGB GB"
         GpuModel         = if ($GpuCim) { [string]$GpuCim.Name } else { "Display Adapter" }
         GpuDriverVersion = if ($GpuCim) { [string]$GpuCim.DriverVersion } else { "Unknown" }
     }
