@@ -38,8 +38,11 @@ body {
     grid-gap: 8px;
 }
 .dashboard-card {
-    background-color: #212936; border: 1px solid #323c4b;
-    padding: 10px; box-sizing: border-box; min-height: 125px;
+    background-color: #212936; 
+    border: 1px solid #323c4b;
+    padding: 10px; 
+    box-sizing: border-box; 
+    min-height: 240px; /* INCREASED from 125px to accommodate multi-drive stacks and sound sub-grids */
 }
 .wide-sub-console {
     grid-column: span 2; background-color: #212936;
@@ -83,7 +86,7 @@ h2 {
     display: flex;
     flex-direction: column;
     gap: 8px;
-    max-height: 115px;
+    max-height: 200px; /* INCREASED from 115px to let rows breath */
     overflow-y: auto;
     padding-right: 4px;
 }
@@ -152,4 +155,159 @@ h2 {
     opacity: 0 !important;
     visibility: hidden !important;
     pointer-events: none !important;
+}
+/* File: modules/layouts/style.css */
+
+/* Eliminates vertical padding bleeding between individual drive nodes */
+.storage-tight-row {
+    margin-bottom: 2px !important;
+}
+
+/* Forces the sub-label tag to collapse flatly under the track bar without extra padding */
+.driver-tag.tight-tag {
+    margin-top: 1px !important;
+    margin-bottom: 2px !important;
+    font-size: 10px;
+    opacity: 0.7;
+}
+.audio-sub-deck {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px dashed #2d3748;
+}
+.audio-node-title {
+    font-size: 11px;
+    color: #3182ce;
+    font-family: 'Consolas', monospace;
+    margin-bottom: 2px;
+    font-weight: bold;
+}
+/* File: modules/layouts/style.css - Layout Override Appendix */
+
+/* Enforces precise sizing configurations on the wide card wrapper mesh */
+.network-card-container {
+    min-height: 140px;
+}
+
+/* Handles grid structural column balancing */
+.net-spacer {
+    display: block;
+}
+
+/* Moves the multi-driver sub-deck into a clean full-width ribbon container */
+.net-node.multi-driver-row {
+    grid-column: span 3;
+    color: #a0aec0;
+    font-size: 11px;
+    margin-top: 4px;
+    border-top: 1px dashed #2d3748;
+    padding-top: 4px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+/* Applies standard spacing metrics inside driver properties lists */
+.net-node.multi-driver-row strong {
+    color: #edf2f7;
+    font-weight: normal;
+}
+
+.net-node.multi-driver-row strong:first-of-type {
+    margin-right: 20px;
+}
+/* File: modules/layouts/style.css - Cache Badge Presentation Layout */
+
+/* Left-aligns the matrix sub-deck flat against the parent padding boundaries */
+.metric-cache-matrix-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 3px;
+    margin-bottom: 6px;
+    padding-left: 2px;
+}
+
+/* Base typography style for the section header label */
+.cache-title-label {
+    font-size: 10px;
+    color: #a0aec0;
+    font-family: 'Consolas', monospace;
+}
+
+/* Compact layout flex deck for text alignments */
+.cache-badge-deck {
+    display: flex;
+    gap: 4px;
+}
+
+/* High-density layout badge structures */
+.cache-tag {
+    font-size: 9px;
+    font-weight: bold;
+    background-color: #2d3748;
+    color: #cbd5e0;
+    padding: 1px 5px;
+    border-radius: 2px;
+    font-family: 'Consolas', monospace;
+    border: 1px solid #3a4659;
+}
+
+/* Highlight accent tag for the processor's V-Cache feature */
+.cache-tag.highlight-x3d {
+    background-color: rgba(49, 151, 149, 0.2);
+    color: #319795;
+    border-color: rgba(49, 151, 149, 0.4);
+}
+/* File: modules/layouts/style.css - Hardware Badge Appendix */
+
+/* Structures the footer row into a clean left-to-right distribution layer */
+.hardware-metric-footer-row {
+    display: flex !important;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 3px;
+    margin-bottom: 2px;
+}
+
+/* Enforces low-profile typography on standard driver text blocks */
+.driver-text-node {
+    font-size: 10px;
+    color: #a0aec0;
+}
+
+/* Compact layout flex deck matching the cache matrix structure */
+.hardware-badge-deck {
+    display: flex;
+    gap: 4px;
+}
+
+/* Re-throttled core metrics tag template configuration */
+.hardware-stat-tag {
+    font-size: 9px;
+    font-weight: bold;
+    background-color: #2d3748;
+    color: #cbd5e0;
+    padding: 1px 5px;
+    border-radius: 2px;
+    font-family: 'Consolas', monospace;
+    border: 1px solid #3a4659;
+}
+
+/* Specialty theme colors for clock frequencies and power metrics */
+.hardware-stat-tag.text-speed { color: #4299e1; }
+.hardware-stat-tag.text-power { color: #ecc94b; }
+
+/* Dynamic Thermal States: Standard Cool */
+.hardware-stat-tag.therm-cool {
+    background-color: rgba(49, 151, 149, 0.15);
+    color: #319795;
+    border-color: rgba(49, 151, 149, 0.35);
+}
+
+/* Dynamic Thermal States: Warning Hot (Driven via UI classes) */
+.hardware-stat-tag.therm-hot {
+    background-color: rgba(229, 62, 62, 0.2) !important;
+    color: #e53e3e !important;
+    border-color: rgba(229, 62, 62, 0.4) !important;
 }

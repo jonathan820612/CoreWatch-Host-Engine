@@ -1,110 +1,162 @@
 // File: modules/layouts/app.js
 
-// Global shortcut link to our direct native PowerShell Class object bridge
-let nativeEngine = null;
-
-// Initialize the Direct Bridge Interface connection on application boot
-document.addEventListener("DOMContentLoaded", async () => {
+document.addEventListener("DOMContentLoaded", () => {
     if (window.chrome && window.chrome.webview) {
-        // Bind the native PowerShell class object cleanly to our JavaScript variable
-        nativeEngine = window.chrome.webview.hostObjects.hardware;
-        
-        // 1. Instantly pull and paint all of our static properties (Runs once)
-        await RenderStaticSystemProperties();
+        window.chrome.webview.addEventListener("message", (event) => {
+            try {
+                const base64Data = event.data;
+                if (!base64Data) return;
 
-        // 2. Start our dynamic real-time data pulling loop (Ticks every 1000ms)
-        setInterval(PollRealTimeHardwareMetrics, 1000);
+                const decodedJson = decodeURIComponent(escape(atob(base64Data)));
+                const stats = JSON.parse(decodedJson);
+                
+                AppendLiveDiagnosticConsoleLog(stats);
+                updateDashboardUiMesh(stats);
+            } catch (err) {
+                console.error("Failed to unpack metrics package:", err);
+            }
+        });
+        window.chrome.webview.postMessage("UI-Ready");
     }
-    
-    // Smoothly clear out your splash screen layer
-    DismissAppSplashScreen();
 });
 
-/**
- * PHASE 1: ROBUST STATIC PROPERTY RENDERING
- * Reads unchanging environmental strings directly from the class object fields.
- */
-/**
- * PHASE 1: ROBUST STATIC PROPERTY RENDERING
- * Reads unchanging environmental strings directly from the class object fields.
- */
-async function RenderStaticSystemProperties() {
-    try {
-        if (!nativeEngine) return;
+function updateDashboardUiMesh(stats) {
+    if (!stats) return;
 
-        // FIXED: Added () to execute property retrieval over the secure host bridge channel
-        SetDomText('lblHostName',       await nativeEngine.HostName());
-        SetDomText('lblWorkgroup',      await nativeEngine.Workgroup());
-        SetDomText('lblOsEdition',      await nativeEngine.OsEdition());
-        SetDomText('lblCpuModel',       await nativeEngine.CpuModel());
-        SetDomText('lblBiosVersion',    await nativeEngine.BiosVersion());
-        SetDomText('lblPsVersion',      await nativeEngine.PsVersion());
-        SetDomText('lblCpuDriver',      await nativeEngine.CpuDriverVersion());
-        SetDomText('lblVirtualization',  await nativeEngine.Virtualization());
-        SetDomText('lblSecureBoot',     await nativeEngine.SecureBoot());
-        SetDomText('lblChassisType',    await nativeEngine.ChassisType());
-        SetDomText('lblWinBuild',       await nativeEngine.WindowsBuild());
-        SetDomText('lblUpdateLevel',    await nativeEngine.WindowsUpdateLevel());
+    // --- IdentityFrame Mapping ---
+    const id = stats.IdentityFrame;
+    if (id) {
+        SetDomText('lblHostName',       id.HostName);
+        SetDomText('lblWorkgroup',      id.Workgroup);
+        SetDomText('lblCpuModel',       id.CpuModel);
+    }
 
-    } catch (err) {
-        console.error("Direct Bridge mapping initialization failure:", err);
+    // --- InfraFrame Mapping ---
+    const infra = stats.InfraFrame;
+    if (infra) {
+        // Top Card Elements (System Identity)
+        SetDomText('lblOsEdition',      infra.OsEdition);
+        SetDomText('lblWinBuild',       infra.WindowsBuild);
+        SetDomText('lblUpdateLevel',    infra.WindowsUpdateLevel);
+        SetDomText('lblDirectX',        infra.DirectX);
+        SetDomText('lblVirtualization', infra.Virtualization);
+        SetDomText('lblPsVersion',      infra.PsVersion);
+
+        // Middle Card Elements (Infrastructure)
+        SetDomText('lblMotherboard',    infra.Motherboard);
+        SetDomText('lblBiosVersion',    infra.BiosVersion);
+        SetDomText('lblPowerPlan',      infra.PowerPlan);
+        SetDomText('lblUptime',         infra.UptimeText);
+
+        // Audio Sub-Section Nodes
+        SetDomText('lblAudioOutput',    infra.SoundCardIdentity);
+        SetDomText('lblAudioInput',     infra.MicrophoneIdentity);
+    }
+
+        // --- SystemFrame Mapping ---
+    const sys = stats.SystemFrame;
+    if (sys) {
+        // Core Processor Nodes
+        SetDomText('lblCpuLoad',        `${sys.CpuLoad}%`);
+        SetDomStyleWidth('barCpuLoad',  `${sys.CpuLoad}%`);
+        SetDomText('lblCpuClock',       sys.CpuClock);
+        SetDomText('lblCpuTemp',        sys.CpuTemp);
+
+        // Update CPU Temperature Badge Threshold Color Scheme
+        const cpuBadge = document.getElementById('badgeCpuTemp');
+        if (cpuBadge) {
+            if (sys.CpuTemp >= 75) {
+                cpuBadge.classList.add('therm-hot');
+                cpuBadge.classList.remove('therm-cool');
+            } else {
+                cpuBadge.classList.add('therm-cool');
+                cpuBadge.classList.remove('therm-hot');
+            }
+        }
+
+        // Graphics Accelerator Nodes
+        SetDomText('lblGpuLoad',        `${sys.GpuLoad}%`);
+        SetDomStyleWidth('barGpuLoad',  `${sys.GpuLoad}%`);
+        SetDomText('lblGpuModel',       sys.GpuModel);
+        SetDomText('lblGpuDriver',      sys.GpuDriverVersion);
+        SetDomText('lblGpuPower',       sys.GpuPower);
+        SetDomText('lblGpuTemp',        sys.GpuTemp);
+
+        // Update GPU Temperature Badge Threshold Color Scheme
+        const gpuBadge = document.getElementById('badgeGpuTemp');
+        if (gpuBadge) {
+            if (sys.GpuTemp >= 75) {
+                gpuBadge.classList.add('therm-hot');
+                gpuBadge.classList.remove('therm-cool');
+            } else {
+                gpuBadge.classList.add('therm-cool');
+                gpuBadge.classList.remove('therm-hot');
+            }
+        }
+
+        // System Memory Rails (Physical RAM)
+        SetDomText('lblRamUsage',       sys.RamUsageText);
+        SetDomStyleWidth('barRamUsage', `${sys.RamPercent}%`);
+
+        // Windows Virtual Memory Rails (Pagefile Commitments)
+        SetDomText('lblPagefileUsage',       sys.PagefileUsageText);
+        SetDomStyleWidth('barPagefileUsage', `${sys.PagefilePercent}%`);
+    }
+
+       // --- NetworkFrame Mapping ---
+    const net = stats.NetworkFrame;
+    if (net) {
+        SetDomText('lblIntIPv4',        net.IntIPv4);
+        SetDomText('lblSubnetMask',     net.SubnetMask);
+        SetDomText('lblGateway',        net.Gateway);
+        SetDomText('lblNetworkStatus',  net.NetworkStatus);
+        SetDomText('lblWlanSsid',       net.WlanSsid);
+        SetDomText('lblExtIPv4',        net.ExtIPv4);
+        SetDomText('lblLinkCap',        net.LinkCap);
+        SetDomText('lblInterfaceName',  net.InterfaceName);
+    }
+
+    // --- StorageFrame Mapping ---
+    const storage = stats.StorageFrame;
+    if (storage) {
+        const container = document.getElementById('storageVolumeContainer');
+        if (container) {
+            container.innerHTML = '';
+            
+            // Fixed loop variable reference map
+            const drives = Array.isArray(storage) ? storage : [storage];
+            
+            drives.forEach((drive) => {
+                const usedPercent = (drive.StorageUsedGB / drive.StorageTotalGB) * 100;
+                const metricRowHtml = `
+                    <div class="metric-row storage-tight-row">
+                        <div class="metric-metadata">
+                            <span class="clickable-label" onclick="TriggerVolumeRelabel('${drive.MainDriveLetter}', '${drive.VolumeLabel}')">
+                                🏷️ ${drive.VolumeLabel} (${drive.MainDriveLetter})
+                            </span>
+                            <span class="storage-data-numeric-text">
+                                ${drive.StorageUsedGB} / ${drive.StorageTotalGB} GB (${Math.round(usedPercent)}%)
+                            </span>
+                        </div>
+                        <div class="track-bg">
+                            <div class="track-fill" style="width: ${usedPercent}%;"></div>
+                        </div>
+                        <div class="driver-tag tight-tag">${drive.DriveType} Storage Node</div>
+                    </div>
+                `;
+                container.insertAdjacentHTML('beforeend', metricRowHtml);
+            });
+        }
     }
 }
 
-/**
- * PHASE 2: HIGH-FREQUENCY REAL-TIME METRICS POLLING
- * Reaches across the bridge, executes our PowerShell method, and paints the canvas.
- */
-async function PollRealTimeHardwareMetrics() {
-    try {
-        if (!nativeEngine) return;
-
-        // Execute the internal PowerShell Class Method natively on-demand!
-        // WebView2 automatically unpacks the [hashtable] return payload into a clean JS Object.
-        const stats = await nativeEngine.GetRealTimeMetrics();
-
-        // 1. Process and Paint Core Processing Unit (CPU) Metrics
-        SetDomText('lblCpuLoad', `${stats.CpuLoad}%`);
-        SetDomStyleWidth('barCpuLoad', `${stats.CpuLoad}%`);
-
-        // 2. Process and Paint Graphical Processing Unit (GPU) Metrics
-        SetDomText('lblGpuLoad', `${stats.GpuLoad}%`);
-        SetDomStyleWidth('barGpuLoad', `${stats.GpuLoad}%`);
-        SetDomText('lblGpuModel', stats.GpuModel || "Display Adapter");
-        SetDomText('lblGpuDriver', stats.GpuDriverVersion || "Unknown");
-
-        // 3. Process and Paint Random Access Memory (RAM) Metrics
-        SetDomText('lblRamUsage', stats.RamUsageText);
-        SetDomStyleWidth('barRamUsage', `${stats.RamPercent}%`);
-
-        // 4. Update Engine Operational System Lifespans
-        SetDomText('lblUptime', stats.UptimeText);
-
-    } catch (err) {
-        console.error("Asynchronous hardware pipeline pull dropped cycle:", err);
+function AppendLiveDiagnosticConsoleLog(stats) {
+    const consoleBox = document.querySelector('.console-box') || document.getElementById('console-box');
+    if (consoleBox && stats.IdentityFrame && stats.SystemFrame) {
+        consoleBox.innerText = `[PIPELINE: ${stats.PipelineStatus}] Host: ${stats.IdentityFrame.HostName} | CPU Load: ${stats.SystemFrame.CpuLoad}% | RAM: ${stats.SystemFrame.RamUsageText}`;
     }
 }
 
-/**
- * EXTRA ACTION UTILITIES: Send messages back to native WinForms host
- */
-function TriggerSystemExit() {
-    if (window.chrome && window.chrome.webview) {
-        window.chrome.webview.postMessage("Exit-App");
-    }
-}
-
-function DismissAppSplashScreen() {
-    const splashNode = document.getElementById('appSplashOverlayView');
-    if (splashNode) {
-        splashNode.classList.add('hidden-canvas');
-        setTimeout(() => splashNode.remove(), 450);
-    }
-}
-
-/**
- * ROBUST HELPERS: Keeps JavaScript from throwing "null element" crash errors
- */
 function SetDomText(elementId, textValue) {
     const element = document.getElementById(elementId);
     if (element) {
@@ -116,5 +168,15 @@ function SetDomStyleWidth(elementId, widthValue) {
     const element = document.getElementById(elementId);
     if (element) {
         element.style.width = widthValue;
+    }
+}
+
+/**
+ * INTERACTIVE BI-DIRECTIONAL HARDWARE DISPATCH ROUTINE
+ */
+function TriggerVolumeRelabel(driveLetter, currentLabel) {
+    const newLabel = prompt(`Enter a new system description label for volume partition [ ${driveLetter} ] :`, currentLabel);
+    if (newLabel !== null && window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage(`Rename-Drive:${driveLetter}|${newLabel}`);
     }
 }

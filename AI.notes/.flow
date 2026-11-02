@@ -39,7 +39,6 @@ UPDATED FLOW
 
 The New Roles of Your Code Files
 
-
 1. The Launcher (Start-NodeWatch.ps1) — The Setup Crew
 
 This file is simplified to only do the startup handshake. It creates the WinForms window, boots WebView2, and registers your telemetry files as an official "Host Object".
@@ -110,3 +109,29 @@ ________________________________________________________________________________
   └── It updates the HTML DOM: document.getElementById('lblCpuModel').innerText = data.CpuModel
 
   ___________________________________________________________________________________________________________
+
+  +-----------------------------------------------------------------+
+
+|                       Start-NodeWatch.ps1                       |
+|  - Creates WinForms Window                                       |
+|  - Hosts WebView2 Control                                       |
+|  - Runs an isolated 1-second system polling timer loop          |
++-------------------------------+---------------------------------+
+                                |
+                                | (Pushes serialized Base64 payload text)
+                                v
++-----------------------------------------------------------------+
+
+|               WebView2 WebMessage Bridge Engine                 |
+|  - Captures $global:WebViewControl.PostWebMessageAsString()     |
+|  - Safely crosses Chromium's local file security sandbox        |
++-------------------------------+---------------------------------+
+                                |
+                                | (Triggers native browser listener)
+                                v
++-----------------------------------------------------------------+
+
+|                       modules/layouts/app.js                    |
+|  - Listens via chrome.webview.addEventListener("message", ...)   |
+|  - Instantly decodes, unpacks, and repaints HTML canvas fields  |
++-----------------------------------------------------------------+
