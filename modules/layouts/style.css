@@ -49,9 +49,15 @@ body {
     box-sizing: border-box; 
     min-height: 240px; 
 }
+
+/* Explicit layout rule forcing the full container frame to stretch wide across both columns */
 .wide-sub-console {
-    grid-column: span 2; background-color: #212936;
-    border: 1px solid #323c4b; padding: 10px;
+    grid-column: span 2 !important; 
+    background-color: #212936;
+    border: 1px solid #323c4b; 
+    padding: 10px;
+    width: 100% !important;
+    box-sizing: border-box;
 }
 h2 {
     font-size: 11px; font-weight: bold; letter-spacing: 0.5px;
@@ -69,8 +75,9 @@ h2 {
 .data-field-split { justify-content: space-between; }
 .net-node strong { color: #edf2f7; font-weight: normal; }
 .hint-text { font-size: 10px; color: #718096; margin-top: 5px; }
-/* Progress tracks and loading bars */
-.metric-row { margin-bottom: 6px; }
+
+/* FIXED: Restored core tracking bar structural templates to fix invisible bars */
+.metric-row { margin-bottom: 6px; clear: both; }
 .metric-metadata { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 2px; color: #cbd5e0; }
 .track-bg { background-color: #2d3748; height: 5px; width: 100%; position: relative; }
 .track-fill { background-color: #3182ce; height: 100%; width: 0%; transition: width 0.3s ease; }
@@ -84,7 +91,6 @@ h2 {
 .storage-tight-row { margin-bottom: 2px !important; }
 .driver-tag.tight-tag { margin-top: 1px !important; margin-bottom: 2px !important; opacity: 0.7; }
 .storage-data-numeric-text { font-family: 'Consolas', monospace; color: #a0aec0; }
-
 /* Interactive drive label configurations and hover triggers */
 .storage-interactive-row-header { cursor: pointer; display: inline-flex; align-items: center; gap: 6px; user-select: none; }
 .drive-title { font-family: 'Consolas', 'Segoe UI', monospace; font-size: 12px; font-weight: bold; transition: color 0.15s ease; }
@@ -97,15 +103,39 @@ h2 {
 .storage-tag-icon { font-size: 12px; display: inline-block; transition: transform 0.15s ease; }
 .storage-interactive-row-header:hover .storage-tag-icon { transform: scale(1.1); }
 
-/* Network grids, device adapters, and driver info */
-.network-matrix-grid { display: grid; grid-template-columns: repeat(3, 1fr); grid-gap: 6px; font-size: 12px; color: #cbd5e0; }
-.net-node { display: flex; align-items: center; gap: 4px; }
-.network-card-container { min-height: 140px; }
-.net-node.multi-driver-row {
-    grid-column: span 3; color: #a0aec0; font-size: 11px; margin-top: 4px;
-    border-top: 1px dashed #2d3748; padding-top: 4px; display: flex; gap: 8px; align-items: center;
+/* Strict 4-column matrix mapping engine stretching options across the length of the container */
+.network-matrix-grid { 
+    display: grid !important; 
+    grid-template-columns: repeat(4, 1fr) !important; 
+    grid-gap: 8px 12px !important; 
+    font-size: 12px !important; 
+    color: #cbd5e0 !important; 
+    width: 100% !important;
+    box-sizing: border-box !important;
 }
-.net-node.multi-driver-row strong:first-of-type { margin-right: 20px; }
+
+/* Keeps data points horizontal on a single line space matrix */
+.net-node { 
+    display: flex !important; 
+    align-items: center !important; 
+    gap: 6px !important; 
+    white-space: nowrap !important; 
+    width: 100% !important;
+}
+
+/* Spans driver row cleanly across the bottom tracking boundary of all 4 columns */
+.net-node.multi-driver-row {
+    grid-column: span 4 !important; 
+    color: #a0aec0 !important; 
+    font-size: 11px !important; 
+    margin-top: 6px !important;
+    border-top: 1px dashed #2d3748 !important; 
+    padding-top: 6px !important; 
+    display: flex !important; 
+    gap: 8px !important; 
+    align-items: center !important;
+}
+.net-node.multi-driver-row strong:first-of-type { margin-right: 20px !important; }
 
 /* Performance speed tests and usage layout blocks */
 .speedtest-wrapper-deck {
@@ -121,8 +151,70 @@ h2 {
 }
 .speed-execute-action-btn:hover { background-color: #3182ce; border-color: #4299e1; }
 .speed-execute-action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.net-activity-container { margin-top: 10px; padding-top: 6px; border-top: 1px dashed #2d3748; }
-.activity-bar-fill { background: linear-gradient(90deg, #319795 50%, #b83280 50%); width: 100%; height: 100%; opacity: 0.3; }
+
+/* Realtime network bandwidth activity monitors tracking blocks */
+.net-activity-container {
+    margin-top: 10px;
+    padding-top: 6px;
+    border-top: 1px dashed #2d3748;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+/* Forces the activity titles and layout tokens into split rows */
+.activity-metadata {
+    font-size: 11px;
+    color: #cbd5e0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+}
+.activity-values { font-family: 'Consolas', monospace; font-size: 11px; }
+.rx-numeric-text { color: #63b3ed; margin-right: 10px; }
+.tx-numeric-text { color: #d6bcfa; }
+
+/* The main progress track chassis container */
+.activity-track-chassis { 
+    position: relative; 
+    overflow: hidden; 
+    height: 10px; 
+    display: flex; 
+    background-color: #2d3748;
+}
+
+/* Static colored split tracks waiting underneath */
+.track-bg-half { 
+    position: absolute; 
+    top: 0; 
+    width: 50%; 
+    height: 100%; 
+    opacity: 0.25; 
+    z-index: 1; 
+}
+.download-static-bg { left: 0; background-color: #3182ce; }
+.upload-static-bg { right: 0; background-color: #9f7aea; }
+
+/* Dynamic animated foreground fills updated via script handles */
+.download-dynamic-fill { 
+    position: absolute; 
+    left: 0; 
+    top: 0; 
+    height: 100%; 
+    background-color: #4299e1; 
+    z-index: 2; 
+    transition: width 0.3s ease;
+}
+.upload-dynamic-fill { 
+    position: absolute; 
+    right: 0; 
+    top: 0; 
+    height: 100%; 
+    background-color: #b794f4; 
+    z-index: 2; 
+    transition: width 0.3s ease;
+}
 
 /* Hardware information tags and telemetry condition badges */
 .metric-cache-matrix-row, .hardware-metric-footer-row { display: flex; align-items: center; gap: 6px; margin-top: 3px; margin-bottom: 6px; padding-left: 2px; }
@@ -137,6 +229,13 @@ h2 {
 .hardware-stat-tag.text-speed { color: #4299e1; }
 .hardware-stat-tag.text-power { color: #ecc94b; }
 
+/* Network configurations color state tag chips accent styling rules */
+.hardware-stat-tag.text-assignment {
+    background-color: rgba(159, 122, 234, 0.15);
+    color: #b794f4;
+    border-color: rgba(159, 122, 234, 0.35);
+}
+
 /* Core heat thresholds and active temperature color modifications */
 .hardware-stat-tag.therm-cool { background-color: rgba(49, 151, 149, 0.15); color: #319795; border-color: rgba(49, 151, 149, 0.35); }
 .hardware-stat-tag.therm-hot { background-color: rgba(229, 62, 62, 0.2) !important; color: #e53e3e !important; border-color: rgba(229, 62, 62, 0.4) !important; }
@@ -148,22 +247,15 @@ h2 {
 #appSplashOverlayView { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: #1a202c; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 99999; transition: opacity 0.4s ease-out, visibility 0.4s; }
 #appSplashOverlayView.hidden-canvas { opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; }
 .audio-sub-deck { margin-top: 6px; padding-top: 6px; border-top: 1px dashed #2d3748; }
-/* Fixing the pipeline block elements alignment */
-.net-activity-container {
-    margin-top: 10px;
-    padding-top: 6px;
-    border-top: 1px dashed #2d3748;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-
-/* Forces the activity titles and log flush keys into clear lines */
-.activity-metadata {
-    font-size: 11px;
-    color: #cbd5e0;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+.metric-cache-matrix-row, .hardware-metric-footer-row { 
+    display: flex; 
+    align-items: center; 
+    /* FIXED: Explicitly commands the browser layout engine to push titles left and badges right */
+    justify-content: space-between; 
+    gap: 6px; 
+    margin-top: 3px; 
+    margin-bottom: 6px; 
+    padding-left: 2px; 
     width: 100%;
+    box-sizing: border-box;
 }

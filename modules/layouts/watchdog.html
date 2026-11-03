@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>CoreWatch Watchdog Shield Configuration</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body style="padding: 12px; background-color: #1a202c; overflow: hidden;">
+
+    <div class="dashboard-card" style="min-height: auto; border-color: #2c7a7b;">
+        <h2>🛡️ WATCHDOG INTELLIGENT ANTI-STUTTER CONFIGURATION</h2>
+        
+        <div class="network-matrix-grid" style="grid-template-columns: 1fr; grid-gap: 8px; margin-top: 8px;">
+            <div class="data-field-split" style="background-color: #1a202c; border: 1px solid #2d3748; padding: 6px 8px;">
+                <span class="cache-title-label">CPU Throttle Filter Cap Limit:</span>
+                <div class="cache-badge-deck">
+                    <input type="range" id="rangeCpuThreshold" min="5" max="80" value="20" oninput="document.getElementById('lblCpuCapValue').textContent = this.value + '%'">
+                    <strong id="lblCpuCapValue" class="hardware-stat-tag text-speed">20%</strong>
+                </div>
+            </div>
+
+            <div class="data-field-split" style="background-color: #1a202c; border: 1px solid #2d3748; padding: 6px 8px;">
+                <span class="cache-title-label">Automated Reaction Mode:</span>
+                <div class="cache-badge-deck">
+                    <label class="driver-text-node"><input type="radio" name="radWatchdogMode" value="Throttle" checked> Throttle</label>
+                    <label class="driver-text-node"><input type="radio" name="radWatchdogMode" value="Terminate"> Terminate</label>
+                </div>
+            </div>
+        </div>
+
+        <div class="audio-sub-deck" style="display: flex; flex-direction: column; gap: 4px; margin-top: 8px;">
+            <div class="data-field"><span>制造</span> <span class="cache-title-label">Custom Whitelist Exclusions:</span></div>
+            <input type="text" id="txtCustomWhitelist" class="console-box" style="width:100%; box-sizing:border-box; background:#1a202c; border:1px solid #2d3748; padding:6px; color:#fff;" value="obs64, discord, spotify, steamwebhelper">
+        </div>
+
+        <div class="speedtest-wrapper-deck" style="margin-top: 10px !important;">
+            <span class="speed-data-node">Shield Loop Status: <strong style="color: #48bb78;">MONITORING</strong></span>
+            <button class="speed-execute-action-btn" onclick="CommitWatchdogTuningProfile()" style="background-color: #2c7a7b; border-color: #319795;">Commit Rules</button>
+        </div>
+    </div>
+
+    <script>
+        function CommitWatchdogTuningProfile() {
+            const payload = {
+                EventAction: "Update-WatchdogRules",
+                CpuThresholdPct: parseFloat(document.getElementById('rangeCpuThreshold').value),
+                AutoActionTarget: document.querySelector('input[name="radWatchdogMode"]:checked').value,
+                UserWhitelist: document.getElementById('txtCustomWhitelist').value.split(',').map(i => i.trim().toLowerCase()).filter(i => i.length > 0)
+            };
+            if(window.chrome?.webview) { window.chrome.webview.postMessage(JSON.stringify(payload)); }
+            window.close(); // Closes the tool utility frame cleanly after applying parameters
+        }
+    </script>
+</body>
+</html>

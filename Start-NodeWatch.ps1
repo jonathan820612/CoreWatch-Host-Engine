@@ -16,26 +16,14 @@ if ((Test-Path $CoreDll) -and (Test-Path $FormDll)) {
 }
 
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
-
 $UserDataFolder = [System.IO.Path]::GetFullPath((Join-Path $BinPath "WebView2UserData"))
-if (-not (Test-Path $UserDataFolder)) {
-    $null = New-Item -ItemType Directory -Path $UserDataFolder -Force
-}
+if (-not (Test-Path $UserDataFolder)) { $null = New-Item -ItemType Directory -Path $UserDataFolder -Force }
 $env:WEBVIEW2_USER_DATA_FOLDER = $UserDataFolder
 
-# Create a Thread-Safe synchronized hash table to pass data safely across threads
-$global:SharedData = [hashtable]::Synchronized(@{
-    JsonPayload = $null
-    IsRunning   = $true
-})
+$global:SharedData = [hashtable]::Synchronized(@{ JsonPayload = $null; IsRunning = $true })
 
-# =========================================================================
-# BACKGROUND WORKER RUNSPACE (THE BALANCING FIX)
-# =========================================================================
 $RunspaceScript = {
     param($RootPath, $SharedData)
-    
-    # Dot-source the heavy modules safely inside the worker thread session
     $TelemetryPath = Join-Path $RootPath "modules\telemetry"
     . (Join-Path $TelemetryPath "GetIDMetrics.ps1")
     . (Join-Path $TelemetryPath "GetInfraMetrics.ps1")
@@ -53,16 +41,12 @@ $RunspaceScript = {
                 StorageFrame   = Get-StorageMetrics
                 PipelineStatus = "SUCCESS"
             }
-            # Serialize to string safely on the background thread
             $SharedData.JsonPayload = $MasterObject | ConvertTo-Json -Compress
-        } catch {
-            # Absorb transient worker query trace warnings drops safely
-        }
-        [System.Threading.Thread]::Sleep(1000) # Throttled iteration loop interval
+        } catch {}
+        [System.Threading.Thread]::Sleep(1000)
     }
 }
 
-# Spin up and dispatch the pipeline worker thread
 $Runspace = [runspacefactory]::CreateRunspace()
 $Runspace.ApartmentState = "STA"
 $Runspace.ThreadOptions = "ReuseThread"
@@ -73,9 +57,6 @@ $PowerShellPool.Runspace = $Runspace
 $null = $PowerShellPool.AddScript($RunspaceScript).AddArgument($Global:NodeWatchRoot).AddArgument($global:SharedData)
 $BackgroundAsyncResult = $PowerShellPool.BeginInvoke()
 
-# =========================================================================
-# COMPACT MAIN UI TIMED DIPATCHER (LIGHTWEIGHT REFRESH ENGINE)
-# =========================================================================
 $MainForm = New-Object System.Windows.Forms.Form
 $MainForm.Text = "CoreWatch Host Engine Dashboard Framework"
 $MainForm.Size = New-Object System.Drawing.Size(1000, 1000)
@@ -89,38 +70,51 @@ $MainForm.Controls.Add($global:WebViewControl)
 $global:TelemetryLoopTimer = New-Object System.Windows.Forms.Timer
 $global:TelemetryLoopTimer.Interval = 1000
 $global:TelemetryLoopTimer.Add_Tick({
-    # The UI Timer ONLY checks the thread-safe hashtable. No blocking queries are run here!
     if ($null -ne $global:WebViewControl.CoreWebView2 -and $null -ne $global:SharedData.JsonPayload) {
         try {
-            $JsonPayload = $global:SharedData.JsonPayload
-            $Bytes = [System.Text.Encoding]::UTF8.GetBytes($JsonPayload)
-            $Base64Payload = [Convert]::ToBase64String($Bytes)
-            $global:WebViewControl.CoreWebView2.PostWebMessageAsString($Base64Payload)
-        } catch {
-            # Absorb pipeline UI drops safely
-        }
+            $Bytes = [System.Text.Encoding]::UTF8.GetBytes($global:SharedData.JsonPayload)
+            $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String($Bytes))
+        } catch {}
     }
 })
 
 $HandleUiMessageEvent = {
     param($sender, $eventArgs)
     $RawMessage = $eventArgs.TryGetWebMessageAsString()
+    if ($null -eq $RawMessage) { return }
     
     if ($RawMessage -eq "Exit-App") { 
         $MainForm.Close() 
     }
     elseif ($RawMessage -eq "UI-Ready") {
-        if (-not $global:TelemetryLoopTimer.Enabled) {
-            $global:TelemetryLoopTimer.Start()
-        }
+        if (-not $global:TelemetryLoopTimer.Enabled) { $global:TelemetryLoopTimer.Start() }
     }
-    elseif ($RawMessage -and $RawMessage.StartsWith("Rename-Drive:")) {
+    elseif ($RawMessage.StartsWith("Rename-Drive:")) {
         $Payload = $RawMessage.Substring(13)
         $SplitIndex = $Payload.IndexOf('|')
         if ($SplitIndex -gt 0) {
-            $TargetLetter = $Payload.Substring(0, $SplitIndex)
-            $NewVolumeName = $Payload.Substring($SplitIndex + 1)
-            Set-StorageLabel -DriveLetter $TargetLetter -NewLabel $NewVolumeName
+            . (Join-Path $Global:NodeWatchRoot "modules\telemetry\StorageEngine.ps1")
+            Set-StorageLabel -DriveLetter ($Payload.Substring(0, $SplitIndex)) -NewLabel ($Payload.Substring($SplitIndex + 1))
+        }
+    }
+    # =========================================================================
+    # MULTI-WINDOW DISPATCHER ROUTING HOOK FOR EXTERNAL UI TOOLS
+    # =========================================================================
+    elseif ($RawMessage.StartsWith("Launch-Tool:")) {
+        $ToolType = $RawMessage.Substring(12)
+        switch ($ToolType) {
+            "Watchdog-Engine" {
+                $WatchdogPath = Join-Path $Global:NodeWatchRoot "modules\layouts\watchdog.html"
+                if (Test-Path $WatchdogPath) {
+                    Start-Process "msedge.exe" -ArgumentList "--app=`"$WatchdogPath`"", "--window-size=500,320" -ErrorAction SilentlyContinue
+                }
+            }
+            "File-Organizer" {
+                [System.Windows.MessageBox]::Show("File Organizer window pipeline coming soon.", "CoreWatch System Tools")
+            }
+            "Port-Scanner" {
+                [System.Windows.MessageBox]::Show("Port Scanner window pipeline coming soon.", "CoreWatch System Tools")
+            }
         }
     }
 }
@@ -145,17 +139,11 @@ $global:WebViewControl.Add_CoreWebView2InitializationCompleted({
     }
 })
 
-# Securely terminate background allocations when the frame exits
 $MainForm.Add_FormClosing({
     $global:TelemetryLoopTimer.Stop()
-    $global:SharedData.IsRunning = $false # Tell background loop to terminate
-    if ($null -ne $PowerShellPool) {
-        $PowerShellPool.Dispose()
-    }
-    if ($null -ne $Runspace) {
-        $Runspace.Close()
-        $Runspace.Dispose()
-    }
+    $global:SharedData.IsRunning = $false
+    if ($null -ne $PowerShellPool) { $PowerShellPool.Dispose() }
+    if ($null -ne $Runspace) { $Runspace.Close(); $Runspace.Dispose() }
 })
 
 $null = $global:WebViewControl.EnsureCoreWebView2Async($WebViewEnvironment)

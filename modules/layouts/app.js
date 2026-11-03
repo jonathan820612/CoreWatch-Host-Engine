@@ -19,10 +19,41 @@ document.addEventListener("DOMContentLoaded", () => {
         window.chrome.webview.postMessage("UI-Ready");
     }
 });
+/**
+ * Requests the application host infrastructure to spin up an isolated window for a specific utility module
+ */
+window.LaunchExternalToolWindow = function(toolIdentifier) {
+    if (window.chrome && window.chrome.webview) {
+        // Dispatches single string action routing event payloads downstream
+        window.chrome.webview.postMessage(`Launch-Tool:${toolIdentifier}`);
+    }
+    
+    // Fallback confirmation console string log output tracer
+    console.log(`[INFRASTRUCTURE: Window allocation request submitted for component module: ${toolIdentifier}]`);
+};
+
+/**
+ * Automatically evaluates the state object returned from your telemetry loop updates 
+ * to highlight top button elements if background worker processes are running.
+ */
+function SyncToolNavigationHighlights(appStates) {
+    const watchdogBtn = document.getElementById('btnToggleWatchdog');
+    
+    if (watchdogBtn && appStates.NetworkFrame) {
+        // Evaluate incoming state flags passed from your background Watchdog pipeline loop
+        if (appStates.NetworkFrame.WatchdogActive === true || appStates.WatchdogLoopRunning === true) {
+            watchdogBtn.classList.add('tool-running');
+        } else {
+            watchdogBtn.classList.remove('tool-running');
+        }
+    }
+}
+
+// Ensure you invoke 'SyncToolNavigationHighlights(stats);' inside your main updateDashboardUiMesh script loop!
 
 function updateDashboardUiMesh(stats) {
     if (!stats) return;
-
+    SyncToolNavigationHighlights(stats);
     // --- IdentityFrame Mapping ---
     const id = stats.IdentityFrame;
     if (id) {
@@ -103,7 +134,7 @@ function updateDashboardUiMesh(stats) {
         SetDomStyleWidth('barPagefileUsage', `${sys.PagefilePercent}%`);
     }
 
-    // --- NetworkFrame Mapping ---
+    // --- NetworkFrame Mapping inside updateDashboardUiMesh ---
     const net = stats.NetworkFrame;
     if (net) {
         SetDomText('lblIntIPv4',        net.IntIPv4);
@@ -113,13 +144,11 @@ function updateDashboardUiMesh(stats) {
         SetDomText('lblWlanSsid',       net.WlanSsid);
         SetDomText('lblExtIPv4',        net.ExtIPv4);
         SetDomText('lblLinkCap',        net.LinkCap);
-        SetDomText('lblInterfaceName',  net.InterfaceName);
         
-        // PUSH CLEAN LOGIC TEXT HIGHLIGHTS
         SetDomText('lblNetRxValue', net.RxText || "0.00 KB/s");
         SetDomText('lblNetTxValue', net.TxText || "0.00 KB/s");
         
-        // Map percentages down to a strict 50% split partition boundary window
+        // Maps tracking bars accurately within their exact 50% section blocks
         const rxHalfPct = Math.min((net.RxPct || 0) * 0.5, 50);
         const txHalfPct = Math.min((net.TxPct || 0) * 0.5, 50);
         
@@ -207,3 +236,66 @@ function TriggerVolumeRelabel(driveLetter, currentLabel) {
         window.chrome.webview.postMessage(`Rename-Drive:${driveLetter}|${newLabel}`);
     }
 }
+/**
+ * FIXED: Main diagnostic console log clearance event receiver
+ */
+window.ClearConsoleLogView = function() {
+    const consoleBox = document.getElementById('console-box') || document.querySelector('.console-box');
+    if (consoleBox) {
+        consoleBox.textContent = '[SYSTEM: CONSOLE LOG MESH PIPELINE FLUSHED... READY]';
+    }
+};
+
+/**
+ * FIXED: Main interactive bandwidth speed test dispatcher
+ */
+window.TriggerNetworkSpeedAnalysis = function() {
+    const btn = document.querySelector('.speed-execute-action-btn');
+    if (btn) {
+        btn.disabled = true;
+        const originalText = btn.textContent;
+        btn.textContent = "RUNNING...";
+        
+        // Notify the PowerShell host engine layer to execute the backend network test module
+        if (window.chrome && window.chrome.webview) {
+            window.chrome.webview.postMessage("Execute-SpeedTest");
+        }
+        
+        // Safety timeout to release button lock state if thread falls out
+        setTimeout(() => {
+            btn.disabled = false;
+            btn.textContent = originalText;
+        }, 15000);
+    }
+};
+/**
+ * Serializes current dashboard form settings and updates the PowerShell host watchdog runtime
+ */
+window.CommitWatchdogTuningProfile = function() {
+    const cpuThreshold = document.getElementById('rangeCpuThreshold')?.value || "20";
+    const reactionMode = document.querySelector('input[name="radWatchdogMode"]:checked')?.value || "Throttle";
+    const whitelistRaw = document.getElementById('txtCustomWhitelist')?.value || "";
+    
+    // Process raw text values block list down to clean isolated array metrics
+    const whitelistArray = whitelistRaw.split(',')
+        .map(item => item.trim().toLowerCase())
+        .filter(item => item.length > 0);
+
+    const configurationPayload = {
+        EventAction: "Update-WatchdogRules",
+        CpuThresholdPct: parseFloat(cpuThreshold),
+        AutoActionTarget: reactionMode,
+        UserWhitelist: whitelistArray
+    };
+
+    // Safely emit data metrics across native background runspace framework interfaces
+    if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage(JSON.stringify(configurationPayload));
+        
+        // Flash a confirmation visual print to our dashboard console view engine container
+        const consoleBox = document.getElementById('console-box');
+        if (consoleBox) {
+            consoleBox.textContent = `[WATCHDOG: TUNING MATRIX SYNCHRONIZED] Filter Cap: ${cpuThreshold}% | Mode: ${reactionMode} | Active Rules Applied`;
+        }
+    }
+};

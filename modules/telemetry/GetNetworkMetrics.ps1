@@ -1,5 +1,7 @@
 function Get-NetworkMetrics {
-    $IPConfig = Get-NetIPInterface -AddressFamily IPv4 -ConnectionState Connected | Where-Object { $_.InterfaceAlias -notlike "*Loopback*" } | Select-Object -First 1
+    $IPConfig = Get-NetIPInterface -AddressFamily IPv4 -ConnectionState Connected | 
+                Where-Object { $_.InterfaceAlias -notlike "*Loopback*" -and $_.InterfaceAlias -notlike "*vEthernet*" } | 
+                Select-Object -First 1
     
     $IntIPv4       = "0.0.0.0"
     $SubMask       = "0.0.0.0"
@@ -35,34 +37,37 @@ function Get-NetworkMetrics {
             $SpeedGbps = [math]::Round(($CurrentNic.Speed / 1GB), 1)
             $LinkCap = if ($SpeedGbps -ge 1) { "$SpeedGbps Gbps" } else { "$([int]($CurrentNic.Speed / 1MB)) Mbps" }
             
-            # Formatted data performance class for instant real-time calculation counters
-            $NetPerf = Get-CimInstance -ClassName Win32_PerfFormattedData_Tcpip_NetworkInterface | Select-Object -First 1 -ErrorAction SilentlyContinue
+            $NetPerf = Get-CimInstance -ClassName Win32_PerfFormattedData_Tcpip_NetworkInterface | 
+                       Where-Object { $_.Name -replace ' - ',' ' -like "*$($CurrentNic.Name)*" -or $_.Name -like "*$($CurrentNic.Description)*" } -ErrorAction SilentlyContinue |
+                       Select-Object -First 1
+            
+            if (-not $NetPerf) {
+                $NetPerf = Get-CimInstance -ClassName Win32_PerfFormattedData_Tcpip_NetworkInterface | Select-Object -First 1
+            }
+
             if ($NetPerf) {
                 $MaxSpeedBytes = $CurrentNic.Speed / 8
                 
-                # Download Metrics (Bytes Received)
                 $RxBytes = [double]$NetPerf.BytesReceivedPersec
                 $RxText = if ($RxBytes -gt 1MB) { "$([math]::Round($RxBytes / 1MB, 2)) MB/s" } else { "$([math]::Round($RxBytes / 1KB, 2)) KB/s" }
-                $RxPct = [int](($RxBytes / $MaxSpeedBytes) * 100)
+                $RxPct = if ($MaxSpeedBytes -gt 0) { [int](($RxBytes / $MaxSpeedBytes) * 100) } else { 0 }
                 if ($RxPct -lt 5 -and $RxBytes -gt 0) { $RxPct = 8 } 
                 
-                # Upload Metrics (Bytes Sent)
                 $TxBytes = [double]$NetPerf.BytesSentPersec
                 $TxText = if ($TxBytes -gt 1MB) { "$([math]::Round($TxBytes / 1MB, 2)) MB/s" } else { "$([math]::Round($TxBytes / 1KB, 2)) KB/s" }
-                $TxPct = [int](($TxBytes / $MaxSpeedBytes) * 100)
+                $TxPct = if ($MaxSpeedBytes -gt 0) { [int](($TxBytes / $MaxSpeedBytes) * 100) } else { 0 }
                 if ($TxPct -lt 5 -and $TxBytes -gt 0) { $TxPct = 8 }
             }
         }
     }
 
-    # Cleaned up string regex index references to ensure accurate network profiles strings
     $WlanInterfaces = netsh wlan show interfaces | Out-String
     if ($WlanInterfaces -match '(?i)^\s+SSID\s+:\s+(.*)$') { 
         $WlanSsid = $Matches[1].Trim() 
     }
 
     $DiscoveryStatus = "Off"
-    $SsdpRule = Get-NetFirewallRule -Name "WSDEventsSecure-HTTP-In-NoAuth" -ErrorAction SilentlyContinue
+    $SsdpRule = Get-NetFirewallRule -Name "FPS-LLMNR-In-UDP" -ErrorAction SilentlyContinue
     if ($SsdpRule -and $SsdpRule.Enabled -eq 'True') { $DiscoveryStatus = "On" }
 
     $EthDriver  = "Not Present / Inactive"
@@ -74,15 +79,15 @@ function Get-NetworkMetrics {
         elseif ($Adapter.Name -like "*Ethernet*" -or $Adapter.Name -like "*Gigabit*" -or $Adapter.Name -like "*PCIe*") { $EthDriver = $Adapter.Name }
     }
 
-    # Enforced locked external endpoint call configurations
     $ExtIPv4 = "Resolving..."
     try {
         $WebClient = New-Object System.Net.WebClient
         $WebClient.Headers.Add("user-agent", "curl/7.81.0")
-        $DownloadTask = $WebClient.DownloadStringTaskAsync("https://ipify.org")
-        if ($DownloadTask.Wait(500)) { $ExtIPv4 = $DownloadTask.Result.Trim() } else { $ExtIPv4 = "Gateway Latency" }
+        $DownloadTask = $WebClient.DownloadStringTaskAsync("https://api.ipify.org")
+        if ($DownloadTask.Wait(400)) { $ExtIPv4 = $DownloadTask.Result.Trim() } else { $ExtIPv4 = "Gateway Latency" }
     } catch { $ExtIPv4 = "Offline / Secure Mesh" }
-
+    $DhcpStatus = "Static"
+    if ($IPConfig.Dhcp -eq 'Enabled') { $DhcpStatus = "DHCP" }
     return [PSCustomObject]@{
         IntIPv4       = [string]$IntIPv4
         SubnetMask    = [string]$SubMask
@@ -92,11 +97,12 @@ function Get-NetworkMetrics {
         ExtIPv4       = [string]$ExtIPv4
         LinkCap       = [string]$LinkCap
         Discovery     = [string]$DiscoveryStatus
-        EthDriver     = [string]$EthDriver
-        WifiDriver    = [string]$WifiDriver
+        lblEthDriver  = [string]$EthDriver
+        lblWifiDriver = [string]$WifiDriver
         RxPct         = [int]$RxPct
         TxPct         = [int]$TxPct
         RxText        = [string]$RxText
         TxText        = [string]$TxText
+        NetAssignment = [string]$DhcpStatus
     }
 }

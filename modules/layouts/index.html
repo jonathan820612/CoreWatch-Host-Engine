@@ -2,213 +2,187 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CoreWatch Host Engine Dashboard</title>
-    <link rel="stylesheet" type="text/css" href="./style.css">
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-    <!-- APP NAVIGATION DECK -->
+    <!-- Header Control Ribbon Panel -->
     <div class="app-header-deck">
         <div class="modular-tabs">
             <button class="tab-btn active">📟 Dashboard</button>
-            <button class="tab-btn">📁 File Organizer</button>
-            <button class="tab-btn">🔍 Port Scanner</button>
-            <button class="tab-btn">🐝 Jitterbug Link</button>
+            <button id="btnToggleOrganizer" class="tab-btn" onclick="LaunchExternalToolWindow('File-Organizer')">📁 File Organizer</button>
+            <button id="btnToggleScanner" class="tab-btn" onclick="LaunchExternalToolWindow('Port-Scanner')">🔍 Port Scanner</button>
+            <button id="btnToggleWatchdog" class="tab-btn" onclick="LaunchExternalToolWindow('Watchdog-Engine')">🛡️ Watchdog Link</button>
         </div>
+        <button class="exit-system-btn" onclick="if(window.chrome?.webview){window.chrome.webview.postMessage('Exit-App')}">TERMINATE</button>
     </div>
 
+    <!-- FIXED: Restored correct layout class wrapper to properly enforce the 2-column axis grid framework -->
     <div class="dashboard-grid">
-        
-<!-- HARDWARE METRICS CARD -->
-<div class="dashboard-card">
-    <h2>⚡ HARDWARE METRICS</h2>
-    
-    <!-- PROCESSOR ENGINE -->
-    <div class="metric-row">
-        <div class="metric-metadata">
-            <span id="lblCpuModel">Processor Core</span>
-            <span id="lblCpuLoad">0%</span>
-        </div>
-        <div class="track-bg"><div id="barCpuLoad" class="track-fill"></div></div>
-        <div class="driver-tag hardware-metric-footer-row">
-            <span class="driver-text-node">Standard Driver</span>
-            <div class="hardware-badge-deck">
-                <span class="hardware-stat-tag text-speed"><span id="lblCpuClock">0.00</span> GHz</span>
-                <span id="badgeCpuTemp" class="hardware-stat-tag therm-cool"><span id="lblCpuTemp">00</span>°C</span>
+
+        <!-- Column 1, Card 1: Hardware Metrics -->
+        <div class="dashboard-card">
+            <h2>⚡ HARDWARE METRICS</h2>
+            
+            <!-- Processor Core Segment -->
+            <div class="metric-row">
+                <div class="metric-metadata">
+                    <!-- FIXED: Added explicit id anchor to dynamically load your processor model name -->
+                    <span id="lblCpuModel">Processor Core</span>
+                    <span id="lblCpuLoad">0%</span>
+                </div>
+                <div class="track-bg"><div id="barCpuLoad" class="track-fill"></div></div>
+                <div class="hardware-metric-footer-row">
+                    <span id="lblCpuDriver" class="driver-tag">Standard Driver</span>
+                    <div class="hardware-badge-deck">
+                        <span class="hardware-stat-tag text-speed"><span id="lblCpuClock">0.00</span> GHz</span>
+                        <span id="badgeCpuTemp" class="hardware-stat-tag therm-cool"><span id="lblCpuTemp">00</span> °C</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Display Adapter Segment -->
+            <div class="metric-row">
+                <div class="metric-metadata">
+                    <!-- FIXED: Added explicit id anchor to dynamically load your GPU hardware name -->
+                    <span id="lblGpuModel">Display Adapter</span>
+                    <span id="lblGpuLoad">0%</span>
+                </div>
+                <div class="track-bg"><div id="barGpuLoad" class="track-fill"></div></div>
+                <div class="hardware-metric-footer-row">
+                    <!-- FIXED: Swapped ID here so your script maps the driver version text cleanly -->
+                    <span id="lblGpuDriverVersion" class="driver-tag">32.0.16.1088</span>
+                    <div class="hardware-badge-deck">
+                        <span class="hardware-stat-tag text-power"><span id="lblGpuPower">00</span> W</span>
+                        <span id="badgeGpuTemp" class="hardware-stat-tag therm-cool"><span id="lblGpuTemp">00</span> °C</span>
+                    </div>
+                </div>
+            </div>
+
+
+            <!-- RAM Memory Allocation Segment (3 Lines) -->
+            <div class="metric-row">
+                <div class="metric-metadata">
+                    <span>📟 RAM Memory Allocation</span>
+                    <span id="lblRamUsage">0.00 / 0.00 GB</span>
+                </div>
+                <div class="track-bg"><div id="barRamUsage" class="track-fill"></div></div>
+                <div class="metric-cache-matrix-row">
+                    <span class="cache-title-label">Cache Matrix:</span>
+                    <div class="cache-badge-deck">
+                        <span class="cache-tag">L1: 512KB</span>
+                        <span class="cache-tag">L2: 4MB</span>
+                        <span class="cache-tag highlight-x3d">L3: 96MB (3D V-Cache)</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pagefile Virtual Commitment Segment (2 Lines) -->
+            <div class="metric-row">
+                <div class="metric-metadata">
+                    <span>💾 Pagefile Commitment</span>
+                    <span id="lblPagefileUsage">0.00 / 0.00 GB</span>
+                </div>
+                <div class="track-bg"><div id="barPagefileUsage" class="track-fill"></div></div>
             </div>
         </div>
-    </div>
 
-    <!-- GRAPHICS ACCELERATOR -->
-    <div class="metric-row">
-        <div class="metric-metadata">
-            <span id="lblGpuModel">Display Adapter</span>
-            <span id="lblGpuLoad">0%</span>
+        
+        <div class="dashboard-card">
+            <h2>🛠 SYSTEM IDENTITY</h2>
+            <div class="data-field"><span>🖥</span> Host: <strong id="lblHostName">Loading...</strong></div>
+            <div class="data-field"><span>🌐</span> Domain/WG: <strong id="lblWorkgroup">Loading...</strong></div>
+            <div class="data-field"><span>🪟</span> OS Edition: <strong id="lblOsEdition">Loading...</strong></div>
+            <div class="data-field"><span>📜</span> Build: <strong id="lblWinBuild">Loading...</strong></div>
+            <div class="data-field"><span>📅</span> Update Level: <strong id="lblUpdateLevel">Loading...</strong></div>
+            <div class="data-field"><span>🎮</span> DirectX: <strong id="lblDirectX">Loading...</strong></div>
+            <div class="data-field"><span>🧬</span> Virtualization: <strong id="lblVirtualization">Loading...</strong></div>
+            <div class="data-field"><span>💎</span> PS Version: <strong id="lblPsVersion">Loading...</strong></div>
         </div>
-        <div class="track-bg"><div id="barGpuLoad" class="track-fill"></div></div>
-        <div class="driver-tag hardware-metric-footer-row">
-            <span id="lblGpuDriver" class="driver-text-node">Unknown Driver</span>
-            <div class="hardware-badge-deck">
-                <span class="hardware-stat-tag text-power"><span id="lblGpuPower">00</span>W</span>
-                <span id="badgeGpuTemp" class="hardware-stat-tag therm-cool"><span id="lblGpuTemp">00</span>°C</span>
+        <!-- Column 1, Card 3: Storage Mass Arrays -->
+        <div class="dashboard-card">
+            <h2>💾 STORAGE</h2>
+            <div id="storageVolumeContainer" class="storage-dynamic-mesh-grid">
+                <div class="loading-placeholder">Evaluating connected media arrays...</div>
             </div>
         </div>
-    </div>
 
-    <!-- VOLUMETRIC MEMORY ARRAY -->
-    <div class="metric-row">
-        <div class="metric-metadata">
-            <span>📟 RAM Memory Allocation</span>
-            <span id="lblRamUsage">0.00 / 0.00 GB</span>
-        </div>
-        <div class="track-bg"><div id="barRamUsage" class="track-fill"></div></div>
-        
-        <!-- FIXED: Re-nested & stripped down layout metadata sub-row -->
-        <div class="metric-cache-matrix-row">
-            <span class="cache-title-label">Cache Matrix:</span>
-            <div class="cache-badge-deck">
-                <span class="cache-tag">L1: 512KB</span>
-                <span class="cache-tag">L2: 4MB</span>
-                <span class="cache-tag highlight-x3d">L3: 96MB (3D V-Cache)</span>
+        <!-- Column 2, Card 4: Infrastructure Hardware Profile -->
+        <div class="dashboard-card">
+            <h2>💻 INFRASTRUCTURE</h2>
+            <div class="data-field"><span>🧱</span> <strong id="lblMotherboard">Loading...</strong></div>
+            <div class="data-field"><span>🧬</span> <strong id="lblBiosVersion">Loading...</strong></div>
+            <div class="data-field"><span>⚡</span> <strong id="lblPowerPlan">Loading...</strong></div>
+            <div class="data-field"><span>🕒</span> <strong id="lblUptime">Loading...</strong></div>
+            
+            <div class="audio-sub-deck">
+                <div class="data-field"><span>🔈</span> <strong id="lblAudioOutput">Resolving output...</strong></div>
+                <div class="data-field"><span>🎙</span> <strong id="lblAudioInput">Resolving input...</strong></div>
             </div>
         </div>
-    </div>
 
+        <!-- Full Width Layout Row: Network Profile System Matrix Panel -->
+        <div class="wide-sub-console">
+            <h2>📡 NETWORK PROFILE SYSTEM</h2>
+            <div class="network-matrix-grid">
+                <div class="net-node"><span>🏠</span> Int IPv4: <strong id="lblIntIPv4">0.0.0.0</strong></div>
+                <div class="net-node"><span>🔏</span> Subnet Mask: <strong id="lblSubnetMask">0.0.0.0</strong></div>
+                <div class="net-node"><span>🚪</span> Gateway: <strong id="lblGateway">0.0.0.0</strong></div>
+                <div class="net-node"><span>⚙️</span> IP Assignment: <span id="badgeNetAssignment" class="hardware-stat-tag text-assignment"><strong id="lblNetAssignment">DHCP</strong></span></div>
+                <div class="net-node"><span>🛡</span> Profile Status: <strong id="lblNetworkStatus">Offline</strong></div>
+                <div class="net-node"><span>📶</span> WLAN SSID: <strong id="lblWlanSsid">Disconnected</strong></div>
+                <div class="net-node"><span>🌍</span> Ext IPv4: <strong id="lblExtIPv4">Resolving...</strong></div>
+                <div class="net-node"><span>🚀</span> Link Capacity: <strong id="lblLinkCap">0 Mbps</strong></div>
+                <div class="net-node"><span>📣</span> Discovery: <strong id="lblDiscovery">Off</strong></div>
+                
+                
+                <div class="net-node multi-driver-row">
+                    <span>🌐</span> Ethernet: <strong id="lblEthDriver">Checking...</strong>
+                    <span>📶</span> Wi-Fi: <strong id="lblWifiDriver">Checking...</strong>
+                </div>
+            </div>
 
-    <!-- NEW: WINDOWS VIRTUAL MEMORY (PAGEFILE) COMMITMENT TRACKER -->
-    <div class="metric-row">
-        <div class="metric-metadata">
-            <span>💾 Pagefile Commitment</span>
-            <span id="lblPagefileUsage">0.00 / 0.00 GB</span>
-        </div>
-        <div class="track-bg"><div id="barPagefileUsage" class="track-fill" style="background-color: #319795;"></div></div>
-    </div>
-</div> <!-- CRITICAL FIX: Explicitly closed hardware layout block completely here -->
-
-<!-- SYSTEM IDENTITY CARD -->
-<div class="dashboard-card">
-    <h2>🛠️ SYSTEM IDENTITY</h2>
-    <div class="data-field"><span>🖥️</span> Host: <strong id="lblHostName">Loading...</strong></div>
-    <div class="data-field"><span>🌐</span> Domain/WG: <strong id="lblWorkgroup">Loading...</strong></div>
-    <div class="data-field"><span>🪟</span> OS Edition: <strong id="lblOsEdition">Loading...</strong></div>
-    <div class="data-field"><span>📜</span> Build: <strong id="lblWinBuild">Loading...</strong></div>
-    <div class="data-field"><span>📅</span> Update Level: <strong id="lblUpdateLevel">Loading...</strong></div>
-    <div class="data-field"><span>🎮</span> DirectX: <strong id="lblDirectX">Loading...</strong></div>
-    <div class="data-field"><span>🧬</span> Virtualization: <strong id="lblVirtualization">Loading...</strong></div>
-    <div class="data-field"><span>💎</span> PS Version: <strong id="lblPsVersion">Loading...</strong></div>
-</div>
-<!-- Locate your Storage Card inside index.html and ensure it uses this inner mesh wrapper -->
-<div class="dashboard-card">
-    <h2>💾 STORAGE</h2>
-    <div id="storageVolumeContainer" class="storage-dynamic-mesh-grid">
-        <div class="loading-placeholder">Evaluating connected media arrays...</div>
-    </div>
-</div>
-
-<div class="dashboard-card">
-    <h2>💻 INFRASTRUCTURE</h2>
-    
-    <!-- Motherboard -->
-    <div class="data-field">
-        <span>🧱</span>Motherboard: <strong id="lblMotherboard">Loading...</strong>
-    </div>
-    
-    <!-- BIOS Version -->
-    <div class="data-field">
-        <span>🧬</span>BIOS: <strong id="lblBiosVersion">Loading...</strong>
-    </div>
-    
-    <!-- Power Allocation Plan -->
-    <div class="data-field">
-        <span>⚡</span> <strong id="lblPowerPlan">Loading...</strong>
-    </div>
-    
-    <!-- System Uptime Clock -->
-    <div class="data-field">
-        <span>🕒</span> <strong id="lblUptime">Loading...</strong>
-    </div>
-
-    <!-- Embedded Audio Sub-Deck Section Node Layout -->
-    <div class="audio-sub-deck">
-        <div class="data-field">
-            <span>🔈</span> <strong id="lblAudioOutput">Resolving output...</strong>
-        </div>
-        <div class="data-field">
-            <span>🎙</span> <strong id="lblAudioInput">Resolving input...</strong>
-        </div>
-    </div>
-</div>
-
-
-
-<!-- 📡 NETWORK CARD -->
-<div class="dashboard-card wide-sub-console network-card-container">
-    <h2>📡 NETWORK PROFILE SYSTEM</h2>
-    <div class="network-matrix-grid">
-        <div class="net-node">🏠 Int IPv4: <strong id="lblIntIPv4">0.0.0.0</strong></div>
-        <div class="net-node">🔏 Subnet Mask: <strong id="lblSubnetMask">0.0.0.0</strong></div>
-        <div class="net-node">🚪 Gateway: <strong id="lblGateway">0.0.0.0</strong></div>
-        
-        <div class="net-node">🛡️ Profile Status: <strong id="lblNetworkStatus">Offline</strong></div>
-        <div class="net-node">📶 WLAN SSID: <strong id="lblWlanSsid">Disconnected</strong></div>
-        <div class="net-node">🌍 Ext IPv4: <strong id="lblExtIPv4">Resolving...</strong></div>
-        
-        <div class="net-node">🚀 Link Capacity: <strong id="lblLinkCap">0 Mbps</strong></div>
-        <div class="net-node">📣 Discovery: <strong id="lblDiscovery">Off</strong></div>
-        <div class="net-spacer"></div>
-
-        <div class="net-node multi-driver-row">
-            <span>🌐</span> Ethernet Driver: <strong id="lblEthDriver">Checking...</strong>
-            <span>📶</span> Wi-Fi Driver: <strong id="lblWifiDriver">Checking...</strong>
-        </div>
-    </div>
-</div>
+            <!-- Performance Speed Test Execution Bar -->
             <div class="speedtest-wrapper-deck">
                 <div class="speed-metrics-panel">
-                    <div class="speed-data-node">Latency Boundary: <strong id="lblSpeedPing">--</strong></div>
-                    <div class="speed-data-node">Download Path: <strong id="lblSpeedDl">--</strong></div>
-                    <div class="speed-data-node">Upload Path: <strong id="lblSpeedUl">--</strong></div>
+                    <span class="speed-data-node">Latency: <strong id="lblSpeedPing">--</strong></span>
+                    <span class="speed-data-node">Download: <strong id="lblSpeedDownload">--</strong></span>
+                    <span class="speed-data-node">Upload: <strong id="lblSpeedUpload">--</strong></span>
                 </div>
-                <button id="btnRunSpeedTest" class="speed-execute-action-btn" onclick="TriggerNetworkSpeedAnalysis()">RUN PERFORMANCE SPEEDTEST</button>
+                <button class="speed-execute-action-btn" onclick="TriggerNetworkSpeedAnalysis()">Test Mesh</button>
             </div>
 
-<div class="net-activity-container">
-    <div class="activity-metadata">
-        <span>📊 Transmit/Receive Data Mesh Pipeline Activity</span>
-        <span style="font-family: 'Consolas', monospace; font-size: 11px;">
-            📥 <strong id="lblNetRxValue" style="color: #63b3ed; margin-right: 10px;">0.00 KB/s</strong> 
-            📤 <strong id="lblNetTxValue" style="color: #d6bcfa;">0.00 KB/s</strong>
-        </span>
-    </div>
-    
-    <!-- Unified 10px tracking track chassis wrapper -->
-    <div class="track-bg" style="position: relative; overflow: hidden; background-color: #2d3748; height: 10px; display: flex;">
-        
-        <!-- === LEFT SIDE LAYER DECK (DOWNLOAD) === -->
-        <!-- Static background layer half (Dark local storage blue) -->
-        <div style="position: absolute; left: 0; top: 0; width: 50%; height: 100%; background-color: #3182ce; opacity: 0.35; z-index: 1;"></div>
-        <!-- Active dynamic progress overlay (High visibility bright blue) -->
-        <div id="barNetRx" style="position: absolute; left: 0; top: 0; height: 100%; width: 0%; background-color: #4299e1; transition: width 0.3s ease; z-index: 2;"></div>
-        
-        <!-- === RIGHT SIDE LAYER DECK (UPLOAD) === -->
-        <!-- Static background layer half (Dark removable storage purple) -->
-        <div style="position: absolute; right: 0; top: 0; width: 50%; height: 100%; background-color: #9f7aea; opacity: 0.35; z-index: 1;"></div>
-        <!-- Active dynamic progress overlay (High visibility bright purple) -->
-        <div id="barNetTx" style="position: absolute; right: 0; top: 0; height: 100%; width: 0%; background-color: #b794f4; transition: width 0.3s ease; z-index: 2;"></div>
-        
-    </div>
-</div>
-        <!-- LOG PROFILE CONSOLE -->
-        <div class="dashboard-card wide-sub-console">
+            <!-- Realtime Pipeline Activity Monitors -->
+            <div class="net-activity-container">
+                <div class="activity-metadata">
+                    <span>📊 Transmit/Receive Data Mesh Pipeline Activity</span>
+                    <span class="activity-values">
+                        📥 <strong id="lblNetRxValue" class="rx-numeric-text">0.00 KB/s</strong> 
+                        📤 <strong id="lblNetTxValue" class="tx-numeric-text">0.00 KB/s</strong>
+                    </span>
+                </div>
+                <div class="activity-track-chassis">
+                    <div class="track-bg-half download-static-bg"></div>
+                    <div id="barNetRx" class="download-dynamic-fill"></div>
+                    <div class="track-bg-half upload-static-bg"></div>
+                    <div id="barNetTx" class="upload-dynamic-fill"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Full Width Layout Row: Log View Processing Console -->
+        <div class="wide-sub-console">
             <div class="console-header-row">
                 <h2>📑 LOG PROFILE CONSOLE</h2>
                 <button class="console-clear-btn" onclick="ClearConsoleLogView()">Flush Logs</button>
             </div>
-            <div id="panelConsoleOutput" class="console-box">[CoreWatch Host Engine Interface Active: Polling live CIM loops...]</div>
+            <div id="console-box" class="console-box">[CoreWatch Host Engine Interface Active: Polling live CIM loops...]</div>
         </div>
 
-    </div>
+    </div> <!-- CLOSING DIV FOR DASHBOARD-GRID WRAPPER LAYER -->
 
-    <script src="./app.js"></script>
+    <script src="app.js"></script>
 </body>
 </html>
