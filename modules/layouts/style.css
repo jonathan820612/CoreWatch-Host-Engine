@@ -1,3 +1,4 @@
+/* Core application and window frame styling */
 body {
     background-color: #1a202c;
     color: #f7fafc;
@@ -8,7 +9,7 @@ body {
     overflow-y: auto;
 }
 
-/* APP NAVIGATION DECK */
+/* Header toolbar structure */
 .app-header-deck {
     display: flex;
     justify-content: space-between;
@@ -19,19 +20,23 @@ body {
     margin-bottom: 10px;
 }
 .modular-tabs { display: flex; gap: 6px; }
+
+/* Control buttons and tab handlers */
 .tab-btn {
     background: #2d3748; border: 1px solid #4a5568; color: #a0aec0;
     font-size: 11px; padding: 4px 10px; cursor: pointer;
 }
 .tab-btn.active { background: #3182ce; color: #fff; border-color: #4299e1; }
 .tab-btn.disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* App termination button */
 .exit-system-btn {
     background: #9b2c2c; border: 1px solid #e53e3e; color: #fff;
     font-size: 11px; font-weight: bold; padding: 4px 12px; cursor: pointer;
 }
 .exit-system-btn:hover { background: #c53030; }
 
-/* DATA GRID LAYOUT MESH */
+/* Dashboard layout grid and cards */
 .dashboard-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -42,19 +47,18 @@ body {
     border: 1px solid #323c4b;
     padding: 10px; 
     box-sizing: border-box; 
-    min-height: 240px; /* INCREASED from 125px to accommodate multi-drive stacks and sound sub-grids */
+    min-height: 240px; 
 }
 .wide-sub-console {
     grid-column: span 2; background-color: #212936;
     border: 1px solid #323c4b; padding: 10px;
 }
-
 h2 {
     font-size: 11px; font-weight: bold; letter-spacing: 0.5px;
-    margin-top: 0; margin-bottom: 8px; color: #4299e1; border-bottom: 1px solid #2d3748; padding-bottom: 4px;
+    margin: 0 0 8px 0; color: #4299e1; border-bottom: 1px solid #2d3748; padding-bottom: 4px;
 }
 
-/* TYPOGRAPHY DENSITY & ICON ALIGNMENT ADJUSTMENTS */
+/* Typography styles and row layout configurations */
 .data-field, .data-field-split {
     font-size: 12px; line-height: 1.4; color: #cbd5e0; margin-bottom: 4px;
     display: flex; align-items: center; gap: 8px;
@@ -62,56 +66,48 @@ h2 {
 .data-field span:first-child {
     font-size: 13px; display: inline-block; width: 16px; text-align: center;
 }
-.data-field-split { display: flex; justify-content: space-between; }
+.data-field-split { justify-content: space-between; }
 .net-node strong { color: #edf2f7; font-weight: normal; }
 .hint-text { font-size: 10px; color: #718096; margin-top: 5px; }
-
-/* RE-THROTTLED TRACK CONSTRUCTIONS */
+/* Progress tracks and loading bars */
 .metric-row { margin-bottom: 6px; }
 .metric-metadata { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 2px; color: #cbd5e0; }
 .track-bg { background-color: #2d3748; height: 5px; width: 100%; position: relative; }
 .track-fill { background-color: #3182ce; height: 100%; width: 0%; transition: width 0.3s ease; }
 
-/* HIGH-DENSITY HARDWARE TAGS */
-.driver-tag {
-    font-size: 10px;
-    color: #a0aec0;
-    margin-top: 2px;
-    margin-bottom: 4px;
-    padding-left: 2px;
-}
-
-/* STORAGE VOLUMETRIC METRIC CORRECTIONS */
+/* Storage panel rows and data metrics */
 .storage-dynamic-mesh-grid {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    max-height: 200px; /* INCREASED from 115px to let rows breath */
-    overflow-y: auto;
-    padding-right: 4px;
+    display: flex; flex-direction: column; gap: 8px;
+    max-height: 200px; overflow-y: auto; padding-right: 4px;
 }
-.dynamic-storage-row { margin-bottom: 2px; }
-.storage-flex-row {
-    display: flex;
-    justify-content: space-between;
-    font-size: 11px;
-    margin-bottom: 3px;
-    color: #cbd5e0;
-}
-.clickable-label {
-    cursor: pointer; color: #4299e1; transition: color 0.2s ease;
-}
-.clickable-label:hover {
-    color: #63b3ed; text-decoration: underline;
-}
+.driver-tag { font-size: 10px; color: #a0aec0; margin: 2px 0 4px 2px; }
+.storage-tight-row { margin-bottom: 2px !important; }
+.driver-tag.tight-tag { margin-top: 1px !important; margin-bottom: 2px !important; opacity: 0.7; }
 .storage-data-numeric-text { font-family: 'Consolas', monospace; color: #a0aec0; }
-.loading-placeholder { font-size: 11px; color: #718096; font-style: italic; }
 
-/* NETWORK ELEMENTS */
-.network-matrix-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; grid-gap: 6px; font-size: 12px; color: #cbd5e0; }
+/* Interactive drive label configurations and hover triggers */
+.storage-interactive-row-header { cursor: pointer; display: inline-flex; align-items: center; gap: 6px; user-select: none; }
+.drive-title { font-family: 'Consolas', 'Segoe UI', monospace; font-size: 12px; font-weight: bold; transition: color 0.15s ease; }
+.drive-title.text-local { color: #edf2f7; }
+.drive-title.text-removable { color: #cbd5e0; }
+
+/* Storage row mouse hover actions */
+.storage-interactive-row-header:hover .drive-title.text-local { color: #4299e1; }
+.storage-interactive-row-header:hover .drive-title.text-removable { color: #b794f4; }
+.storage-tag-icon { font-size: 12px; display: inline-block; transition: transform 0.15s ease; }
+.storage-interactive-row-header:hover .storage-tag-icon { transform: scale(1.1); }
+
+/* Network grids, device adapters, and driver info */
+.network-matrix-grid { display: grid; grid-template-columns: repeat(3, 1fr); grid-gap: 6px; font-size: 12px; color: #cbd5e0; }
 .net-node { display: flex; align-items: center; gap: 4px; }
+.network-card-container { min-height: 140px; }
+.net-node.multi-driver-row {
+    grid-column: span 3; color: #a0aec0; font-size: 11px; margin-top: 4px;
+    border-top: 1px dashed #2d3748; padding-top: 4px; display: flex; gap: 8px; align-items: center;
+}
+.net-node.multi-driver-row strong:first-of-type { margin-right: 20px; }
 
-/* PERFORMANCE SPEEDTEST DECK */
+/* Performance speed tests and usage layout blocks */
 .speedtest-wrapper-deck {
     margin-top: 10px; padding: 8px; background-color: #1a202c;
     border: 1px solid #2d3748; display: flex; justify-content: space-between; align-items: center;
@@ -125,189 +121,49 @@ h2 {
 }
 .speed-execute-action-btn:hover { background-color: #3182ce; border-color: #4299e1; }
 .speed-execute-action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
 .net-activity-container { margin-top: 10px; padding-top: 6px; border-top: 1px dashed #2d3748; }
-.activity-metadata { font-size: 11px; color: #718096; margin-bottom: 2px; }
 .activity-bar-fill { background: linear-gradient(90deg, #319795 50%, #b83280 50%); width: 100%; height: 100%; opacity: 0.3; }
 
-/* CONSOLE SYSTEM VIEW */
-.console-header-row { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #2d3748; margin-bottom: 6px; padding-bottom: 4px; }
-.console-header-row h2 { border: none; margin: 0; }
-.console-clear-btn { background: #2d3748; border: 1px solid #4a5568; color: #cbd5e0; font-size: 10px; padding: 1px 6px; cursor: pointer; }
-.console-box { font-family: 'Consolas', monospace; font-size: 11px; color: #a0aec0; max-height: 80px; overflow-y: auto; white-space: pre-wrap; }
-/* IMMEDIATE INTERACTION OVERRIDE DECK FOR SPLASH COVER */
-#appSplashOverlayView {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background-color: #1a202c;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    z-index: 99999;
-    transition: opacity 0.4s ease-out, visibility 0.4s;
+/* Hardware information tags and telemetry condition badges */
+.metric-cache-matrix-row, .hardware-metric-footer-row { display: flex; align-items: center; gap: 6px; margin-top: 3px; margin-bottom: 6px; padding-left: 2px; }
+.hardware-metric-footer-row { justify-content: space-between; margin-bottom: 2px; }
+.cache-title-label, .driver-text-node { font-size: 10px; color: #a0aec0; font-family: 'Consolas', monospace; }
+.cache-badge-deck, .hardware-badge-deck { display: flex; gap: 4px; }
+.cache-tag, .hardware-stat-tag {
+    font-size: 9px; font-weight: bold; background-color: #2d3748; color: #cbd5e0;
+    padding: 1px 5px; border-radius: 2px; font-family: 'Consolas', monospace; border: 1px solid #3a4659;
 }
-
-#appSplashOverlayView.hidden-canvas {
-    opacity: 0 !important;
-    visibility: hidden !important;
-    pointer-events: none !important;
-}
-/* File: modules/layouts/style.css */
-
-/* Eliminates vertical padding bleeding between individual drive nodes */
-.storage-tight-row {
-    margin-bottom: 2px !important;
-}
-
-/* Forces the sub-label tag to collapse flatly under the track bar without extra padding */
-.driver-tag.tight-tag {
-    margin-top: 1px !important;
-    margin-bottom: 2px !important;
-    font-size: 10px;
-    opacity: 0.7;
-}
-.audio-sub-deck {
-    margin-top: 6px;
-    padding-top: 6px;
-    border-top: 1px dashed #2d3748;
-}
-.audio-node-title {
-    font-size: 11px;
-    color: #3182ce;
-    font-family: 'Consolas', monospace;
-    margin-bottom: 2px;
-    font-weight: bold;
-}
-/* File: modules/layouts/style.css - Layout Override Appendix */
-
-/* Enforces precise sizing configurations on the wide card wrapper mesh */
-.network-card-container {
-    min-height: 140px;
-}
-
-/* Handles grid structural column balancing */
-.net-spacer {
-    display: block;
-}
-
-/* Moves the multi-driver sub-deck into a clean full-width ribbon container */
-.net-node.multi-driver-row {
-    grid-column: span 3;
-    color: #a0aec0;
-    font-size: 11px;
-    margin-top: 4px;
-    border-top: 1px dashed #2d3748;
-    padding-top: 4px;
-    display: flex;
-    gap: 8px;
-    align-items: center;
-}
-
-/* Applies standard spacing metrics inside driver properties lists */
-.net-node.multi-driver-row strong {
-    color: #edf2f7;
-    font-weight: normal;
-}
-
-.net-node.multi-driver-row strong:first-of-type {
-    margin-right: 20px;
-}
-/* File: modules/layouts/style.css - Cache Badge Presentation Layout */
-
-/* Left-aligns the matrix sub-deck flat against the parent padding boundaries */
-.metric-cache-matrix-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-top: 3px;
-    margin-bottom: 6px;
-    padding-left: 2px;
-}
-
-/* Base typography style for the section header label */
-.cache-title-label {
-    font-size: 10px;
-    color: #a0aec0;
-    font-family: 'Consolas', monospace;
-}
-
-/* Compact layout flex deck for text alignments */
-.cache-badge-deck {
-    display: flex;
-    gap: 4px;
-}
-
-/* High-density layout badge structures */
-.cache-tag {
-    font-size: 9px;
-    font-weight: bold;
-    background-color: #2d3748;
-    color: #cbd5e0;
-    padding: 1px 5px;
-    border-radius: 2px;
-    font-family: 'Consolas', monospace;
-    border: 1px solid #3a4659;
-}
-
-/* Highlight accent tag for the processor's V-Cache feature */
-.cache-tag.highlight-x3d {
-    background-color: rgba(49, 151, 149, 0.2);
-    color: #319795;
-    border-color: rgba(49, 151, 149, 0.4);
-}
-/* File: modules/layouts/style.css - Hardware Badge Appendix */
-
-/* Structures the footer row into a clean left-to-right distribution layer */
-.hardware-metric-footer-row {
-    display: flex !important;
-    justify-content: space-between;
-    align-items: center;
-    margin-top: 3px;
-    margin-bottom: 2px;
-}
-
-/* Enforces low-profile typography on standard driver text blocks */
-.driver-text-node {
-    font-size: 10px;
-    color: #a0aec0;
-}
-
-/* Compact layout flex deck matching the cache matrix structure */
-.hardware-badge-deck {
-    display: flex;
-    gap: 4px;
-}
-
-/* Re-throttled core metrics tag template configuration */
-.hardware-stat-tag {
-    font-size: 9px;
-    font-weight: bold;
-    background-color: #2d3748;
-    color: #cbd5e0;
-    padding: 1px 5px;
-    border-radius: 2px;
-    font-family: 'Consolas', monospace;
-    border: 1px solid #3a4659;
-}
-
-/* Specialty theme colors for clock frequencies and power metrics */
+.cache-tag.highlight-x3d  { background-color: rgba(49, 151, 149, 0.2); color: #319795; border-color: rgba(49, 151, 149, 0.4); }
 .hardware-stat-tag.text-speed { color: #4299e1; }
 .hardware-stat-tag.text-power { color: #ecc94b; }
 
-/* Dynamic Thermal States: Standard Cool */
-.hardware-stat-tag.therm-cool {
-    background-color: rgba(49, 151, 149, 0.15);
-    color: #319795;
-    border-color: rgba(49, 151, 149, 0.35);
+/* Core heat thresholds and active temperature color modifications */
+.hardware-stat-tag.therm-cool { background-color: rgba(49, 151, 149, 0.15); color: #319795; border-color: rgba(49, 151, 149, 0.35); }
+.hardware-stat-tag.therm-hot { background-color: rgba(229, 62, 62, 0.2) !important; color: #e53e3e !important; border-color: rgba(229, 62, 62, 0.4) !important; }
+
+/* System interface consoles, startup splash overlays, and audio outputs */
+.console-header-row { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #2d3748; margin-bottom: 6px; padding-bottom: 4px; }
+.console-clear-btn { background: #2d3748; border: 1px solid #4a5568; color: #cbd5e0; font-size: 10px; padding: 1px 6px; cursor: pointer; }
+.console-box { font-family: 'Consolas', monospace; font-size: 11px; color: #a0aec0; max-height: 80px; overflow-y: auto; white-space: pre-wrap; }
+#appSplashOverlayView { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: #1a202c; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 99999; transition: opacity 0.4s ease-out, visibility 0.4s; }
+#appSplashOverlayView.hidden-canvas { opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; }
+.audio-sub-deck { margin-top: 6px; padding-top: 6px; border-top: 1px dashed #2d3748; }
+/* Fixing the pipeline block elements alignment */
+.net-activity-container {
+    margin-top: 10px;
+    padding-top: 6px;
+    border-top: 1px dashed #2d3748;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
 }
 
-/* Dynamic Thermal States: Warning Hot (Driven via UI classes) */
-.hardware-stat-tag.therm-hot {
-    background-color: rgba(229, 62, 62, 0.2) !important;
-    color: #e53e3e !important;
-    border-color: rgba(229, 62, 62, 0.4) !important;
+/* Forces the activity titles and log flush keys into clear lines */
+.activity-metadata {
+    font-size: 11px;
+    color: #cbd5e0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
 }

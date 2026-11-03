@@ -103,7 +103,7 @@ function updateDashboardUiMesh(stats) {
         SetDomStyleWidth('barPagefileUsage', `${sys.PagefilePercent}%`);
     }
 
-       // --- NetworkFrame Mapping ---
+    // --- NetworkFrame Mapping ---
     const net = stats.NetworkFrame;
     if (net) {
         SetDomText('lblIntIPv4',        net.IntIPv4);
@@ -114,6 +114,17 @@ function updateDashboardUiMesh(stats) {
         SetDomText('lblExtIPv4',        net.ExtIPv4);
         SetDomText('lblLinkCap',        net.LinkCap);
         SetDomText('lblInterfaceName',  net.InterfaceName);
+        
+        // PUSH CLEAN LOGIC TEXT HIGHLIGHTS
+        SetDomText('lblNetRxValue', net.RxText || "0.00 KB/s");
+        SetDomText('lblNetTxValue', net.TxText || "0.00 KB/s");
+        
+        // Map percentages down to a strict 50% split partition boundary window
+        const rxHalfPct = Math.min((net.RxPct || 0) * 0.5, 50);
+        const txHalfPct = Math.min((net.TxPct || 0) * 0.5, 50);
+        
+        SetDomStyleWidth('barNetRx', `${rxHalfPct}%`);
+        SetDomStyleWidth('barNetTx', `${txHalfPct}%`);
     }
 
     // --- StorageFrame Mapping ---
@@ -123,23 +134,38 @@ function updateDashboardUiMesh(stats) {
         if (container) {
             container.innerHTML = '';
             
-            // Fixed loop variable reference map
-            const drives = Array.isArray(storage) ? storage : [storage];
+            let drives = Array.isArray(storage) ? storage : [storage];
+            
+            // SORT ENGINE: Moves "Removable" nodes to the bottom
+            drives.sort((a, b) => {
+                if (a.DriveType === "Removable" && b.DriveType !== "Removable") return 1;
+                if (a.DriveType !== "Removable" && b.DriveType === "Removable") return -1;
+                return 0;
+            });
             
             drives.forEach((drive) => {
                 const usedPercent = (drive.StorageUsedGB / drive.StorageTotalGB) * 100;
+                const isRemovable = drive.DriveType === "Removable";
+                
+                // Unified Theme Colors
+                const fillColor = isRemovable ? "#9f7aea" : "#3182ce";
+                const labelColorClass = isRemovable ? "text-removable" : "text-local";
+                const tagIconStyle = isRemovable ? "style='filter: hue-rotate(50deg) saturate(1.5);'" : "";
+
                 const metricRowHtml = `
                     <div class="metric-row storage-tight-row">
                         <div class="metric-metadata">
-                            <span class="clickable-label" onclick="TriggerVolumeRelabel('${drive.MainDriveLetter}', '${drive.VolumeLabel}')">
-                                🏷️ ${drive.VolumeLabel} (${drive.MainDriveLetter})
+                            <!-- FIXED: Removed anchor wrappers to clear link colors, applied theme token class nodes -->
+                            <span class="storage-interactive-row-header" onclick="TriggerVolumeRelabel('${drive.MainDriveLetter}', '${drive.VolumeLabel}')">
+                                <span class="storage-tag-icon" ${tagIconStyle}>🏷️</span> 
+                                <span class="drive-title ${labelColorClass}">${drive.VolumeLabel} (${drive.MainDriveLetter})</span>
                             </span>
                             <span class="storage-data-numeric-text">
                                 ${drive.StorageUsedGB} / ${drive.StorageTotalGB} GB (${Math.round(usedPercent)}%)
                             </span>
                         </div>
                         <div class="track-bg">
-                            <div class="track-fill" style="width: ${usedPercent}%;"></div>
+                            <div class="track-fill" style="width: ${usedPercent}%; background-color: ${fillColor};"></div>
                         </div>
                         <div class="driver-tag tight-tag">${drive.DriveType} Storage Node</div>
                     </div>
@@ -151,9 +177,10 @@ function updateDashboardUiMesh(stats) {
 }
 
 function AppendLiveDiagnosticConsoleLog(stats) {
-    const consoleBox = document.querySelector('.console-box') || document.getElementById('console-box');
+    const consoleBox = document.getElementById('console-box') || document.querySelector('.console-box');
     if (consoleBox && stats.IdentityFrame && stats.SystemFrame) {
-        consoleBox.innerText = `[PIPELINE: ${stats.PipelineStatus}] Host: ${stats.IdentityFrame.HostName} | CPU Load: ${stats.SystemFrame.CpuLoad}% | RAM: ${stats.SystemFrame.RamUsageText}`;
+        // Keeps formatting clean using plain text mapping strings instead of broken innerHTML injections
+        consoleBox.textContent = `[PIPELINE: ${stats.PipelineStatus}] Host: ${stats.IdentityFrame.HostName} | CPU Load: ${stats.SystemFrame.CpuLoad}% | RAM: ${stats.SystemFrame.RamUsageText}`;
     }
 }
 

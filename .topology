@@ -2,13 +2,13 @@
 │
 ├── ⚙️ Start-NodeWatch.ps1          # [ps_script] App launcher, top-down synchronous environment broker & thread lifecycle coordinator
 │
-├── 📦 bin/                        # [folder_binary] Self-contained layout dependencies
-│   ├── 🌐 WebView2FixedRuntime/   # [folder_chromium] Unpacked isolated browser rendering core binaries
-│   │   └── 📁 156.0.4314.50/      # Engine version dictionary folder
+├── 📦 bin/                                        # [folder_binary] Self-contained layout dependencies
+│   ├── 🌐 WebView2FixedRuntime/                   # [folder_chromium] Unpacked isolated browser rendering core binaries
+│   │   └── 📁 156.0.4314.50/                      # Engine version dictionary folder
 │   │       ├── 🚀 msedgewebview2.exe              # Core runtime execution broker process
 │   │       └── 🚀 notification_helper.exe         # Native notification helper background process
 │   │
-│   ├── 🗄️ WebView2UserData/     # [folder_cache] Local isolated app sandbox data store (Auto-Generated)
+│   ├── 🗄️ WebView2UserData/                     # [folder_cache] Local isolated app sandbox data store (Auto-Generated)
 │   ├── 🛠️ Microsoft.Web.WebView2.Core.dll       # [assembly] Core WebView2 library
 │   ├── 🛠️ Microsoft.Web.WebView2.WinForms.dll   # [assembly] WinForms browser container bridge assembly
 │   └── 🛠️ WebView2Loader.dll                    # [assembly] Native Win32 interop loader engine link library

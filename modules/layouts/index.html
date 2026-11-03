@@ -97,35 +97,48 @@
     <div class="data-field"><span>🧬</span> Virtualization: <strong id="lblVirtualization">Loading...</strong></div>
     <div class="data-field"><span>💎</span> PS Version: <strong id="lblPsVersion">Loading...</strong></div>
 </div>
-        <!-- STORAGE & VOLUMETRIC CARD -->
-<!-- STORAGE & VOLUMETRIC CARD -->
-        <div class="dashboard-card">
-            <h2>💾 STORAGE</h2>
-            <div id="storageVolumeContainer" class="storage-dynamic-mesh-grid">
+<!-- Locate your Storage Card inside index.html and ensure it uses this inner mesh wrapper -->
+<div class="dashboard-card">
+    <h2>💾 STORAGE</h2>
+    <div id="storageVolumeContainer" class="storage-dynamic-mesh-grid">
         <div class="loading-placeholder">Evaluating connected media arrays...</div>
     </div>
 </div>
 
-        <!-- INFRASTRUCTURE SYSTEM PROFILE CARD -->
 <div class="dashboard-card">
-    <h2>🖥️ INFRASTRUCTURE</h2>
-    <!-- REMOVED DUPLICATE OS AND BUILD LINES FROM HERE -->
-    <div class="data-field"><span>🧱</span> Motherboard: <strong id="lblMotherboard">Loading...</strong></div>
-    <div class="data-field"><span>🧬</span> BIOS: <strong id="lblBiosVersion">Loading...</strong></div>
-    <div class="data-field"><span>⚡</span> Power Plan: <strong id="lblPowerPlan">Loading...</strong></div>
-    <div class="data-field"><span>🕒</span> Uptime: <strong id="lblUptime">Loading...</strong></div>
+    <h2>💻 INFRASTRUCTURE</h2>
     
-    <!-- CONSOLIDATED HIGH-DENSITY AUDIO SUB-SECTION -->
-    <div class="audio-sub-deck" style="margin-top: 8px; padding-top: 6px; border-top: 1px dashed #2d3748;">
-        <div class="audio-node-title" style="font-size: 11px; color: #4299e1; font-weight: bold; margin-bottom: 4px; letter-spacing: 0.5px;">🔊 AUDIO</div>
-        <div class="data-field" style="font-size: 11px; color: #cbd5e0; margin-bottom: 2px;">
-            <span>🔈</span> Output: <strong id="lblAudioOutput" style="color: #edf2f7; font-weight: normal;">Resolving active endpoint...</strong>
+    <!-- Motherboard -->
+    <div class="data-field">
+        <span>🧱</span>Motherboard: <strong id="lblMotherboard">Loading...</strong>
+    </div>
+    
+    <!-- BIOS Version -->
+    <div class="data-field">
+        <span>🧬</span>BIOS: <strong id="lblBiosVersion">Loading...</strong>
+    </div>
+    
+    <!-- Power Allocation Plan -->
+    <div class="data-field">
+        <span>⚡</span> <strong id="lblPowerPlan">Loading...</strong>
+    </div>
+    
+    <!-- System Uptime Clock -->
+    <div class="data-field">
+        <span>🕒</span> <strong id="lblUptime">Loading...</strong>
+    </div>
+
+    <!-- Embedded Audio Sub-Deck Section Node Layout -->
+    <div class="audio-sub-deck">
+        <div class="data-field">
+            <span>🔈</span> <strong id="lblAudioOutput">Resolving output...</strong>
         </div>
-        <div class="data-field" style="font-size: 11px; color: #cbd5e0;">
-            <span>🎙️</span> Input: <strong id="lblAudioInput" style="color: #edf2f7; font-weight: normal;">Resolving active capture...</strong>
+        <div class="data-field">
+            <span>🎙</span> <strong id="lblAudioInput">Resolving input...</strong>
         </div>
     </div>
 </div>
+
 
 
 <!-- 📡 NETWORK CARD -->
@@ -159,12 +172,32 @@
                 <button id="btnRunSpeedTest" class="speed-execute-action-btn" onclick="TriggerNetworkSpeedAnalysis()">RUN PERFORMANCE SPEEDTEST</button>
             </div>
 
-            <div class="net-activity-container">
-                <div class="activity-metadata">📊 Transmit/Receive Data Mesh Pipeline Activity [TBD]</div>
-                <div class="track-bg"><div class="activity-bar-fill"></div></div>
-            </div>
-        </div>
-
+<div class="net-activity-container">
+    <div class="activity-metadata">
+        <span>📊 Transmit/Receive Data Mesh Pipeline Activity</span>
+        <span style="font-family: 'Consolas', monospace; font-size: 11px;">
+            📥 <strong id="lblNetRxValue" style="color: #63b3ed; margin-right: 10px;">0.00 KB/s</strong> 
+            📤 <strong id="lblNetTxValue" style="color: #d6bcfa;">0.00 KB/s</strong>
+        </span>
+    </div>
+    
+    <!-- Unified 10px tracking track chassis wrapper -->
+    <div class="track-bg" style="position: relative; overflow: hidden; background-color: #2d3748; height: 10px; display: flex;">
+        
+        <!-- === LEFT SIDE LAYER DECK (DOWNLOAD) === -->
+        <!-- Static background layer half (Dark local storage blue) -->
+        <div style="position: absolute; left: 0; top: 0; width: 50%; height: 100%; background-color: #3182ce; opacity: 0.35; z-index: 1;"></div>
+        <!-- Active dynamic progress overlay (High visibility bright blue) -->
+        <div id="barNetRx" style="position: absolute; left: 0; top: 0; height: 100%; width: 0%; background-color: #4299e1; transition: width 0.3s ease; z-index: 2;"></div>
+        
+        <!-- === RIGHT SIDE LAYER DECK (UPLOAD) === -->
+        <!-- Static background layer half (Dark removable storage purple) -->
+        <div style="position: absolute; right: 0; top: 0; width: 50%; height: 100%; background-color: #9f7aea; opacity: 0.35; z-index: 1;"></div>
+        <!-- Active dynamic progress overlay (High visibility bright purple) -->
+        <div id="barNetTx" style="position: absolute; right: 0; top: 0; height: 100%; width: 0%; background-color: #b794f4; transition: width 0.3s ease; z-index: 2;"></div>
+        
+    </div>
+</div>
         <!-- LOG PROFILE CONSOLE -->
         <div class="dashboard-card wide-sub-console">
             <div class="console-header-row">
