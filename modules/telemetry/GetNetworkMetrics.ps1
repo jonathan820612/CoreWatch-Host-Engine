@@ -9,10 +9,6 @@ function Get-NetworkMetrics {
     $NetProfileStr = "Disconnected"
     $LinkCap       = "0 Mbps"
     $WlanSsid      = "Disconnected"
-    $RxPct         = 0
-    $TxPct         = 0
-    $RxText        = "0.00 KB/s"
-    $TxText        = "0.00 KB/s"
 
     if ($null -ne $IPConfig) {
         $NetProf = Get-NetConnectionProfile -InterfaceIndex $IPConfig.InterfaceIndex -ErrorAction SilentlyContinue
@@ -36,28 +32,6 @@ function Get-NetworkMetrics {
         if ($CurrentNic -and $CurrentNic.Speed -gt 0) {
             $SpeedGbps = [math]::Round(($CurrentNic.Speed / 1GB), 1)
             $LinkCap = if ($SpeedGbps -ge 1) { "$SpeedGbps Gbps" } else { "$([int]($CurrentNic.Speed / 1MB)) Mbps" }
-            
-            $NetPerf = Get-CimInstance -ClassName Win32_PerfFormattedData_Tcpip_NetworkInterface | 
-                       Where-Object { $_.Name -replace ' - ',' ' -like "*$($CurrentNic.Name)*" -or $_.Name -like "*$($CurrentNic.Description)*" } -ErrorAction SilentlyContinue |
-                       Select-Object -First 1
-            
-            if (-not $NetPerf) {
-                $NetPerf = Get-CimInstance -ClassName Win32_PerfFormattedData_Tcpip_NetworkInterface | Select-Object -First 1
-            }
-
-            if ($NetPerf) {
-                $MaxSpeedBytes = $CurrentNic.Speed / 8
-                
-                $RxBytes = [double]$NetPerf.BytesReceivedPersec
-                $RxText = if ($RxBytes -gt 1MB) { "$([math]::Round($RxBytes / 1MB, 2)) MB/s" } else { "$([math]::Round($RxBytes / 1KB, 2)) KB/s" }
-                $RxPct = if ($MaxSpeedBytes -gt 0) { [int](($RxBytes / $MaxSpeedBytes) * 100) } else { 0 }
-                if ($RxPct -lt 5 -and $RxBytes -gt 0) { $RxPct = 8 } 
-                
-                $TxBytes = [double]$NetPerf.BytesSentPersec
-                $TxText = if ($TxBytes -gt 1MB) { "$([math]::Round($TxBytes / 1MB, 2)) MB/s" } else { "$([math]::Round($TxBytes / 1KB, 2)) KB/s" }
-                $TxPct = if ($MaxSpeedBytes -gt 0) { [int](($TxBytes / $MaxSpeedBytes) * 100) } else { 0 }
-                if ($TxPct -lt 5 -and $TxBytes -gt 0) { $TxPct = 8 }
-            }
         }
     }
 
@@ -86,8 +60,10 @@ function Get-NetworkMetrics {
         $DownloadTask = $WebClient.DownloadStringTaskAsync("https://api.ipify.org")
         if ($DownloadTask.Wait(400)) { $ExtIPv4 = $DownloadTask.Result.Trim() } else { $ExtIPv4 = "Gateway Latency" }
     } catch { $ExtIPv4 = "Offline / Secure Mesh" }
+    
     $DhcpStatus = "Static"
     if ($IPConfig.Dhcp -eq 'Enabled') { $DhcpStatus = "DHCP" }
+    
     return [PSCustomObject]@{
         IntIPv4       = [string]$IntIPv4
         SubnetMask    = [string]$SubMask
@@ -99,10 +75,6 @@ function Get-NetworkMetrics {
         Discovery     = [string]$DiscoveryStatus
         lblEthDriver  = [string]$EthDriver
         lblWifiDriver = [string]$WifiDriver
-        RxPct         = [int]$RxPct
-        TxPct         = [int]$TxPct
-        RxText        = [string]$RxText
-        TxText        = [string]$TxText
         NetAssignment = [string]$DhcpStatus
     }
 }

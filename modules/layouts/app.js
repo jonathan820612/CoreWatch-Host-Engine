@@ -145,8 +145,15 @@ function updateDashboardUiMesh(stats) {
         SetDomText('lblExtIPv4',        net.ExtIPv4);
         SetDomText('lblLinkCap',        net.LinkCap);
         
-        SetDomText('lblNetRxValue', net.RxText || "0.00 KB/s");
-        SetDomText('lblNetTxValue', net.TxText || "0.00 KB/s");
+        // Dynamic Fallback Scanner for Receive (Rx) Text Node
+        const rxValue = net.RxText || "0.00 KB/s";
+        const rxElem = document.getElementById('lblNetRxValue') || document.getElementById('lblNetRx') || document.querySelector('.rx-numeric-text');
+        if (rxElem) { rxElem.innerText = rxValue; }
+        
+        // Dynamic Fallback Scanner for Transmit (Tx) Text Node
+        const txValue = net.TxText || "0.00 KB/s";
+        const txElem = document.getElementById('lblNetTxValue') || document.getElementById('lblNetTx') || document.querySelector('.tx-numeric-text');
+        if (txElem) { txElem.innerText = txValue; }
         
         // Maps tracking bars accurately within their exact 50% section blocks
         const rxHalfPct = Math.min((net.RxPct || 0) * 0.5, 50);

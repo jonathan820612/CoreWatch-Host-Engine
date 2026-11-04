@@ -28,15 +28,44 @@ $RunspaceScript = {
     . (Join-Path $TelemetryPath "GetIDMetrics.ps1")
     . (Join-Path $TelemetryPath "GetInfraMetrics.ps1")
     . (Join-Path $TelemetryPath "GetNetworkMetrics.ps1")
+    # SAFE: Dot-source your new standalone metrics engine into the active thread footprint
+    . (Join-Path $TelemetryPath "GetTrafficMetrics.ps1")
     . (Join-Path $TelemetryPath "GetSystemMetrics.ps1")
     . (Join-Path $TelemetryPath "StorageEngine.ps1")
 
     while ($SharedData.IsRunning) {
         try {
+            # Execute both network asset scripts independently
+            $StaticNet  = Get-NetworkMetrics
+            # Change this specific line inside your orchestrator's while loop:
+$DynamicNet = . (Join-Path $TelemetryPath "GetTrafficMetrics.ps1")
+
+
+            # Merge the static settings and low-latency counters into one unified network frame
+            $MergedNetworkFrame = [PSCustomObject]@{
+                IntIPv4       = [string]$StaticNet.IntIPv4
+                SubnetMask    = [string]$StaticNet.SubnetMask
+                Gateway       = [string]$StaticNet.Gateway
+                NetworkStatus = [string]$StaticNet.NetworkStatus
+                WlanSsid      = [string]$StaticNet.WlanSsid
+                ExtIPv4       = [string]$StaticNet.ExtIPv4
+                LinkCap       = [string]$StaticNet.LinkCap
+                Discovery     = [string]$StaticNet.Discovery
+                lblEthDriver  = [string]$StaticNet.lblEthDriver
+                lblWifiDriver = [string]$StaticNet.lblWifiDriver
+                NetAssignment = [string]$StaticNet.NetAssignment
+                
+                # Appends the new traffic variables right where app.js expects them
+                RxPct         = [int]$DynamicNet.RxPct
+                TxPct         = [int]$DynamicNet.TxPct
+                RxText        = [string]$DynamicNet.RxText
+                TxText        = [string]$DynamicNet.TxText
+            }
+
             $MasterObject = [PSCustomObject]@{
                 IdentityFrame  = Get-IDMetrics
                 InfraFrame     = Get-InfraMetrics
-                NetworkFrame   = Get-NetworkMetrics
+                NetworkFrame   = $MergedNetworkFrame
                 SystemFrame    = Get-SystemMetrics
                 StorageFrame   = Get-StorageMetrics
                 PipelineStatus = "SUCCESS"
