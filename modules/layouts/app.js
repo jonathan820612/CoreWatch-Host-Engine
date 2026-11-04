@@ -306,3 +306,56 @@ window.CommitWatchdogTuningProfile = function() {
         }
     }
 };
+// File: modules/layouts/app.js - Append this tracking segment to the bottom of the file
+
+document.addEventListener("DOMContentLoaded", () => {
+    const headerDeck = document.querySelector('.app-header-deck');
+    if (headerDeck && window.chrome && window.chrome.webview) {
+        let isDragging = false;
+        let startX = 0, startY = 0;
+
+        headerDeck.addEventListener('mousedown', (e) => {
+            // Ignore if clicking tracking buttons inside the layout bar
+            if (e.target.closest('.tab-btn') || e.target.closest('.exit-system-btn')) return;
+            
+            isDragging = true;
+            startX = e.clientX;
+            startY = e.clientY;
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            window.chrome.webview.postMessage(`Window-Drag:${startX}|${startY}`);
+        });
+
+        window.addEventListener('mouseup', () => { isDragging = false; });
+    }
+
+    // Interactive Edge Resizing Hook
+    let isResizing = false;
+    const gripThickness = 12;
+
+    window.addEventListener('mousedown', (e) => {
+        if (window.innerWidth - e.clientX < gripThickness && window.innerHeight - e.clientY < gripThickness) {
+            isResizing = true;
+            e.preventDefault();
+        }
+    });
+
+    window.addEventListener('mousemove', (e) => {
+        // Change cursor icon when hovering near bottom-right adjustment coordinate boundaries
+        if (window.innerWidth - e.clientX < gripThickness && window.innerHeight - e.clientY < gripThickness) {
+            document.body.style.cursor = 'se-resize';
+        } else if (!isResizing) {
+            document.body.style.cursor = 'default';
+        }
+
+        if (!isResizing || !(window.chrome && window.chrome.webview)) return;
+        window.chrome.webview.postMessage(`Window-Resize:${e.screenX - window.screenX}|${e.screenY - window.screenY}`);
+    });
+
+    window.addEventListener('mouseup', () => {
+        isResizing = false;
+        document.body.style.cursor = 'default';
+    });
+});
