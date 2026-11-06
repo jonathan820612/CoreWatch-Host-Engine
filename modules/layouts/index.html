@@ -10,6 +10,9 @@
 
     <!-- Header Control Ribbon Panel -->
     <div class="app-header-deck">
+    <div class="icon-square-frame">
+        <img src="../../Images/Icon.png" class="header-corner-brand" alt="CoreWatch Branding">
+        </div>
         <div class="modular-tabs">
             <button class="tab-btn active">📟 Dashboard</button>
             <button id="btnToggleOrganizer" class="tab-btn" onclick="LaunchExternalToolWindow('File-Organizer')">📁 File Organizer</button>
@@ -141,6 +144,8 @@
                 <div class="net-node multi-driver-row">
                     <span>🌐</span> Ethernet: <strong id="lblEthDriver">Checking...</strong>
                     <span>📶</span> Wi-Fi: <strong id="lblWifiDriver">Checking...</strong>
+                    <!-- AFTER -->
+                    <button class="network-adapters-action-btn" onclick="LaunchExternalToolWindow('Network-Manager')">Network Adapters</button>
                 </div>
             </div>
 

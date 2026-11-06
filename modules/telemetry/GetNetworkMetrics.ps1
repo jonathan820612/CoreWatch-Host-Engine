@@ -46,6 +46,16 @@ function Get-NetworkMetrics {
 
     $EthDriver  = "Not Present / Inactive"
     $WifiDriver = "Not Present / Inactive"
+    if ($null -ne $IPConfig) {
+        $ActiveNic = Get-CimInstance -ClassName Win32_NetworkAdapter -Filter "InterfaceIndex=$($IPConfig.InterfaceIndex)" -ErrorAction SilentlyContinue
+        if ($ActiveNic) {
+            if ($ActiveNic.Name -like "*Wireless*" -or $ActiveNic.Name -like "*Wi-Fi*" -or $ActiveNic.Name -like "*802.11*") {
+                $WifiDriver = $ActiveNic.Name
+            } else {
+                $EthDriver = $ActiveNic.Name
+            }
+        }
+    }
     $AllAdapters = Get-CimInstance -ClassName Win32_NetworkAdapter -Filter "PhysicalAdapter=True" -ErrorAction SilentlyContinue
     
     foreach ($Adapter in $AllAdapters) {

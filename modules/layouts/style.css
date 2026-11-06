@@ -63,6 +63,31 @@ html, body {
     box-sizing: border-box; 
     min-height: 240px; 
 }
+/* File: modules/layouts/style.css - Append to the bottom of your file */
+
+/* Isolated branding box layout matching the theme tab button height perfectly */
+.icon-square-frame {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #2d3748;
+    border: 1px solid #4a5568;
+    height: 31px;
+    width: 35px;
+    box-sizing: border-box;
+    margin-right: 4px;
+    flex-shrink: 0;
+    
+    /* Crucial: Keeps clicking on the frame container from blocking window moving routines */
+    -webkit-app-region: no-drag;
+}
+
+/* Crisp rendering scale constraints for your custom app image asset */
+.header-corner-brand {
+    height: 30px;
+    width: 30px;
+    object-fit: contain;
+}
 
 /* Explicit layout rule forcing the full container frame to stretch wide across both columns */
 .wide-sub-console {
@@ -135,6 +160,30 @@ h2 {
     gap: 6px !important; 
     white-space: nowrap !important; 
     width: 100% !important;
+}
+/* Update this specific block in modules/layouts/style.css */
+.network-adapters-action-btn {
+    /* FIXED: Automatically consumes left space to float the button to the far right margin */
+    margin-left: auto !important;
+    
+    /* FIXED: Prevents the button from being forced onto a new line slot */
+    white-space: nowrap !important;
+
+    background: #2d3748;
+    border: 1px solid #4a5568;
+    color: #a0aec0;
+    font-family: 'Consolas', monospace;
+    font-size: 11px;
+    padding: 4px 10px;
+    cursor: pointer;
+    transition: background 0.1s;
+    -webkit-app-region: no-drag;
+}
+
+.network-adapters-action-btn:hover {
+    background: #3182ce;
+    color: #fff;
+    border-color: #4299e1;
 }
 
 /* Spans driver row cleanly across the bottom tracking boundary of all 4 columns */

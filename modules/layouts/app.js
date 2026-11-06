@@ -1,17 +1,40 @@
-// File: modules/layouts/app.js
+// File: modules/layouts/app.js - PART 1 (Lines 1 - 200)
 
 document.addEventListener("DOMContentLoaded", () => {
     if (window.chrome && window.chrome.webview) {
         window.chrome.webview.addEventListener("message", (event) => {
             try {
-                const base64Data = event.data;
-                if (!base64Data) return;
+                const payload = event.data;
+                if (!payload) return;
 
-                const decodedJson = decodeURIComponent(escape(atob(base64Data)));
-                const stats = JSON.parse(decodedJson);
-                
-                AppendLiveDiagnosticConsoleLog(stats);
-                updateDashboardUiMesh(stats);
+                let stats = null;
+
+                // 1. Identify and process direct object representations
+                if (typeof payload === 'object') {
+                    stats = payload;
+                } 
+                // 2. Safely parse string-represented data payloads
+                else if (typeof payload === 'string') {
+                    // Check if it appears to be raw JSON instead of Base64
+                    if (payload.trim().startsWith('{') || payload.trim().startsWith('[')) {
+                        stats = JSON.parse(payload);
+                    } else {
+                        // Safe extraction path for Base64 telemetry streams
+                        try {
+                            const decodedJson = decodeURIComponent(escape(atob(payload)));
+                            stats = JSON.parse(decodedJson);
+                        } catch (base64Err) {
+                            console.warn("[PIPELINE] String received is not Base64; checking for raw route execution:", payload);
+                            return; // Halts processing for discrete non-JSON actions
+                        }
+                    }
+                }
+
+                // Route data down to core visual meshes if layout parameters exist
+                if (stats && (stats.IdentityFrame || stats.SystemFrame || stats.StorageFrame || stats.NetworkFrame)) {
+                    AppendLiveDiagnosticConsoleLog(stats);
+                    updateDashboardUiMesh(stats);
+                }
             } catch (err) {
                 console.error("Failed to unpack metrics package:", err);
             }
@@ -19,6 +42,7 @@ document.addEventListener("DOMContentLoaded", () => {
         window.chrome.webview.postMessage("UI-Ready");
     }
 });
+
 /**
  * Requests the application host infrastructure to spin up an isolated window for a specific utility module
  */
@@ -49,7 +73,30 @@ function SyncToolNavigationHighlights(appStates) {
     }
 }
 
-// Ensure you invoke 'SyncToolNavigationHighlights(stats);' inside your main updateDashboardUiMesh script loop!
+window.chrome.webview.addEventListener("message", (event) => {
+    try {
+        const payload = event.data;
+        if (!payload) return;
+        
+        const decodedJson = decodeURIComponent(escape(atob(payload)));
+        let dataMesh = JSON.parse(decodedJson);
+        
+        if (dataMesh.NetworkFrame) {
+            dataMesh = typeof dataMesh.NetworkFrame === 'string' ? JSON.parse(dataMesh.NetworkFrame) : dataMesh.NetworkFrame;
+        }
+        
+        if (dataMesh.type === "REFRESH_ADAPTER_STATE") {
+            // CRITICAL PIPELINE PROTECTION: Only attempt to render if this window context actually owns the rendering mesh
+            if (typeof RenderNetworkAdapterInterfaceRows === "function") {
+                RenderNetworkAdapterInterfaceRows(dataMesh.interfaces);
+            } else {
+                console.log("[PIPELINE] Network data frame intercepted safely inside non-target window layout.");
+            }
+        }
+    } catch(err) {
+        console.error("Failed to process network adapter update frame:", err);
+    }
+});
 
 function updateDashboardUiMesh(stats) {
     if (!stats) return;
@@ -84,7 +131,7 @@ function updateDashboardUiMesh(stats) {
         SetDomText('lblAudioInput',     infra.MicrophoneIdentity);
     }
 
-        // --- SystemFrame Mapping ---
+    // --- SystemFrame Mapping ---
     const sys = stats.SystemFrame;
     if (sys) {
         // Core Processor Nodes
@@ -104,6 +151,7 @@ function updateDashboardUiMesh(stats) {
                 cpuBadge.classList.remove('therm-hot');
             }
         }
+// File: modules/layouts/app.js - PART 2 (Lines 201 - 400)
 
         // Graphics Accelerator Nodes
         SetDomText('lblGpuLoad',        `${sys.GpuLoad}%`);
@@ -144,6 +192,8 @@ function updateDashboardUiMesh(stats) {
         SetDomText('lblWlanSsid',       net.WlanSsid);
         SetDomText('lblExtIPv4',        net.ExtIPv4);
         SetDomText('lblLinkCap',        net.LinkCap);
+        SetDomText('lblEthernet',       net.lblEthDriver);
+        SetDomText('lblWifi',           net.lblWifiDriver);
         
         // Dynamic Fallback Scanner for Receive (Rx) Text Node
         const rxValue = net.RxText || "0.00 KB/s";
@@ -191,7 +241,6 @@ function updateDashboardUiMesh(stats) {
                 const metricRowHtml = `
                     <div class="metric-row storage-tight-row">
                         <div class="metric-metadata">
-                            <!-- FIXED: Removed anchor wrappers to clear link colors, applied theme token class nodes -->
                             <span class="storage-interactive-row-header" onclick="TriggerVolumeRelabel('${drive.MainDriveLetter}', '${drive.VolumeLabel}')">
                                 <span class="storage-tag-icon" ${tagIconStyle}>🏷️</span> 
                                 <span class="drive-title ${labelColorClass}">${drive.VolumeLabel} (${drive.MainDriveLetter})</span>
@@ -215,10 +264,10 @@ function updateDashboardUiMesh(stats) {
 function AppendLiveDiagnosticConsoleLog(stats) {
     const consoleBox = document.getElementById('console-box') || document.querySelector('.console-box');
     if (consoleBox && stats.IdentityFrame && stats.SystemFrame) {
-        // Keeps formatting clean using plain text mapping strings instead of broken innerHTML injections
         consoleBox.textContent = `[PIPELINE: ${stats.PipelineStatus}] Host: ${stats.IdentityFrame.HostName} | CPU Load: ${stats.SystemFrame.CpuLoad}% | RAM: ${stats.SystemFrame.RamUsageText}`;
     }
 }
+// File: modules/layouts/app.js - PART 3 (Lines 401 - End)
 
 function SetDomText(elementId, textValue) {
     const element = document.getElementById(elementId);
@@ -234,18 +283,13 @@ function SetDomStyleWidth(elementId, widthValue) {
     }
 }
 
-/**
- * INTERACTIVE BI-DIRECTIONAL HARDWARE DISPATCH ROUTINE
- */
 function TriggerVolumeRelabel(driveLetter, currentLabel) {
     const newLabel = prompt(`Enter a new system description label for volume partition [ ${driveLetter} ] :`, currentLabel);
     if (newLabel !== null && window.chrome && window.chrome.webview) {
         window.chrome.webview.postMessage(`Rename-Drive:${driveLetter}|${newLabel}`);
     }
 }
-/**
- * FIXED: Main diagnostic console log clearance event receiver
- */
+
 window.ClearConsoleLogView = function() {
     const consoleBox = document.getElementById('console-box') || document.querySelector('.console-box');
     if (consoleBox) {
@@ -253,9 +297,6 @@ window.ClearConsoleLogView = function() {
     }
 };
 
-/**
- * FIXED: Main interactive bandwidth speed test dispatcher
- */
 window.TriggerNetworkSpeedAnalysis = function() {
     const btn = document.querySelector('.speed-execute-action-btn');
     if (btn) {
@@ -263,27 +304,22 @@ window.TriggerNetworkSpeedAnalysis = function() {
         const originalText = btn.textContent;
         btn.textContent = "RUNNING...";
         
-        // Notify the PowerShell host engine layer to execute the backend network test module
         if (window.chrome && window.chrome.webview) {
             window.chrome.webview.postMessage("Execute-SpeedTest");
         }
         
-        // Safety timeout to release button lock state if thread falls out
         setTimeout(() => {
             btn.disabled = false;
             btn.textContent = originalText;
         }, 15000);
     }
 };
-/**
- * Serializes current dashboard form settings and updates the PowerShell host watchdog runtime
- */
+
 window.CommitWatchdogTuningProfile = function() {
     const cpuThreshold = document.getElementById('rangeCpuThreshold')?.value || "20";
     const reactionMode = document.querySelector('input[name="radWatchdogMode"]:checked')?.value || "Throttle";
     const whitelistRaw = document.getElementById('txtCustomWhitelist')?.value || "";
     
-    // Process raw text values block list down to clean isolated array metrics
     const whitelistArray = whitelistRaw.split(',')
         .map(item => item.trim().toLowerCase())
         .filter(item => item.length > 0);
@@ -295,18 +331,15 @@ window.CommitWatchdogTuningProfile = function() {
         UserWhitelist: whitelistArray
     };
 
-    // Safely emit data metrics across native background runspace framework interfaces
     if (window.chrome && window.chrome.webview) {
         window.chrome.webview.postMessage(JSON.stringify(configurationPayload));
         
-        // Flash a confirmation visual print to our dashboard console view engine container
         const consoleBox = document.getElementById('console-box');
         if (consoleBox) {
             consoleBox.textContent = `[WATCHDOG: TUNING MATRIX SYNCHRONIZED] Filter Cap: ${cpuThreshold}% | Mode: ${reactionMode} | Active Rules Applied`;
         }
     }
 };
-// File: modules/layouts/app.js - Append this tracking segment to the bottom of the file
 
 document.addEventListener("DOMContentLoaded", () => {
     const headerDeck = document.querySelector('.app-header-deck');
@@ -315,9 +348,7 @@ document.addEventListener("DOMContentLoaded", () => {
         let startX = 0, startY = 0;
 
         headerDeck.addEventListener('mousedown', (e) => {
-            // Ignore if clicking tracking buttons inside the layout bar
             if (e.target.closest('.tab-btn') || e.target.closest('.exit-system-btn')) return;
-            
             isDragging = true;
             startX = e.clientX;
             startY = e.clientY;
@@ -331,7 +362,6 @@ document.addEventListener("DOMContentLoaded", () => {
         window.addEventListener('mouseup', () => { isDragging = false; });
     }
 
-    // Interactive Edge Resizing Hook
     let isResizing = false;
     const gripThickness = 12;
 
@@ -343,7 +373,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     window.addEventListener('mousemove', (e) => {
-        // Change cursor icon when hovering near bottom-right adjustment coordinate boundaries
         if (window.innerWidth - e.clientX < gripThickness && window.innerHeight - e.clientY < gripThickness) {
             document.body.style.cursor = 'se-resize';
         } else if (!isResizing) {

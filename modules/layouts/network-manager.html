@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Network Manager</title>
+    <style>
+        body {
+            background-color: #212936;
+            color: #ffffff;
+            font-family: 'Consolas', 'Segoe UI', monospace;
+            margin: 0;
+            padding: 15px;
+            user-select: none;
+            overflow-y: auto;
+        }
+        h2 {
+            font-size: 13px;
+            font-weight: bold;
+            letter-spacing: 0.5px;
+            margin: 0 0 12px 0;
+            color: #4299e1;
+            border-bottom: 1px solid #2d3748;
+            padding-bottom: 6px;
+        }
+        .adapter-row {
+            background: #1a202c;
+            padding: 12px;
+            margin-bottom: 12px;
+            border-left: 4px solid #3182ce;
+            border-radius: 4px;
+            border: 1px solid #323c4b;
+            border-left-width: 4px;
+        }
+        .adapter-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: bold;
+            font-size: 1.1em;
+            color: #63b3ed;
+            margin-bottom: 8px;
+        }
+        .profile-badge {
+            font-size: 10px;
+            background: #2d3748;
+            padding: 2px 6px;
+            border-radius: 2px;
+            border: 1px solid #4a5568;
+            color: #b794f4;
+        }
+        .adapter-details {
+            font-family: 'Consolas', monospace;
+            font-size: 12px;
+            color: #cbd5e0;
+            line-height: 1.5;
+        }
+        .config-panel {
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px dashed #2d3748;
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        input[type="text"] {
+            background: #2d3748;
+            border: 1px solid #4a5568;
+            color: #fff;
+            font-family: 'Consolas', monospace;
+            font-size: 11px;
+            padding: 3px 6px;
+            width: 110px;
+            border-radius: 2px;
+        }
+        button {
+            background: #2d3748;
+            border: 1px solid #4a5568;
+            color: #a0aec0;
+            font-family: 'Consolas', monospace;
+            font-size: 11px;
+            padding: 4px 10px;
+            cursor: pointer;
+            border-radius: 2px;
+            transition: background 0.1s;
+        }
+        button:hover {
+            background: #3182ce;
+            color: #fff;
+            border-color: #4299e1;
+        }
+        .btn-dhcp {
+            border-color: #2c7a7b;
+            color: #319795;
+        }
+        .btn-dhcp:hover {
+            background: #2c7a7b;
+            border-color: #319795;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>Active Network Interface Configurations</h2>
+    <div id="adapterInterfaceContainer">Awaiting dynamic data mesh update...</div>
+
+<script>
+    document.addEventListener("DOMContentLoaded", () => {
+        if (window.chrome && window.chrome.webview) {
+            window.chrome.webview.addEventListener("message", (event) => {
+                try {
+                    const payload = event.data;
+                    if (!payload) return;
+                    
+                    // Safe decoding loop to ensure Base64 streams translate properly
+                    const decodedJson = decodeURIComponent(escape(atob(payload)));
+                    const dataMesh = JSON.parse(decodedJson);
+
+                    if (dataMesh.type === "REFRESH_ADAPTER_STATE") {
+                        RenderNetworkAdapterInterfaceRows(dataMesh.interfaces);
+                    }
+                } catch (err) {
+                    console.error("Sub-module failed to parse data package:", err);
+                }
+            });
+            window.chrome.webview.postMessage("UI-Ready");
+        }
+    });
+
+    function RenderNetworkAdapterInterfaceRows(interfaces) {
+        // FIXED: Targeted the correct container ID to stop layout wiping faults
+        const container = document.getElementById("adapterInterfaceContainer");
+        if (!container) return;
+        container.innerHTML = ""; 
+
+        if (!interfaces || interfaces.length === 0) {
+            container.innerHTML = "<div class='adapter-details'>No active physical network interfaces detected.</div>";
+            return;
+        }
+
+        interfaces.forEach((adapter, index) => {
+            const isDhcp = adapter.Profile === "DHCP";
+            
+            const cardHtml = `
+                <div class="adapter-row" style="border-left-color: ${isDhcp ? '#319795' : '#b794f4'};">
+                    <div class="adapter-header">
+                        <span>🏷️ ${adapter.Alias}</span>
+                        <span class="profile-badge">${adapter.Profile} Mode</span>
+                    </div>
+                    <div class="adapter-details">
+                        IPv4 Address : <strong>${adapter.IPAddress}</strong><br>
+                        Subnet Mask  : ${adapter.SubnetMask} (/${adapter.PrefixLength})<br>
+                        Default Gate : ${adapter.Gateway}
+                    </div>
+                    <div class="config-panel">
+                        <input type="text" id="ip_${index}" placeholder="IP Address" value="${isDhcp ? '' : adapter.IPAddress}">
+                        <input type="text" id="gw_${index}" placeholder="Gateway" value="${isDhcp ? '' : (adapter.Gateway === 'N/A' ? '' : adapter.Gateway)}">
+                        <button onclick="CommitStaticAssignment('${adapter.Alias}', ${index})">Set Static</button>
+                        ${!isDhcp ? `<button class="btn-dhcp" onclick="CommitDhcpReversion('${adapter.Alias}')">Enable DHCP</button>` : ''}
+                    </div>
+                </div>
+            `;
+            container.insertAdjacentHTML("beforeend", cardHtml);
+        });
+    }
+
+    function CommitStaticAssignment(interfaceAlias, index) {
+        const ipVal = document.getElementById(`ip_${index}`)?.value.trim();
+        const gwVal = document.getElementById(`gw_${index}`)?.value.trim();
+
+        if (!ipVal) {
+            alert("An IP Address is required for static configurations.");
+            return;
+        }
+
+        const payload = {
+            command: "SET_STATIC_IP",
+            interfaceAlias: interfaceAlias,
+            ipAddress: ipVal,
+            gateway: gwVal
+        };
+
+        if (window.chrome && window.chrome.webview) {
+            window.chrome.webview.postMessage(JSON.stringify(payload));
+        }
+    }
+
+    function CommitDhcpReversion(interfaceAlias) {
+        const payload = {
+            command: "TRIGGER_DHCP_REVERSION",
+            interfaceAlias: interfaceAlias
+        };
+
+        if (window.chrome && window.chrome.webview) {
+            window.chrome.webview.postMessage(JSON.stringify(payload));
+        }
+    }
+</script>
+</body>
+</html>
