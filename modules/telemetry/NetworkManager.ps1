@@ -51,7 +51,6 @@ function Invoke-AdapterProvisioningControl {
         [string]$PayloadMessageString
     )
     
-<<<<<<< HEAD
     try {
         $Payload = $PayloadMessageString | ConvertFrom-Json
         if ($null -eq $Payload -or $null -eq $Payload.command) { return $null }
@@ -75,40 +74,4 @@ function Invoke-AdapterProvisioningControl {
     
     # Instantly compile a fresh post-change data frame back to the calling loop
     return Get-AdapterStateMesh
-=======
-    $EnvTask = [Microsoft.Web.WebView2.Core.CoreWebView2Environment]::CreateAsync($BrowserFolder, $UserDataFolder)
-    
-    while (-not $EnvTask.IsCompleted) {
-        [System.Windows.Forms.Application]::DoEvents()
-        [System.Threading.Thread]::Sleep(10)
-    }
-    
-    $script:SubWindowWebViewControl.Add_CoreWebView2InitializationCompleted({
-        param($source, $args)
-        if ($args.IsSuccess) {
-            $script:SubWindowWebViewControl.CoreWebView2.Settings.AreDefaultContextMenusEnabled = $false
-            $script:SubWindowWebViewControl.CoreWebView2.Settings.AreDevToolsEnabled = $true
-            $script:SubWindowWebViewControl.Add_WebMessageReceived($HandleSubUiMessageEvent)
-            
-            # Safe absolute URI conversion
-            $HtmlFullPath = [System.IO.Path]::GetFullPath((Join-Path $RootPath "modules\layouts\network-manager.html"))
-            $UriObject = New-Object System.Uri($HtmlFullPath)
-            $script:SubWindowWebViewControl.CoreWebView2.Navigate($UriObject.AbsoluteUri)
-        }
-    })
-    
-    # ─── FIXED CRITICAL LIFECYCLE ORDER ─────────────────────────────
-    
-    # 1. Force the parent form to create its Win32 Handle immediately
-    $script:SubForm.CreateControl()
-    
-    # 2. Render the window frame layout to the OS desktop structure
-    $script:SubForm.Show()
-    
-    # 3. Pump application message loop once to guarantee handles exist in memory
-    [System.Windows.Forms.Application]::DoEvents()
-    
-    # 4. Trigger engine context allocation safely over the active handle frame
-    $null = $script:SubWindowWebViewControl.EnsureCoreWebView2Async($EnvTask.Result)
->>>>>>> 8e1f6f6539920cf932b534cb9a19b0aa2849f537
 }

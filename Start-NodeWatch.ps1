@@ -163,11 +163,14 @@ $HandleUiMessageEvent = {
         '^Exit-App$'      { $MainForm.Close() }
         '^Minimize-App$'  { $MainForm.WindowState = [System.Windows.Forms.FormWindowState]::Minimized }
         '^Maximize-App$'  { $MainForm.WindowState = if ($MainForm.WindowState -eq [System.Windows.Forms.FormWindowState]::Maximized) { [System.Windows.Forms.FormWindowState]::Normal } else { [System.Windows.Forms.FormWindowState]::Maximized } }
-        '^UI-Ready$' {
+        # FIXED: Support loose whitespace tracking profiles to prevent dropped message frames
+        # DIAGNOSTIC PROFILE: Loose whitespace alignment tracking
+        '^\s*UI-Ready\s*$' {
             if (-not $global:TelemetryLoopTimer.Enabled) { $global:TelemetryLoopTimer.Start() }
             try {
-                if (Test-Path (Join-Path $Global:NodeWatchRoot "modules\telemetry\NetworkManager.ps1")) {
-                    . (Join-Path $Global:NodeWatchRoot "modules\telemetry\NetworkManager.ps1")
+                $LogManagerPath = Join-Path $Global:NodeWatchRoot "modules\telemetry\NetworkManager.ps1"
+                if (Test-Path $LogManagerPath) {
+                    . $LogManagerPath
                     
                     # 1. Fetch raw uncompressed tracking object mesh
                     $RawMesh = Get-AdapterStateMesh
@@ -175,14 +178,25 @@ $HandleUiMessageEvent = {
                     # 2. Convert cleanly to single flat JSON payload block
                     $JsonString = $RawMesh | ConvertTo-Json -Compress -Depth 5
                     
-                    # 3. FIXED: Convert cleanly to explicit Base64 string block to satisfy app.js
+                    # 3. Convert cleanly to explicit Base64 string block to satisfy app.js
                     if ($null -ne $global:WebViewControl.CoreWebView2) {
                         $Bytes = [System.Text.Encoding]::UTF8.GetBytes($JsonString)
                         $Base64String = [Convert]::ToBase64String($Bytes)
                         $global:WebViewControl.CoreWebView2.PostWebMessageAsString($Base64String)
                     }
+                } else {
+                    # Push file-not-found tracking straight to the UI view console log box
+                    $ErrObj = [PSCustomObject]@{ IdentityFrame = @{ HostName = "ERROR" }; SystemFrame = @{ CpuLoad = 0; RamUsageText = "0" }; PipelineStatus = "CRITICAL: Missing NetworkManager.ps1 at path" }
+                    $global:WebViewControl.CoreWebView2.PostWebMessageAsJson(($ErrObj | ConvertTo-Json -Compress))
                 }
-            } catch {}
+            } catch {
+                # Push the exact error string directly into the dashboard console log box instead of swallowing it
+                $ExceptionMessage = $_.Exception.Message -replace "'", '"' -replace '\\', '\\'
+                $ErrObj = [PSCustomObject]@{ IdentityFrame = @{ HostName = "ERROR" }; SystemFrame = @{ CpuLoad = 0; RamUsageText = "0" }; PipelineStatus = "PIPELINE CRASH: $ExceptionMessage" }
+                if ($null -ne $global:WebViewControl.CoreWebView2) {
+                    $global:WebViewControl.CoreWebView2.PostWebMessageAsJson(($ErrObj | ConvertTo-Json -Compress))
+                }
+            }
         }
 
         '^Window-Drag:(.+)' {

@@ -73,19 +73,28 @@ document.addEventListener("DOMContentLoaded", () => {
                     stats = payload;
                 } 
                 // 2. Safely parse string-represented data payloads
+                // 2. Safely parse string-represented data payloads
                 else if (typeof payload === 'string') {
-                    if (payload.trim().startsWith('{') || payload.trim().startsWith('[')) {
-                        stats = JSON.parse(payload);
+                    const trimmed = payload.trim();
+                    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+                        stats = JSON.parse(trimmed);
                     } else {
                         try {
-                            const decodedJson = decodeURIComponent(escape(atob(payload)));
-                            stats = JSON.parse(decodedJson);
+                            // FIXED: Standardize cross-platform binary string decoding signatures smoothly
+                            const binaryString = atob(trimmed);
+                            const bytes = new Uint8Array(binaryString.length);
+                            for (let i = 0; i < binaryString.length; i++) {
+                                bytes[i] = binaryString.charCodeAt(i);
+                            }
+                            const decodedText = new TextDecoder("utf-8").decode(bytes);
+                            stats = JSON.parse(decodedText);
                         } catch (base64Err) {
                             console.warn("[PIPELINE] Non-Base64 action message intercepted:", payload);
                             return;
                         }
                     }
                 }
+
 
                 if (!stats) return;
 
@@ -94,9 +103,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 updateDashboardUiMesh(stats);
                 
 
-                // Intercept raw network profile data sheets directly from NetworkManager.ps1
-                if (stats.type === "REFRESH_ADAPTER_STATE" && stats.interfaces) {
-                    RenderNetworkAdapterInterfaceRows(stats.interfaces);
+                const msgType = stats.type || stats.Type;
+                const msgInterfaces = stats.interfaces || stats.Interfaces;
+                
+                if (msgType === "REFRESH_ADAPTER_STATE" && msgInterfaces) {
+                    RenderNetworkAdapterInterfaceRows(msgInterfaces);
                 }
             } catch (err) {
                 console.error("Failed to unpack metrics package:", err);
@@ -275,9 +286,6 @@ function updateDashboardUiMesh(stats) {
         }
     }
 }
-// =========================================================================
-// SLIDING DRAWER NETWORK ADAPTER RENDERING MATRIX & COMMITS
-// =========================================================================
 // =========================================================================
 // INLINE VIEW NETWORK ADAPTER RENDERING MATRIX & COMMITS
 // =========================================================================
