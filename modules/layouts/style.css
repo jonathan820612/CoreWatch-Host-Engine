@@ -322,3 +322,56 @@ h2 {
     width: 100%;
     box-sizing: border-box;
 }
+/* =========================================================================
+   SLIDING DRAWER UTILITY PANEL OVERLAYS
+   ========================================================================= */
+.side-drawer-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: 400px;
+    height: 100%;
+    background-color: #212936;
+    border-left: 1px solid #323c4b;
+    box-shadow: -5px 0 25px rgba(0, 0, 0, 0.5);
+    z-index: 10000;
+    padding: 15px;
+    box-sizing: border-box;
+    
+    /* Off-screen by default */
+    transform: translateX(100%);
+    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    
+    /* Allow separate scroll inside panel if there are many interfaces */
+    overflow-y: auto;
+    -webkit-app-region: no-drag;
+}
+
+/* Active slider slide-in trigger class */
+.side-drawer-panel.drawer-open {
+    transform: translateX(0);
+}
+
+.drawer-header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #2d3748;
+    margin-bottom: 15px;
+    padding-bottom: 8px;
+}
+.side-drawer-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    /* ... structural parameters ... */
+    transform: translateX(100%);  /* 1. Hides it off-screen to start */
+}
+
+.side-drawer-panel.drawer-open {
+    transform: translateX(0);     /* 2. Moves it onto screen when active */
+}
+
+.side-drawer-panel.drawer-open {
+    transform: translateX(0) !important; /* 3. Redundant selector track */
+}

@@ -9,6 +9,8 @@ function Get-NetworkMetrics {
     $NetProfileStr = "Disconnected"
     $LinkCap       = "0 Mbps"
     $WlanSsid      = "Disconnected"
+    $EthDriver     = "Not Present / Inactive"
+    $WifiDriver    = "Not Present / Inactive"
 
     if ($null -ne $IPConfig) {
         $NetProf = Get-NetConnectionProfile -InterfaceIndex $IPConfig.InterfaceIndex -ErrorAction SilentlyContinue
@@ -28,10 +30,10 @@ function Get-NetworkMetrics {
         $Route = Get-NetRoute -InterfaceIndex $IPConfig.InterfaceIndex -DestinationPrefix "0.0.0.0/0" -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($Route) { $Gateway = $Route.NextHop }
 
-        $CurrentNic = Get-CimInstance -ClassName Win32_NetworkAdapter | Where-Object { $_.InterfaceIndex -eq $IPConfig.InterfaceIndex } -ErrorAction SilentlyContinue
-        if ($CurrentNic -and $CurrentNic.Speed -gt 0) {
-            $SpeedGbps = [math]::Round(($CurrentNic.Speed / 1GB), 1)
-            $LinkCap = if ($SpeedGbps -ge 1) { "$SpeedGbps Gbps" } else { "$([int]($CurrentNic.Speed / 1MB)) Mbps" }
+        # FIXED: Use fast NetIPInterface capacity data to bypass heavy CIM locks
+        if ($IPConfig.LinkSpeed -gt 0) {
+            $SpeedGbps = [math]::Round(($IPConfig.LinkSpeed / 1GB), 1)
+            $LinkCap = if ($SpeedGbps -ge 1) { "$SpeedGbps Gbps" } else { "$([int]($IPConfig.LinkSpeed / 1MB)) Mbps" }
         }
     }
 
@@ -44,24 +46,18 @@ function Get-NetworkMetrics {
     $SsdpRule = Get-NetFirewallRule -Name "FPS-LLMNR-In-UDP" -ErrorAction SilentlyContinue
     if ($SsdpRule -and $SsdpRule.Enabled -eq 'True') { $DiscoveryStatus = "On" }
 
-    $EthDriver  = "Not Present / Inactive"
-    $WifiDriver = "Not Present / Inactive"
-    if ($null -ne $IPConfig) {
-        $ActiveNic = Get-CimInstance -ClassName Win32_NetworkAdapter -Filter "InterfaceIndex=$($IPConfig.InterfaceIndex)" -ErrorAction SilentlyContinue
-        if ($ActiveNic) {
-            if ($ActiveNic.Name -like "*Wireless*" -or $ActiveNic.Name -like "*Wi-Fi*" -or $ActiveNic.Name -like "*802.11*") {
-                $WifiDriver = $ActiveNic.Name
-            } else {
-                $EthDriver = $ActiveNic.Name
+    # FIXED: Replaced heavy Get-CimInstance queries with lightning-fast native Get-NetAdapter calls
+    try {
+        $AllAdapters = Get-NetAdapter -Physical -ErrorAction SilentlyContinue
+        foreach ($Adapter in $AllAdapters) {
+            if ($Adapter.Name -like "*Wireless*" -or $Adapter.Name -like "*Wi-Fi*" -or $Adapter.InterfaceDescription -like "*Wireless*" -or $Adapter.InterfaceDescription -like "*Wi-Fi*") { 
+                $WifiDriver = $Adapter.InterfaceDescription 
+            }
+            elseif ($Adapter.Name -like "*Ethernet*" -or $Adapter.InterfaceDescription -like "*Ethernet*" -or $Adapter.InterfaceDescription -like "*Gigabit*" -or $Adapter.InterfaceDescription -like "*Realtek*") { 
+                $EthDriver = $Adapter.InterfaceDescription 
             }
         }
-    }
-    $AllAdapters = Get-CimInstance -ClassName Win32_NetworkAdapter -Filter "PhysicalAdapter=True" -ErrorAction SilentlyContinue
-    
-    foreach ($Adapter in $AllAdapters) {
-        if ($Adapter.Name -like "*Wireless*" -or $Adapter.Name -like "*Wi-Fi*" -or $Adapter.Name -like "*802.11*") { $WifiDriver = $Adapter.Name }
-        elseif ($Adapter.Name -like "*Ethernet*" -or $Adapter.Name -like "*Gigabit*" -or $Adapter.Name -like "*PCIe*") { $EthDriver = $Adapter.Name }
-    }
+    } catch {}
 
     $ExtIPv4 = "Resolving..."
     try {
@@ -72,7 +68,7 @@ function Get-NetworkMetrics {
     } catch { $ExtIPv4 = "Offline / Secure Mesh" }
     
     $DhcpStatus = "Static"
-    if ($IPConfig.Dhcp -eq 'Enabled') { $DhcpStatus = "DHCP" }
+    if ($null -ne $IPConfig -and $IPConfig.Dhcp -eq 'Enabled') { $DhcpStatus = "DHCP" }
     
     return [PSCustomObject]@{
         IntIPv4       = [string]$IntIPv4

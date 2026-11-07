@@ -1,5 +1,64 @@
-// File: modules/layouts/app.js - PART 1 (Lines 1 - 200)
+// =========================================================================
+// APPLICATION TAB NAVIGATION AND VIEW-SWITCHING CONTROLLER (GLOBAL BIND)
+// =========================================================================
+window.SwitchAppLayoutView = function(targetViewId) {
+    const dashboardGrid = document.getElementById('viewDashboardGrid');
+    const networkPanel = document.getElementById('viewNetworkManagerPanel');
+    const tabBtnDash = document.getElementById('tabDashboard');
+    const tabBtnNet = document.getElementById('tabNetManager');
 
+    if (targetViewId === 'netmanager') {
+        // Toggle view containers instantly via inline style vectors
+        if (dashboardGrid) dashboardGrid.style.display = 'none';
+        if (networkPanel) networkPanel.style.display = 'block';
+        
+        // Synchronize active highlights on top toolbar button slots
+        if (tabBtnNet) tabBtnNet.classList.add('active');
+        if (tabBtnDash) tabBtnDash.classList.remove('active');
+        
+        // Request immediate hardware adapter reads from host engine layout
+        if (window.chrome && window.chrome.webview) {
+            window.chrome.webview.postMessage("UI-Ready");
+        }
+    } else {
+        // Fall back cleanly to the main systems telemetry dashboard mesh
+        if (networkPanel) networkPanel.style.display = 'none';
+        if (dashboardGrid) dashboardGrid.style.display = 'grid';
+        
+        if (tabBtnDash) tabBtnDash.classList.add('active');
+        if (tabBtnNet) tabBtnNet.classList.remove('active');
+    }
+};
+
+// =========================================================================
+// SIDEBAR DRAWER INTERACTION UTILITY CONTROLLERS
+// =========================================================================
+window.ToggleNetworkDrawer = function(shouldOpen) {
+    const drawer = document.getElementById('sideNetworkDrawer');
+    if (!drawer) {
+        console.error("[CRITICAL UI] Could not find drawer element handle '#sideNetworkDrawer' in DOM layout.");
+        return;
+    }
+    
+    if (shouldOpen) {
+        // 1. FORCED IMMEDIATE ACTION: Reveal the panel instantly on click
+        drawer.style.transform = "translateX(0)";
+        drawer.classList.add('drawer-open');
+        
+        // 2. Ping the host layer to populate data in the background
+        if (window.chrome && window.chrome.webview) {
+            window.chrome.webview.postMessage("UI-Ready");
+        }
+    } else {
+        drawer.style.transform = "translateX(100%)";
+        drawer.classList.remove('drawer-open');
+    }
+};
+
+
+// =========================================================================
+// UNIFIED CHROMIUM ENVIRONMENT INBOUND WIRE MESSAGE PARSER
+// =========================================================================
 document.addEventListener("DOMContentLoaded", () => {
     if (window.chrome && window.chrome.webview) {
         window.chrome.webview.addEventListener("message", (event) => {
@@ -15,25 +74,29 @@ document.addEventListener("DOMContentLoaded", () => {
                 } 
                 // 2. Safely parse string-represented data payloads
                 else if (typeof payload === 'string') {
-                    // Check if it appears to be raw JSON instead of Base64
                     if (payload.trim().startsWith('{') || payload.trim().startsWith('[')) {
                         stats = JSON.parse(payload);
                     } else {
-                        // Safe extraction path for Base64 telemetry streams
                         try {
                             const decodedJson = decodeURIComponent(escape(atob(payload)));
                             stats = JSON.parse(decodedJson);
                         } catch (base64Err) {
-                            console.warn("[PIPELINE] String received is not Base64; checking for raw route execution:", payload);
-                            return; // Halts processing for discrete non-JSON actions
+                            console.warn("[PIPELINE] Non-Base64 action message intercepted:", payload);
+                            return;
                         }
                     }
                 }
 
-                // Route data down to core visual meshes if layout parameters exist
-                if (stats && (stats.IdentityFrame || stats.SystemFrame || stats.StorageFrame || stats.NetworkFrame)) {
-                    AppendLiveDiagnosticConsoleLog(stats);
-                    updateDashboardUiMesh(stats);
+                if (!stats) return;
+
+                
+                AppendLiveDiagnosticConsoleLog(stats);
+                updateDashboardUiMesh(stats);
+                
+
+                // Intercept raw network profile data sheets directly from NetworkManager.ps1
+                if (stats.type === "REFRESH_ADAPTER_STATE" && stats.interfaces) {
+                    RenderNetworkAdapterInterfaceRows(stats.interfaces);
                 }
             } catch (err) {
                 console.error("Failed to unpack metrics package:", err);
@@ -44,27 +107,21 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 /**
- * Requests the application host infrastructure to spin up an isolated window for a specific utility module
+ * Requests the application host infrastructure to spin up an isolated tool process
  */
 window.LaunchExternalToolWindow = function(toolIdentifier) {
     if (window.chrome && window.chrome.webview) {
-        // Dispatches single string action routing event payloads downstream
         window.chrome.webview.postMessage(`Launch-Tool:${toolIdentifier}`);
     }
-    
-    // Fallback confirmation console string log output tracer
-    console.log(`[INFRASTRUCTURE: Window allocation request submitted for component module: ${toolIdentifier}]`);
+    console.log(`[INFRASTRUCTURE: Forwarded routing query for component: ${toolIdentifier}]`);
 };
 
 /**
- * Automatically evaluates the state object returned from your telemetry loop updates 
- * to highlight top button elements if background worker processes are running.
+ * Automatically evaluates states to sync navigation interface lighting styles
  */
 function SyncToolNavigationHighlights(appStates) {
     const watchdogBtn = document.getElementById('btnToggleWatchdog');
-    
     if (watchdogBtn && appStates.NetworkFrame) {
-        // Evaluate incoming state flags passed from your background Watchdog pipeline loop
         if (appStates.NetworkFrame.WatchdogActive === true || appStates.WatchdogLoopRunning === true) {
             watchdogBtn.classList.add('tool-running');
         } else {
@@ -73,34 +130,13 @@ function SyncToolNavigationHighlights(appStates) {
     }
 }
 
-window.chrome.webview.addEventListener("message", (event) => {
-    try {
-        const payload = event.data;
-        if (!payload) return;
-        
-        const decodedJson = decodeURIComponent(escape(atob(payload)));
-        let dataMesh = JSON.parse(decodedJson);
-        
-        if (dataMesh.NetworkFrame) {
-            dataMesh = typeof dataMesh.NetworkFrame === 'string' ? JSON.parse(dataMesh.NetworkFrame) : dataMesh.NetworkFrame;
-        }
-        
-        if (dataMesh.type === "REFRESH_ADAPTER_STATE") {
-            // CRITICAL PIPELINE PROTECTION: Only attempt to render if this window context actually owns the rendering mesh
-            if (typeof RenderNetworkAdapterInterfaceRows === "function") {
-                RenderNetworkAdapterInterfaceRows(dataMesh.interfaces);
-            } else {
-                console.log("[PIPELINE] Network data frame intercepted safely inside non-target window layout.");
-            }
-        }
-    } catch(err) {
-        console.error("Failed to process network adapter update frame:", err);
-    }
-});
-
+// =========================================================================
+// TELEMETRY VIEW DATA MATRIX PAINTERS
+// =========================================================================
 function updateDashboardUiMesh(stats) {
     if (!stats) return;
     SyncToolNavigationHighlights(stats);
+
     // --- IdentityFrame Mapping ---
     const id = stats.IdentityFrame;
     if (id) {
@@ -112,35 +148,27 @@ function updateDashboardUiMesh(stats) {
     // --- InfraFrame Mapping ---
     const infra = stats.InfraFrame;
     if (infra) {
-        // Top Card Elements (System Identity)
         SetDomText('lblOsEdition',      infra.OsEdition);
         SetDomText('lblWinBuild',       infra.WindowsBuild);
         SetDomText('lblUpdateLevel',    infra.WindowsUpdateLevel);
         SetDomText('lblDirectX',        infra.DirectX);
         SetDomText('lblVirtualization', infra.Virtualization);
         SetDomText('lblPsVersion',      infra.PsVersion);
-
-        // Middle Card Elements (Infrastructure)
         SetDomText('lblMotherboard',    infra.Motherboard);
         SetDomText('lblBiosVersion',    infra.BiosVersion);
         SetDomText('lblPowerPlan',      infra.PowerPlan);
         SetDomText('lblUptime',         infra.UptimeText);
-
-        // Audio Sub-Section Nodes
         SetDomText('lblAudioOutput',    infra.SoundCardIdentity);
         SetDomText('lblAudioInput',     infra.MicrophoneIdentity);
     }
-
     // --- SystemFrame Mapping ---
     const sys = stats.SystemFrame;
     if (sys) {
-        // Core Processor Nodes
         SetDomText('lblCpuLoad',        `${sys.CpuLoad}%`);
         SetDomStyleWidth('barCpuLoad',  `${sys.CpuLoad}%`);
         SetDomText('lblCpuClock',       sys.CpuClock);
         SetDomText('lblCpuTemp',        sys.CpuTemp);
 
-        // Update CPU Temperature Badge Threshold Color Scheme
         const cpuBadge = document.getElementById('badgeCpuTemp');
         if (cpuBadge) {
             if (sys.CpuTemp >= 75) {
@@ -151,9 +179,7 @@ function updateDashboardUiMesh(stats) {
                 cpuBadge.classList.remove('therm-hot');
             }
         }
-// File: modules/layouts/app.js - PART 2 (Lines 201 - 400)
 
-        // Graphics Accelerator Nodes
         SetDomText('lblGpuLoad',        `${sys.GpuLoad}%`);
         SetDomStyleWidth('barGpuLoad',  `${sys.GpuLoad}%`);
         SetDomText('lblGpuModel',       sys.GpuModel);
@@ -161,7 +187,6 @@ function updateDashboardUiMesh(stats) {
         SetDomText('lblGpuPower',       sys.GpuPower);
         SetDomText('lblGpuTemp',        sys.GpuTemp);
 
-        // Update GPU Temperature Badge Threshold Color Scheme
         const gpuBadge = document.getElementById('badgeGpuTemp');
         if (gpuBadge) {
             if (sys.GpuTemp >= 75) {
@@ -173,11 +198,8 @@ function updateDashboardUiMesh(stats) {
             }
         }
 
-        // System Memory Rails (Physical RAM)
         SetDomText('lblRamUsage',       sys.RamUsageText);
         SetDomStyleWidth('barRamUsage', `${sys.RamPercent}%`);
-
-        // Windows Virtual Memory Rails (Pagefile Commitments)
         SetDomText('lblPagefileUsage',       sys.PagefileUsageText);
         SetDomStyleWidth('barPagefileUsage', `${sys.PagefilePercent}%`);
     }
@@ -195,17 +217,14 @@ function updateDashboardUiMesh(stats) {
         SetDomText('lblEthernet',       net.lblEthDriver);
         SetDomText('lblWifi',           net.lblWifiDriver);
         
-        // Dynamic Fallback Scanner for Receive (Rx) Text Node
         const rxValue = net.RxText || "0.00 KB/s";
         const rxElem = document.getElementById('lblNetRxValue') || document.getElementById('lblNetRx') || document.querySelector('.rx-numeric-text');
         if (rxElem) { rxElem.innerText = rxValue; }
         
-        // Dynamic Fallback Scanner for Transmit (Tx) Text Node
         const txValue = net.TxText || "0.00 KB/s";
         const txElem = document.getElementById('lblNetTxValue') || document.getElementById('lblNetTx') || document.querySelector('.tx-numeric-text');
         if (txElem) { txElem.innerText = txValue; }
         
-        // Maps tracking bars accurately within their exact 50% section blocks
         const rxHalfPct = Math.min((net.RxPct || 0) * 0.5, 50);
         const txHalfPct = Math.min((net.TxPct || 0) * 0.5, 50);
         
@@ -219,10 +238,8 @@ function updateDashboardUiMesh(stats) {
         const container = document.getElementById('storageVolumeContainer');
         if (container) {
             container.innerHTML = '';
-            
             let drives = Array.isArray(storage) ? storage : [storage];
             
-            // SORT ENGINE: Moves "Removable" nodes to the bottom
             drives.sort((a, b) => {
                 if (a.DriveType === "Removable" && b.DriveType !== "Removable") return 1;
                 if (a.DriveType !== "Removable" && b.DriveType === "Removable") return -1;
@@ -232,8 +249,6 @@ function updateDashboardUiMesh(stats) {
             drives.forEach((drive) => {
                 const usedPercent = (drive.StorageUsedGB / drive.StorageTotalGB) * 100;
                 const isRemovable = drive.DriveType === "Removable";
-                
-                // Unified Theme Colors
                 const fillColor = isRemovable ? "#9f7aea" : "#3182ce";
                 const labelColorClass = isRemovable ? "text-removable" : "text-local";
                 const tagIconStyle = isRemovable ? "style='filter: hue-rotate(50deg) saturate(1.5);'" : "";
@@ -260,15 +275,83 @@ function updateDashboardUiMesh(stats) {
         }
     }
 }
+// =========================================================================
+// SLIDING DRAWER NETWORK ADAPTER RENDERING MATRIX & COMMITS
+// =========================================================================
+// =========================================================================
+// INLINE VIEW NETWORK ADAPTER RENDERING MATRIX & COMMITS
+// =========================================================================
+function RenderNetworkAdapterInterfaceRows(interfaces) {
+    // FIX: Updated to match your exact HTML panel element target ID block
+    const container = document.getElementById("adapterInterfaceContainer");
+    if (!container) return;
 
-function AppendLiveDiagnosticConsoleLog(stats) {
-    const consoleBox = document.getElementById('console-box') || document.querySelector('.console-box');
-    if (consoleBox && stats.IdentityFrame && stats.SystemFrame) {
-        consoleBox.textContent = `[PIPELINE: ${stats.PipelineStatus}] Host: ${stats.IdentityFrame.HostName} | CPU Load: ${stats.SystemFrame.CpuLoad}% | RAM: ${stats.SystemFrame.RamUsageText}`;
+    // Guard clause to handle wrapper objects and extract the true array safely
+    let targetArray = interfaces;
+    if (interfaces && !Array.isArray(interfaces) && Array.isArray(interfaces.interfaces)) {
+        targetArray = interfaces.interfaces;
     }
-}
-// File: modules/layouts/app.js - PART 3 (Lines 401 - End)
 
+    container.innerHTML = "";
+
+    if (!targetArray || !Array.isArray(targetArray) || targetArray.length === 0) {
+        container.innerHTML = `<div class="driver-text-node">No connected hardware lines returned from engine.</div>`;
+        return;
+    }
+
+    targetArray.forEach((adapter, index) => {
+        const isDhcp = adapter.Profile === "DHCP";
+        
+        const rowTemplateHtml = `
+            <div class="metric-row storage-tight-row" style="background-color: #1a202c; border: 1px solid #323c4b; padding: 12px; margin-bottom: 8px; border-left: 4px solid ${isDhcp ? '#319795' : '#b794f4'}; box-sizing: border-box;">
+                <div class="metric-metadata">
+                    <span class="storage-interactive-row-header">
+                        <span class="storage-tag-icon">📡</span>
+                        <span class="drive-title text-local">${adapter.Alias}</span>
+                    </span>
+                    <div class="cache-badge-deck">
+                        <span class="hardware-stat-tag text-assignment">${adapter.Profile}</span>
+                    </div>
+                </div>
+                
+                <div style="font-size: 11px; font-family: monospace; color: #cbd5e0; margin-top: 6px; line-height: 1.4;">
+                    IP Address: <strong>${adapter.IPAddress}</strong><br>
+                    Subnet Mask: ${adapter.SubnetMask} (/${adapter.PrefixLength})<br>
+                    Gateway    : ${adapter.Gateway}
+                </div>
+
+                <div class="hardware-metric-footer-row" style="border-top: 1px dashed #2d3748; padding-top: 8px; margin-top: 8px; display: flex; flex-direction: column; gap: 6px; align-items: stretch; justify-content: flex-start;">
+                    <div style="display: flex; gap: 6px; align-items: center; width: 100%;">
+                        <input type="text" id="drawer_ip_${index}" placeholder="Static IP" value="${isDhcp ? '' : adapter.IPAddress}" style="background-color: #2d3748; border: 1px solid #4a5568; color: #fff; font-family: 'Consolas', monospace; font-size: 11px; padding: 3px 6px; flex-grow: 1; min-width: 0; box-sizing: border-box; height: 23px;">
+                        <button class="network-adapters-action-btn" onclick="ExecuteDrawerStaticProvisioning('${adapter.Alias}', ${index})" style="margin-left: 0 !important; height: 23px; padding: 2px 8px;">Set Static</button>
+                    </div>
+                    ${!isDhcp ? `<button class="network-adapters-action-btn" onclick="ExecuteDrawerDhcpRelease('${adapter.Alias}')" style="background-color: rgba(49, 151, 149, 0.1); border-color: #319795; color: #319795; width: 100%; text-align: center; height: 23px; padding: 2px 8px;">Revert to DHCP Auto</button>` : ''}
+                </div>
+            </div>
+        `;
+        container.insertAdjacentHTML('beforeend', rowTemplateHtml);
+    });
+}
+window.ExecuteDrawerStaticProvisioning = function(interfaceAlias, index) {
+    const targetIp = document.getElementById(`drawer_ip_${index}`)?.value.trim();
+    if (!targetIp) return alert("Error: A valid destination IP allocation layout is required.");
+
+    const payload = { command: "SET_STATIC_IP", interfaceAlias: interfaceAlias, ipAddress: targetIp };
+    if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage(JSON.stringify(payload));
+    }
+};
+
+window.ExecuteDrawerDhcpRelease = function(interfaceAlias) {
+    const payload = { command: "TRIGGER_DHCP_REVERSION", interfaceAlias: interfaceAlias };
+    if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage(JSON.stringify(payload));
+    }
+};
+
+// =========================================================================
+// GENERAL CORE GRAPHICS OBJECT SHORTCUTS
+// =========================================================================
 function SetDomText(elementId, textValue) {
     const element = document.getElementById(elementId);
     if (element) {
@@ -287,6 +370,13 @@ function TriggerVolumeRelabel(driveLetter, currentLabel) {
     const newLabel = prompt(`Enter a new system description label for volume partition [ ${driveLetter} ] :`, currentLabel);
     if (newLabel !== null && window.chrome && window.chrome.webview) {
         window.chrome.webview.postMessage(`Rename-Drive:${driveLetter}|${newLabel}`);
+    }
+}
+
+function AppendLiveDiagnosticConsoleLog(stats) {
+    const consoleBox = document.getElementById('console-box') || document.querySelector('.console-box');
+    if (consoleBox && stats.IdentityFrame && stats.SystemFrame) {
+        consoleBox.textContent = `[PIPELINE: ${stats.PipelineStatus}] Host: ${stats.IdentityFrame.HostName} | CPU Load: ${stats.SystemFrame.CpuLoad}% | RAM: ${stats.SystemFrame.RamUsageText}`;
     }
 }
 
@@ -341,6 +431,9 @@ window.CommitWatchdogTuningProfile = function() {
     }
 };
 
+// =========================================================================
+// NATIVE FRAMELESS CHASSIS WINDOW INTEROP EVENTS
+// =========================================================================
 document.addEventListener("DOMContentLoaded", () => {
     const headerDeck = document.querySelector('.app-header-deck');
     if (headerDeck && window.chrome && window.chrome.webview) {

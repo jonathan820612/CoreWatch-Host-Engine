@@ -104,7 +104,6 @@ if (Test-Path $IconPath) {
 
 $global:IsFormDragging = $false
 $global:FormDragCursorOffset = [System.Drawing.Point]::Empty
-
 $MainForm.Add_MouseDown({
     param($evtSource, $evtArgs)
     if ($evtArgs.Button -eq [System.Windows.Forms.MouseButtons]::Left -and $evtArgs.Y -le 50) {
@@ -124,6 +123,23 @@ $MainForm.Add_MouseUp({ $global:IsFormDragging = $false })
 $global:WebViewControl = New-Object Microsoft.Web.WebView2.WinForms.WebView2
 $global:WebViewControl.Dock = "Fill"
 $MainForm.Controls.Add($global:WebViewControl)
+
+$SendEncodedPayload = {
+    param($RawJsonObject)
+    if ($null -ne $global:WebViewControl.CoreWebView2 -and $null -ne $RawJsonObject) {
+        try {
+            # Check if payload is already a JSON string to prevent double-serialization loops
+            if ($RawJsonObject -is [string]) {
+                $JsonString = $RawJsonObject
+            } else {
+                $JsonString = $RawJsonObject | ConvertTo-Json -Compress -Depth 5
+            }
+            $Bytes = [System.Text.Encoding]::UTF8.GetBytes($JsonString)
+            $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String($Bytes))
+        } catch {}
+    }
+}
+
 $global:TelemetryLoopTimer = New-Object System.Windows.Forms.Timer
 $global:TelemetryLoopTimer.Interval = 1000
 $global:TelemetryLoopTimer.Add_Tick({
@@ -135,13 +151,9 @@ $global:TelemetryLoopTimer.Add_Tick({
     }
 })
 
-$SendEncodedPayload = {
-    param($RawJson)
-    if ($null -ne $global:WebViewControl.CoreWebView2 -and $null -ne $RawJson) {
-        $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($RawJson)))
-    }
-}
-
+# =========================================================================
+# UNIFIED HOST UI MESSAGE DESERIALIZATION & COMMAND HANDLER LOOP
+# =========================================================================
 $HandleUiMessageEvent = {
     param($evtSource, $evtArgs)
     $RawMessage = $evtArgs.TryGetWebMessageAsString()
@@ -151,21 +163,24 @@ $HandleUiMessageEvent = {
         '^Exit-App$'      { $MainForm.Close() }
         '^Minimize-App$'  { $MainForm.WindowState = [System.Windows.Forms.FormWindowState]::Minimized }
         '^Maximize-App$'  { $MainForm.WindowState = if ($MainForm.WindowState -eq [System.Windows.Forms.FormWindowState]::Maximized) { [System.Windows.Forms.FormWindowState]::Normal } else { [System.Windows.Forms.FormWindowState]::Maximized } }
-        '^UI-Ready$'      {
+        '^UI-Ready$' {
             if (-not $global:TelemetryLoopTimer.Enabled) { $global:TelemetryLoopTimer.Start() }
             try {
                 if (Test-Path (Join-Path $Global:NodeWatchRoot "modules\telemetry\NetworkManager.ps1")) {
                     . (Join-Path $Global:NodeWatchRoot "modules\telemetry\NetworkManager.ps1")
                     
-                    # Intercept the raw profile data mesh and frame it inside a verified NetworkFrame wrapper
+                    # 1. Fetch raw uncompressed tracking object mesh
                     $RawMesh = Get-AdapterStateMesh
-                    $WrappedFrame = [PSCustomObject]@{
-                        NetworkFrame = $RawMesh
-                    }
                     
-                    # Compress and post over the safe base64 transmission pipeline
-                    $JsonPayload = $WrappedFrame | ConvertTo-Json -Compress -Depth 5
-                    & $SendEncodedPayload $JsonPayload
+                    # 2. Convert cleanly to single flat JSON payload block
+                    $JsonString = $RawMesh | ConvertTo-Json -Compress -Depth 5
+                    
+                    # 3. FIXED: Convert cleanly to explicit Base64 string block to satisfy app.js
+                    if ($null -ne $global:WebViewControl.CoreWebView2) {
+                        $Bytes = [System.Text.Encoding]::UTF8.GetBytes($JsonString)
+                        $Base64String = [Convert]::ToBase64String($Bytes)
+                        $global:WebViewControl.CoreWebView2.PostWebMessageAsString($Base64String)
+                    }
                 }
             } catch {}
         }
@@ -197,43 +212,17 @@ $HandleUiMessageEvent = {
                     $WatchdogPath = Join-Path $Global:NodeWatchRoot "modules\layouts\watchdog.html"
                     if (Test-Path $WatchdogPath) { Start-Process "msedge.exe" -ArgumentList "--app=`"$WatchdogPath`"", "--window-size=500,320" -ErrorAction SilentlyContinue }
                 }
-                "Network-Manager" {
-                    $script:NetworkManagerScriptPath = Join-Path $Global:NodeWatchRoot "modules\telemetry\NetworkManager.ps1"
-                    if (Test-Path $script:NetworkManagerScriptPath) { 
-                        
-                        # Pack the loader layout routines securely into an automated scriptblock variable context
-                        $ExecutionPayload = {
-                            . $script:NetworkManagerScriptPath
-                            Show-NetworkManagerWindow -RootPath $Global:NodeWatchRoot
-                        }
-
-                        # FIXED: Use explicit type coercion to safely instantiate the delegate signature array
-                        $ThreadInvoker = [System.Windows.Forms.MethodInvoker]$ExecutionPayload
-                        
-                        # Dispatch directly to the main thread's message loop safely
-                        $null = $MainForm.BeginInvoke($ThreadInvoker)
-                    }
-                }
                 "File-Organizer" { [System.Windows.MessageBox]::Show("File Organizer coming soon.", "CoreWatch") }
                 "Port-Scanner"   { [System.Windows.MessageBox]::Show("Port Scanner coming soon.", "CoreWatch") }
             }
         }
         '^[\{\[]' {
             try {
-                $CommandPayload = $RawMessage | ConvertFrom-Json
-                if ($null -eq $CommandPayload -or $null -eq $CommandPayload.command) { return }
-                . (Join-Path $Global:NodeWatchRoot "modules\telemetry\NetworkManager.ps1")
-                switch ($CommandPayload.command) {
-                    "SET_STATIC_IP" {
-                        Remove-NetIPAddress -InterfaceAlias $CommandPayload.interfaceAlias -AddressFamily IPv4 -Confirm:$false -ErrorAction SilentlyContinue
-                        Remove-NetRoute -InterfaceAlias $CommandPayload.interfaceAlias -DestinationPrefix "0.0.0.0/0" -Confirm:$false -ErrorAction SilentlyContinue
-                        New-NetIPAddress -InterfaceAlias $CommandPayload.interfaceAlias -IPAddress $CommandPayload.ipAddress -PrefixLength 24 -Confirm:$false
-                        $global:WebViewControl.CoreWebView2.PostWebMessageAsJson((Get-AdapterStateMesh))
-                    }
-                    "TRIGGER_DHCP_REVERSION" {
-                        Set-NetIPInterface -InterfaceAlias $CommandPayload.interfaceAlias -Dhcp Enabled -Confirm:$false
-                        Set-DnsClientServerAddress -InterfaceAlias $CommandPayload.interfaceAlias -ResetServerAddresses -Confirm:$false
-                        $global:WebViewControl.CoreWebView2.PostWebMessageAsJson((Get-AdapterStateMesh))
+                if (Test-Path (Join-Path $Global:NodeWatchRoot "modules\telemetry\NetworkManager.ps1")) {
+                    . (Join-Path $Global:NodeWatchRoot "modules\telemetry\NetworkManager.ps1")
+                    $UpdatedMesh = Invoke-AdapterProvisioningControl -PayloadMessageString $RawMessage
+                    if ($null -ne $UpdatedMesh) {
+                        & $SendEncodedPayload $UpdatedMesh
                     }
                 }
             } catch {}
@@ -242,7 +231,7 @@ $HandleUiMessageEvent = {
 }
 
 # =========================================================================
-# SYSTEM TRAY CONTROLLER AND ASSET BINDING LAYER
+# DESKTOP SYSTEM TRAY CONTROLLER AND RUNTIME HOOKS
 # =========================================================================
 $global:SystemTrayIcon = New-Object System.Windows.Forms.NotifyIcon
 $global:SystemTrayIcon.Text = "CoreWatch Host Engine"
@@ -262,21 +251,22 @@ $global:SystemTrayIcon.Add_Click({
     }
 })
 
+# =========================================================================
+# TEARDOWN & LIFECYCLE DESTRUCTOR CLEANUP ROUTINES
+# =========================================================================
 $MainForm.Add_FormClosing({
     if ($null -ne $global:SystemTrayIcon) { $global:SystemTrayIcon.Visible = $false; $global:SystemTrayIcon.Dispose() }
     if ($null -ne $TrayIconInstance) { $TrayIconInstance.Dispose() }
-    if ($null -ne $IconHandle) {
-        if ($null -eq [System.Type]::GetType("CoreWatch.Win32")) {
-            Add-Type -TypeDefinition "using System; using System.Runtime.InteropServices; namespace CoreWatch { public class Win32 { [DllImport(`"user32.dll`")] public static extern bool DestroyIcon(IntPtr hIcon); } }"
-        }
-        $null = [CoreWatch.Win32]::DestroyIcon($IconHandle)
-    }
+    if ($null -ne $IconHandle) { [CoreWatch.Win32]::DestroyIcon($IconHandle) }
     $global:TelemetryLoopTimer.Stop()
     $global:SharedData.IsRunning = $false
     if ($null -ne $PowerShellPool) { $PowerShellPool.Dispose() }
     if ($null -ne $Runspace) { $Runspace.Close(); $Runspace.Dispose() }
 })
 
+# =========================================================================
+# WEBVIEW2 WEB ENGINE PROVISIONING AND SYSTEM APPS LAUNCH
+# =========================================================================
 $FixedRuntimePath = Join-Path $BinPath "WebView2FixedRuntime"
 $BrowserExecutableFolder = if (Test-Path $FixedRuntimePath) { [System.IO.Path]::GetFullPath($FixedRuntimePath) } else { $null }
 
