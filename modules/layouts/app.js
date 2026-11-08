@@ -2,31 +2,34 @@
 // APPLICATION TAB NAVIGATION AND VIEW-SWITCHING CONTROLLER (GLOBAL BIND)
 // =========================================================================
 window.SwitchAppLayoutView = function(targetViewId) {
-    const dashboardGrid = document.getElementById('viewDashboardGrid');
-    const networkPanel = document.getElementById('viewNetworkManagerPanel');
-    const tabBtnDash = document.getElementById('tabDashboard');
-    const tabBtnNet = document.getElementById('tabNetManager');
+    const panels = {
+        dashboard: document.getElementById('viewDashboardGrid'),
+        netmanager: document.getElementById('viewNetworkManagerPanel'),
+        startup: document.getElementById('viewStartupPanel') // ADDED
+    };
+
+    const buttons = {
+        dashboard: document.getElementById('tabDashboard'),
+        netmanager: document.getElementById('tabNetManager'),
+        startup: document.getElementById('tabStartup') // ADDED
+    };
+
+    Object.values(panels).forEach(p => { if (p) p.style.display = 'none'; });
+    Object.values(buttons).forEach(b => { if (b) b.classList.remove('active'); });
 
     if (targetViewId === 'netmanager') {
-        // Toggle view containers instantly via inline style vectors
-        if (dashboardGrid) dashboardGrid.style.display = 'none';
-        if (networkPanel) networkPanel.style.display = 'block';
-        
-        // Synchronize active highlights on top toolbar button slots
-        if (tabBtnNet) tabBtnNet.classList.add('active');
-        if (tabBtnDash) tabBtnDash.classList.remove('active');
-        
-        // Request immediate hardware adapter reads from host engine layout
-        if (window.chrome && window.chrome.webview) {
-            window.chrome.webview.postMessage("UI-Ready");
-        }
-    } else {
-        // Fall back cleanly to the main systems telemetry dashboard mesh
-        if (networkPanel) networkPanel.style.display = 'none';
-        if (dashboardGrid) dashboardGrid.style.display = 'grid';
-        
-        if (tabBtnDash) tabBtnDash.classList.add('active');
-        if (tabBtnNet) tabBtnNet.classList.remove('active');
+        if (panels.netmanager) panels.netmanager.style.display = 'block';
+        if (buttons.netmanager) buttons.netmanager.classList.add('active');
+        if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage("UI-Ready");
+    } 
+    else if (targetViewId === 'startup') { // ADDED BRANCH
+        if (panels.startup) panels.startup.style.display = 'block';
+        if (buttons.startup) buttons.startup.classList.add('active');
+        if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage("Request-StartupApps");
+    } 
+    else {
+        if (panels.dashboard) panels.dashboard.style.display = 'grid';
+        if (buttons.dashboard) buttons.dashboard.classList.add('active');
     }
 };
 
@@ -99,16 +102,19 @@ document.addEventListener("DOMContentLoaded", () => {
                 if (!stats) return;
 
                 
-                AppendLiveDiagnosticConsoleLog(stats);
-                updateDashboardUiMesh(stats);
-                
+const msgType = stats.type || stats.Type;
 
-                const msgType = stats.type || stats.Type;
-                const msgInterfaces = stats.interfaces || stats.Interfaces;
-                
-                if (msgType === "REFRESH_ADAPTER_STATE" && msgInterfaces) {
-                    RenderNetworkAdapterInterfaceRows(msgInterfaces);
-                }
+    if (msgType === "REFRESH_STARTUP_APPS") {
+        RenderStartupAppRows(stats.apps || []);
+    } 
+    else if (msgType === "REFRESH_ADAPTER_STATE") {
+        RenderNetworkAdapterInterfaceRows(stats);
+    } 
+    else {
+        // Dashboard Telemetry
+        AppendLiveDiagnosticConsoleLog(stats);
+        updateDashboardUiMesh(stats);
+    }
             } catch (err) {
                 console.error("Failed to unpack metrics package:", err);
             }
@@ -356,7 +362,53 @@ window.ExecuteDrawerDhcpRelease = function(interfaceAlias) {
         window.chrome.webview.postMessage(JSON.stringify(payload));
     }
 };
+// =========================================================================
+// STARTUP APPLICATION MANAGER RENDERING
+// =========================================================================
+function RenderStartupAppRows(apps) {
+    const container = document.getElementById("startupAppsContainer");
+    if (!container) return;
+    
+    container.innerHTML = "";
+    if (apps.length === 0) {
+        container.innerHTML = `<div class="driver-text-node">No startup applications found in system registry or folders.</div>`;
+        return;
+    }
 
+    apps.forEach(app => {
+        const rowHtml = `
+            <div class="metric-row storage-tight-row" style="background-color: #1a202c; border: 1px solid #323c4b; padding: 12px; margin-bottom: 8px; border-left: 4px solid #4299e1;">
+                <div class="metric-metadata">
+                    <span class="drive-title text-local">🚀 ${app.Name}</span>
+                    <span class="hardware-stat-tag text-assignment">${app.Type}</span>
+                </div>
+                <div style="font-size: 10px; font-family: monospace; color: #a0aec0; margin: 6px 0; word-break: break-all; opacity: 0.8;">
+                    ${app.Command}
+                </div>
+                <div class="hardware-metric-footer-row" style="border-top: 1px dashed #2d3748; padding-top: 8px; margin-top: 8px;">
+                    <button class="console-clear-btn" style="color: #fc8181; border-color: #fc8181; font-size: 10px; height: 22px; padding: 0 10px;" 
+                        onclick="RemoveStartupApp('${app.Name}', '${app.Location.replace(/\\/g, '\\\\')}', '${app.Type}')">
+                        Remove from Boot
+                    </button>
+                </div>
+            </div>`;
+        container.insertAdjacentHTML('beforeend', rowHtml);
+    });
+}
+
+window.RemoveStartupApp = function(name, loc, type) {
+    if (confirm(`Are you sure you want to remove [ ${name} ] from system startup?`)) {
+        const payload = { 
+            command: "REMOVE_STARTUP_APP", 
+            name: name, 
+            location: loc, 
+            type: type 
+        };
+        if (window.chrome && window.chrome.webview) {
+            window.chrome.webview.postMessage(JSON.stringify(payload));
+        }
+    }
+};
 // =========================================================================
 // GENERAL CORE GRAPHICS OBJECT SHORTCUTS
 // =========================================================================

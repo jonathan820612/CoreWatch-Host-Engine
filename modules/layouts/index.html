@@ -22,6 +22,7 @@ APP HEADER NAVIGATION DECK
         <div class="modular-tabs">
             <button id="tabDashboard" class="tab-btn active" onclick="SwitchAppLayoutView('dashboard')">📟 Dashboard</button>
             <button id="tabNetManager" class="tab-btn" onclick="SwitchAppLayoutView('netmanager')">📡 Network Manager</button>
+            <button id="tabStartup" class="tab-btn" onclick="SwitchAppLayoutView('startup')">🚀 Startup Apps</button>
             <button class="tab-btn disabled" disabled>📁 File Organizer</button>
             <button class="tab-btn disabled" disabled>🔍 Port Scanner</button>
         </div>
@@ -83,11 +84,9 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
                     <div id="barRamUsage" class="track-fill"></div>
                 </div>
                 <div class="metric-cache-matrix-row" style="margin-top: 6px;">
-                    <span class="cache-title-label">Cache Matrix:</span>
-                    <div class="cache-badge-deck" style="gap: 4px;">
-                        <span class="cache-tag">L1: 512KB</span>
-                        <span class="cache-tag">L2: 4MB</span>
-                        <span class="cache-tag highlight-x3d">L3: 96MB (3D V-Cache)</span>
+                <span class="cache-title-label">Cache Matrix:</span>
+                    <div id="cpuCacheContainer" class="cache-badge-deck" style="gap: 4px;">
+                    <!-- Dynamic content injected here -->
                     </div>
                 </div>
             </div>
@@ -204,6 +203,14 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
             <div class="driver-text-node">Awaiting dynamic data mesh stream link from host layer...</div>
         </div>
     </div>
-
+    <div id="viewStartupPanel" class="wide-sub-console" style="display: none; min-height: 500px; margin-top: 10px;">
+    <div class="console-header-row">
+        <h2>🚀 STARTUP CONTROL: WINDOWS BOOT ENTRIES</h2>
+        <button class="console-clear-btn" onclick="SwitchAppLayoutView('dashboard')">✕ Return</button>
+        </div>
+        <div id="startupAppsContainer" class="storage-dynamic-mesh-grid" style="padding: 5px;">
+        <div class="driver-text-node">Fetching boot registration entries...</div>
+    </div>
+    </div>
 </body>
 </html>

@@ -1,20 +1,20 @@
 [CmdletBinding()]
 param()
 
-/**
- * Compiles a raw, un-compressed data object mapping active physical network interfaces.
- * REMOVED: ConvertTo-Json -Compress has been extracted to prevent double-serialization bugs downstream.
- */
+<# 
+Compiles a raw, un-compressed data object mapping active physical network interfaces.
+REMOVED: ConvertTo-Json -Compress has been extracted to prevent double-serialization bugs downstream.
+#>
 function Get-AdapterStateMesh {
     [CmdletBinding()]
     param()
-    
-    $ActiveInterfaces = Get-NetIPInterface -AddressFamily IPv4 -ConnectionState Connected | 
-        Where-Object { $_.InterfaceAlias -notlike "*Loopback*" -and $_.InterfaceAlias -notlike "*Pseudo*" }
 
-    $InterfaceCollection = foreach ($InterfaceSource in $ActiveInterfaces) {
-        $IPAddressRecord = Get-NetIPAddress -InterfaceIndex $InterfaceSource.InterfaceIndex -AddressFamily IPv4 | Select-Object -First 1
-        $RouteRecord  = Get-NetRoute -InterfaceIndex $InterfaceSource.InterfaceIndex -DestinationPrefix "0.0.0.0/0" -ErrorAction SilentlyContinue | Select-Object -First 1
+    $PhysicalAdapters = Get-NetAdapter | Where-Object { $_.Status -ne "Not Present" -and $_.Virtual -eq $false }
+
+    $InterfaceCollection = foreach ($Adapter in $PhysicalAdapters) {
+        $IPAddressRecord = Get-NetIPAddress -InterfaceAlias $Adapter.Name -AddressFamily IPv4 -ErrorAction SilentlyContinue | Select-Object -First 1
+        $RouteRecord  = Get-NetRoute -InterfaceAlias $Adapter.Name -DestinationPrefix "0.0.0.0/0" -ErrorAction SilentlyContinue | Select-Object -First 1
+        $IPInterface = Get-NetIPInterface -InterfaceAlias $Adapter.Name -AddressFamily IPv4 -ErrorAction SilentlyContinue
         
         $PrefixInt = if ($IPAddressRecord) { $IPAddressRecord.PrefixLength } else { 24 }
         $MaskString = switch ($PrefixInt) {
@@ -26,12 +26,16 @@ function Get-AdapterStateMesh {
         }
 
         [PSCustomObject]@{
-            Alias        = [string]$InterfaceSource.InterfaceAlias
-            IPAddress    = if ($IPAddressRecord) { [string]$IPAddressRecord.IPAddress } else { "0.0.0.0" }
-            SubnetMask   = [string]$MaskString
-            PrefixLength = [int]$PrefixInt
-            Gateway      = if ($RouteRecord) { [string]$RouteRecord.NextHop } else { "N/A" }
-            Profile      = if ($InterfaceSource.Dhcp -eq 'Enabled') { "DHCP" } else { "Static" }
+            Alias         = [string]$Adapter.Name
+            InterfaceGuid = [string]$Adapter.InterfaceGuid
+            # Fixed: Simply cast to string. If null, it becomes ""
+            MediaType     = [string]$Adapter.MediaType 
+            IPAddress     = if ($IPAddressRecord) { [string]$IPAddressRecord.IPAddress } else { "Disconnected" }
+            SubnetMask    = [string]$MaskString
+            PrefixLength  = [int]$PrefixInt
+            Gateway       = if ($RouteRecord) { [string]$RouteRecord.NextHop } else { "N/A" }
+            Profile       = if ($IPInterface.Dhcp -eq 'Enabled') { "DHCP" } else { "Static" }
+            Status        = [string]$Adapter.Status
         }
     }
     
@@ -41,10 +45,6 @@ function Get-AdapterStateMesh {
         interfaces = @($InterfaceCollection) 
     }
 }
-
-/**
- * Dedicated provisioning utility designed to run smoothly on the primary thread context.
- */
 function Invoke-AdapterProvisioningControl {
     param(
         [Parameter(Mandatory=$true)]
@@ -63,10 +63,14 @@ function Invoke-AdapterProvisioningControl {
             # Apply the new static configuration profile layout 
             New-NetIPAddress -InterfaceAlias $Payload.interfaceAlias -IPAddress $Payload.ipAddress -PrefixLength 24 -Confirm:$false
         }
-        elif ($Payload.command -eq "TRIGGER_DHCP_REVERSION") {
+        elseif ($Payload.command -eq "TRIGGER_DHCP_REVERSION") {
             # Re-enable standard DHCP leasing interfaces and drop manually bound routes
             Set-NetIPInterface -InterfaceAlias $Payload.interfaceAlias -Dhcp Enabled -Confirm:$false
             Set-DnsClientServerAddress -InterfaceAlias $Payload.interfaceAlias -ResetServerAddresses -Confirm:$false
+        }
+        elseif ($Payload.command -eq "RENAME_ADAPTER") {
+            # Rename the physical hardware alias
+            Rename-NetAdapter -Name $Payload.interfaceAlias -NewName $Payload.newAlias -Confirm:$false
         }
     } catch {
         Write-Warning "Network engine failed to commit hardware rule changes: $_"

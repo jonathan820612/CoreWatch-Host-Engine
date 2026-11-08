@@ -36,35 +36,38 @@ $RunspaceScript = {
         try {
             $StaticNet  = Get-NetworkMetrics
             $DynamicNet = . (Join-Path $TelemetryPath "GetTrafficMetrics.ps1")
+            $SystemFrame = Get-SystemMetrics
 
             $MergedNetworkFrame = [PSCustomObject]@{
-                IntIPv4       = [string]$StaticNet.IntIPv4
-                SubnetMask    = [string]$StaticNet.SubnetMask
-                Gateway       = [string]$StaticNet.Gateway
-                NetworkStatus = [string]$StaticNet.NetworkStatus
-                WlanSsid      = [string]$StaticNet.WlanSsid
-                ExtIPv4       = [string]$StaticNet.ExtIPv4
-                LinkCap       = [string]$StaticNet.LinkCap
-                Discovery     = [string]$StaticNet.Discovery
-                lblEthDriver  = [string]$StaticNet.lblEthDriver
-                lblWifiDriver = [string]$StaticNet.lblWifiDriver
-                NetAssignment = [string]$StaticNet.NetAssignment
-                RxPct         = [int]$DynamicNet.RxPct
-                TxPct         = [int]$DynamicNet.TxPct
-                RxText        = [string]$DynamicNet.RxText
-                TxText        = [string]$DynamicNet.TxText
+                IntIPv4       = [string]($StaticNet.IntIPv4 ?? "0.0.0.0")
+                SubnetMask    = [string]($StaticNet.SubnetMask ?? "0.0.0.0")
+                Gateway       = [string]($StaticNet.Gateway ?? "N/A")
+                NetworkStatus = [string]($StaticNet.NetworkStatus ?? "Offline")
+                WlanSsid      = [string]($StaticNet.WlanSsid ?? "None")
+                ExtIPv4       = [string]($StaticNet.ExtIPv4 ?? "Resolving...")
+                LinkCap       = [string]($StaticNet.LinkCap ?? "0 Mbps")
+                Discovery     = [string]($StaticNet.Discovery ?? "Off")
+                lblEthDriver  = [string]($StaticNet.lblEthDriver ?? "Unknown")
+                lblWifiDriver = [string]($StaticNet.lblWifiDriver ?? "Unknown")
+                NetAssignment = [string]($StaticNet.NetAssignment ?? "DHCP")
+                RxPct         = [int]($DynamicNet.RxPct ?? 0)
+                TxPct         = [int]($DynamicNet.TxPct ?? 0)
+                RxText        = [string]($DynamicNet.RxText ?? "0.00 KB/s")
+                TxText        = [string]($DynamicNet.TxText ?? "0.00 KB/s")
             }
 
             $MasterObject = [PSCustomObject]@{
                 IdentityFrame  = Get-IDMetrics
                 InfraFrame     = Get-InfraMetrics
                 NetworkFrame   = $MergedNetworkFrame
-                SystemFrame    = Get-SystemMetrics
+                SystemFrame    = $SystemFrame
                 StorageFrame   = Get-StorageMetrics
                 PipelineStatus = "SUCCESS"
             }
-            $SharedData.JsonPayload = $MasterObject | ConvertTo-Json -Compress
-        } catch {}
+            $SharedData.JsonPayload = $MasterObject | ConvertTo-Json -Compress -Depth 5
+        } catch {
+            $SharedData.JsonPayload = @{ PipelineStatus = "LOOP_CRASH: $($_.Exception.Message)" } | ConvertTo-Json -Compress
+        }
         [System.Threading.Thread]::Sleep(1000)
     }
 }
@@ -124,22 +127,6 @@ $global:WebViewControl = New-Object Microsoft.Web.WebView2.WinForms.WebView2
 $global:WebViewControl.Dock = "Fill"
 $MainForm.Controls.Add($global:WebViewControl)
 
-$SendEncodedPayload = {
-    param($RawJsonObject)
-    if ($null -ne $global:WebViewControl.CoreWebView2 -and $null -ne $RawJsonObject) {
-        try {
-            # Check if payload is already a JSON string to prevent double-serialization loops
-            if ($RawJsonObject -is [string]) {
-                $JsonString = $RawJsonObject
-            } else {
-                $JsonString = $RawJsonObject | ConvertTo-Json -Compress -Depth 5
-            }
-            $Bytes = [System.Text.Encoding]::UTF8.GetBytes($JsonString)
-            $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String($Bytes))
-        } catch {}
-    }
-}
-
 $global:TelemetryLoopTimer = New-Object System.Windows.Forms.Timer
 $global:TelemetryLoopTimer.Interval = 1000
 $global:TelemetryLoopTimer.Add_Tick({
@@ -163,42 +150,34 @@ $HandleUiMessageEvent = {
         '^Exit-App$'      { $MainForm.Close() }
         '^Minimize-App$'  { $MainForm.WindowState = [System.Windows.Forms.FormWindowState]::Minimized }
         '^Maximize-App$'  { $MainForm.WindowState = if ($MainForm.WindowState -eq [System.Windows.Forms.FormWindowState]::Maximized) { [System.Windows.Forms.FormWindowState]::Normal } else { [System.Windows.Forms.FormWindowState]::Maximized } }
-        # FIXED: Support loose whitespace tracking profiles to prevent dropped message frames
-        # DIAGNOSTIC PROFILE: Loose whitespace alignment tracking
+        
         '^\s*UI-Ready\s*$' {
             if (-not $global:TelemetryLoopTimer.Enabled) { $global:TelemetryLoopTimer.Start() }
             try {
                 $LogManagerPath = Join-Path $Global:NodeWatchRoot "modules\telemetry\NetworkManager.ps1"
                 if (Test-Path $LogManagerPath) {
-                    . $LogManagerPath
+                    . $LogManagerPath # This will now work without the comment error
                     
-                    # 1. Fetch raw uncompressed tracking object mesh
                     $RawMesh = Get-AdapterStateMesh
                     
-                    # 2. Convert cleanly to single flat JSON payload block
-                    $JsonString = $RawMesh | ConvertTo-Json -Compress -Depth 5
+                    # Convert to JSON with high depth to ensure nested arrays are captured
+                    $JsonString = $RawMesh | ConvertTo-Json -Compress -Depth 10
                     
-                    # 3. Convert cleanly to explicit Base64 string block to satisfy app.js
                     if ($null -ne $global:WebViewControl.CoreWebView2) {
                         $Bytes = [System.Text.Encoding]::UTF8.GetBytes($JsonString)
                         $Base64String = [Convert]::ToBase64String($Bytes)
                         $global:WebViewControl.CoreWebView2.PostWebMessageAsString($Base64String)
                     }
-                } else {
-                    # Push file-not-found tracking straight to the UI view console log box
-                    $ErrObj = [PSCustomObject]@{ IdentityFrame = @{ HostName = "ERROR" }; SystemFrame = @{ CpuLoad = 0; RamUsageText = "0" }; PipelineStatus = "CRITICAL: Missing NetworkManager.ps1 at path" }
-                    $global:WebViewControl.CoreWebView2.PostWebMessageAsJson(($ErrObj | ConvertTo-Json -Compress))
                 }
             } catch {
-                # Push the exact error string directly into the dashboard console log box instead of swallowing it
-                $ExceptionMessage = $_.Exception.Message -replace "'", '"' -replace '\\', '\\'
-                $ErrObj = [PSCustomObject]@{ IdentityFrame = @{ HostName = "ERROR" }; SystemFrame = @{ CpuLoad = 0; RamUsageText = "0" }; PipelineStatus = "PIPELINE CRASH: $ExceptionMessage" }
-                if ($null -ne $global:WebViewControl.CoreWebView2) {
-                    $global:WebViewControl.CoreWebView2.PostWebMessageAsJson(($ErrObj | ConvertTo-Json -Compress))
-                }
+                Write-Error "NetworkManager failed: $_"
             }
         }
-
+        '^Request-StartupApps$' {
+            . (Join-Path $Global:NodeWatchRoot "modules\telemetry\StartupManager.ps1")
+            $Data = Get-StartupAppsMesh | ConvertTo-Json -Compress -Depth 5
+            $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($Data)))
+        }
         '^Window-Drag:(.+)' {
             $Delta = $Matches[1].Split('|')
             if ($Delta.Count -eq 2) {
@@ -220,30 +199,37 @@ $HandleUiMessageEvent = {
                 Set-StorageLabel -DriveLetter ($Payload.Substring(0, $SplitIndex)) -NewLabel ($Payload.Substring($SplitIndex + 1))
             }
         }
-        '^Launch-Tool:(.+)' {
-            switch ($Matches[1]) {
-                "Watchdog-Engine" {
-                    $WatchdogPath = Join-Path $Global:NodeWatchRoot "modules\layouts\watchdog.html"
-                    if (Test-Path $WatchdogPath) { Start-Process "msedge.exe" -ArgumentList "--app=`"$WatchdogPath`"", "--window-size=500,320" -ErrorAction SilentlyContinue }
-                }
-                "File-Organizer" { [System.Windows.MessageBox]::Show("File Organizer coming soon.", "CoreWatch") }
-                "Port-Scanner"   { [System.Windows.MessageBox]::Show("Port Scanner coming soon.", "CoreWatch") }
-            }
-        }
-        '^[\{\[]' {
-            try {
-                if (Test-Path (Join-Path $Global:NodeWatchRoot "modules\telemetry\NetworkManager.ps1")) {
-                    . (Join-Path $Global:NodeWatchRoot "modules\telemetry\NetworkManager.ps1")
-                    $UpdatedMesh = Invoke-AdapterProvisioningControl -PayloadMessageString $RawMessage
-                    if ($null -ne $UpdatedMesh) {
-                        & $SendEncodedPayload $UpdatedMesh
+        Default {
+            if ($RawMessage -match '\{.*"command".*\}') {
+                try {
+                    $Payload = $RawMessage | ConvertFrom-Json
+                    
+                    # 1. Startup Manager Branch
+                    if ($Payload.command -eq "REMOVE_STARTUP_APP") {
+                        . (Join-Path $Global:NodeWatchRoot "modules\telemetry\StartupManager.ps1")
+                        Remove-StartupApp -Name $Payload.name -Location $Payload.location -Type $Payload.type
+                        # Return refreshed list immediately
+                        $Data = Get-StartupAppsMesh | ConvertTo-Json -Compress -Depth 5
+                        $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($Data)))
                     }
+                    
+                    # 2. Network Manager Branch (IP changes, DHCP, Adapter Renaming)
+                    elseif ($Payload.command -match "SET_STATIC_IP|TRIGGER_DHCP_REVERSION|RENAME_ADAPTER") {
+                        $LogManagerPath = Join-Path $Global:NodeWatchRoot "modules\telemetry\NetworkManager.ps1"
+                        if (Test-Path $LogManagerPath) {
+                            . $LogManagerPath
+                            $UpdateMesh = Invoke-AdapterProvisioningControl -PayloadMessageString $RawMessage
+                            $Json = $UpdateMesh | ConvertTo-Json -Compress -Depth 5
+                            $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($Json)))
+                        }
+                    }
+                } catch {
+                    Write-Warning "Failed to dispatch JSON command frame: $_"
                 }
-            } catch {}
+            }
         }
     }
 }
-
 # =========================================================================
 # DESKTOP SYSTEM TRAY CONTROLLER AND RUNTIME HOOKS
 # =========================================================================
