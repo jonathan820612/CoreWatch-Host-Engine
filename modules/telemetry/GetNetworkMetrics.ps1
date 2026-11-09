@@ -26,7 +26,10 @@ function Get-NetworkMetrics {
                 default { "255.255.255.0" }
             }
         }
-
+        $Adapter = Get-NetAdapter -InterfaceIndex $IPConfig.InterfaceIndex -ErrorAction SilentlyContinue
+        if ($Adapter) {
+            $LinkCap = $Adapter.LinkSpeed
+        }
         $Route = Get-NetRoute -InterfaceIndex $IPConfig.InterfaceIndex -DestinationPrefix "0.0.0.0/0" -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($Route) { $Gateway = $Route.NextHop }
 
