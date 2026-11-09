@@ -204,25 +204,59 @@ $HandleUiMessageEvent = {
                 try {
                     $Payload = $RawMessage | ConvertFrom-Json
                     
-                    # 1. Startup Manager Branch
-                    if ($Payload.command -eq "REMOVE_STARTUP_APP") {
+    if ($Payload.command -eq "SET_POWER_PLAN") {
+        $TargetGuid = $Payload.guid
+        # If targeting Ultimate Performance (Template GUID: e9a42b02-d5df-448d-aa00-03f14749eb61)
+        if ($TargetGuid -eq "e9a42b02-d5df-448d-aa00-03f14749eb61") {
+            # Check if an Ultimate plan already exists to avoid creating 100 copies
+            $Existing = powercfg /l | Select-String "Ultimate Performance"
+            if ($Existing) {
+                # Extract the actual GUID from the existing Ultimate plan
+                if ($Existing.ToString() -match "([a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12})") {
+                    $TargetGuid = $Matches[1]
+                }
+            } else {
+                # Create the copy from template and grab the new GUID
+                $NewScheme = powercfg -duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61
+                if ($NewScheme -match "([a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12})") {
+                    $TargetGuid = $Matches[1]
+                }
+            }
+        }
+        # Finally, set the plan active using the corrected GUID
+        powercfg /setactive $TargetGuid
+    }
+                    
+                    # 2. Startup Manager Branch
+                    elseif ($Payload.command -eq "REMOVE_STARTUP_APP") {
                         . (Join-Path $Global:NodeWatchRoot "modules\telemetry\StartupManager.ps1")
                         Remove-StartupApp -Name $Payload.name -Location $Payload.location -Type $Payload.type
+                        
                         # Return refreshed list immediately
                         $Data = Get-StartupAppsMesh | ConvertTo-Json -Compress -Depth 5
                         $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($Data)))
                     }
                     
-                    # 2. Network Manager Branch (IP changes, DHCP, Adapter Renaming)
+                    # 3. Network Manager Branch (IP changes, DHCP, Adapter Renaming)
                     elseif ($Payload.command -match "SET_STATIC_IP|TRIGGER_DHCP_REVERSION|RENAME_ADAPTER") {
                         $LogManagerPath = Join-Path $Global:NodeWatchRoot "modules\telemetry\NetworkManager.ps1"
                         if (Test-Path $LogManagerPath) {
                             . $LogManagerPath
+                            # Invoke-AdapterProvisioningControl is the single source of truth for hardware changes
                             $UpdateMesh = Invoke-AdapterProvisioningControl -PayloadMessageString $RawMessage
+                            
+                            # Return updated state to UI
                             $Json = $UpdateMesh | ConvertTo-Json -Compress -Depth 5
                             $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($Json)))
                         }
                     }
+                        elseif ($Payload.command -eq "RENAME_COMPUTER") {
+                    Rename-Computer -NewName $Payload.newName -Force -Confirm:$false -ErrorAction SilentlyContinue
+                    # Note: Requires restart to fully propagate in Windows
+                    }
+                    elseif ($Payload.command -eq "RENAME_WORKGROUP") {
+                    Add-Computer -WorkgroupName $Payload.newName -Force -Confirm:$false -ErrorAction SilentlyContinue
+                }
                 } catch {
                     Write-Warning "Failed to dispatch JSON command frame: $_"
                 }

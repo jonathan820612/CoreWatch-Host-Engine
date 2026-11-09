@@ -76,7 +76,6 @@ document.addEventListener("DOMContentLoaded", () => {
                     stats = payload;
                 } 
                 // 2. Safely parse string-represented data payloads
-                // 2. Safely parse string-represented data payloads
                 else if (typeof payload === 'string') {
                     const trimmed = payload.trim();
                     if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
@@ -123,9 +122,7 @@ const msgType = stats.type || stats.Type;
     }
 });
 
-/**
- * Requests the application host infrastructure to spin up an isolated tool process
- */
+
 window.LaunchExternalToolWindow = function(toolIdentifier) {
     if (window.chrome && window.chrome.webview) {
         window.chrome.webview.postMessage(`Launch-Tool:${toolIdentifier}`);
@@ -133,9 +130,6 @@ window.LaunchExternalToolWindow = function(toolIdentifier) {
     console.log(`[INFRASTRUCTURE: Forwarded routing query for component: ${toolIdentifier}]`);
 };
 
-/**
- * Automatically evaluates states to sync navigation interface lighting styles
- */
 function SyncToolNavigationHighlights(appStates) {
     const watchdogBtn = document.getElementById('btnToggleWatchdog');
     if (watchdogBtn && appStates.NetworkFrame) {
@@ -157,9 +151,16 @@ function updateDashboardUiMesh(stats) {
     // --- IdentityFrame Mapping ---
     const id = stats.IdentityFrame;
     if (id) {
-        SetDomText('lblHostName',       id.HostName);
-        SetDomText('lblWorkgroup',      id.Workgroup);
-        SetDomText('lblCpuModel',       id.CpuModel);
+        const hostElem = document.getElementById('lblHostName');
+        const workElem = document.getElementById('lblWorkgroup');
+        
+        if (hostElem) {
+            hostElem.innerHTML = `<span style="cursor:pointer; text-decoration:underline dotted;" onclick="TriggerHostRename('${id.HostName}')">${id.HostName}</span>`;
+        }
+        if (workElem) {
+            workElem.innerHTML = `<span style="cursor:pointer; text-decoration:underline dotted;" onclick="TriggerWorkgroupRename('${id.Workgroup}')">${id.Workgroup}</span>`;
+        }
+        SetDomText('lblCpuModel', id.CpuModel);
     }
 
     // --- InfraFrame Mapping ---
@@ -177,6 +178,10 @@ function updateDashboardUiMesh(stats) {
         SetDomText('lblUptime',         infra.UptimeText);
         SetDomText('lblAudioOutput',    infra.SoundCardIdentity);
         SetDomText('lblAudioInput',     infra.MicrophoneIdentity);
+        const plan = stats.SystemFrame?.PowerPlan || "Unknown";
+        const powerPlanHtml = `<span style="cursor:pointer; text-decoration:underline dotted;" onclick="TriggerPowerPlanMenu()">${plan}</span>`;
+        const planElem = document.getElementById('lblPowerPlan');
+        if (planElem) planElem.innerHTML = powerPlanHtml;
     }
     // --- SystemFrame Mapping ---
     const sys = stats.SystemFrame;
@@ -185,6 +190,8 @@ function updateDashboardUiMesh(stats) {
         SetDomStyleWidth('barCpuLoad',  `${sys.CpuLoad}%`);
         SetDomText('lblCpuClock',       sys.CpuClock);
         SetDomText('lblCpuTemp',        sys.CpuTemp);
+        SetDomText('lblPagefileUsage', sys.PagefileUsageText);
+        SetDomStyleWidth('barPagefileUsage', `${sys.PagefilePercent}%`);
 
         const cpuBadge = document.getElementById('badgeCpuTemp');
         if (cpuBadge) {
@@ -447,6 +454,24 @@ window.ClearConsoleLogView = function() {
     }
 };
 
+window.TriggerPowerPlanMenu = function() {
+    const plans = {
+        "1": "381b4222-f694-41f0-9685-ff5bb260df2e", // Balanced
+        "2": "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c", // High Performance
+        "3": "a1841308-3541-4fab-bc81-f71556f20b4a", // Power Saver
+        "4": "e9a42b02-d5df-448d-aa00-03f14749eb61"  // Ultimate Performance
+    };
+    
+    let choice = prompt("Select Power Plan:\n1. Balanced\n2. High Performance\n3. Power Saver\n4. Ultimate Performance (Unlocks if hidden)");
+    
+    if (plans[choice]) {
+        window.chrome.webview.postMessage(JSON.stringify({ 
+            command: "SET_POWER_PLAN", 
+            guid: plans[choice] 
+        }));
+    }
+};
+
 window.TriggerNetworkSpeedAnalysis = function() {
     const btn = document.querySelector('.speed-execute-action-btn');
     if (btn) {
@@ -491,6 +516,19 @@ window.CommitWatchdogTuningProfile = function() {
     }
 };
 
+window.TriggerHostRename = function(oldName) {
+    const newName = prompt("Enter new Computer Name (Requires Restart):", oldName);
+    if (newName && newName !== oldName) {
+        window.chrome.webview.postMessage(JSON.stringify({ command: "RENAME_COMPUTER", newName: newName }));
+    }
+};
+
+window.TriggerWorkgroupRename = function(oldName) {
+    const newName = prompt("Enter new Workgroup Name (Requires Restart):", oldName);
+    if (newName && newName !== oldName) {
+        window.chrome.webview.postMessage(JSON.stringify({ command: "RENAME_WORKGROUP", newName: newName }));
+    }
+};
 // =========================================================================
 // NATIVE FRAMELESS CHASSIS WINDOW INTEROP EVENTS
 // =========================================================================
