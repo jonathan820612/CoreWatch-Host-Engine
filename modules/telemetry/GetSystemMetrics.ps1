@@ -16,19 +16,30 @@ function Get-SystemMetrics {
 
     # 3. Dynamic Cache Matrix (Aggregated for Intel/AMD)
     $Caches = Get-CimInstance -ClassName Win32_CacheMemory -ErrorAction SilentlyContinue
-    $L1=0; $L2=0; $L3=0
+    $L1=0L; $L2=0L; $L3=0L
     foreach($c in $Caches) {
-        if ($c.Level -eq 3) { $L1 += $c.MaxCacheSize }
-        elseif ($c.Level -eq 4) { $L2 += $c.MaxCacheSize }
-        elseif ($c.Level -eq 5) { $L3 += $c.MaxCacheSize }
+        # CIM cache sizes are KB; prefer installed capacity over maximum capacity.
+        $SizeKB = if ($c.InstalledSize -gt 0) { [long]$c.InstalledSize } else { [long]$c.MaxCacheSize }
+        if ($c.Level -eq 3) { $L1 += $SizeKB }
+        elseif ($c.Level -eq 4) { $L2 += $SizeKB }
+        elseif ($c.Level -eq 5) { $L3 += $SizeKB }
     }
-    function Format-Cache([int]$kb) { if($kb -ge 1024){ "$([math]::Round($kb/1024,0))MB" } else { "$kb"+"KB" } }
-
+    # Some firmware omits cache rows but exposes L2/L3 on the processor.
+    if ($L2 -eq 0) { $L2 = [long]$CpuProc.L2CacheSize }
+    if ($L3 -eq 0) { $L3 = [long]$CpuProc.L3CacheSize }
+    function Format-Cache([long]$kb) {
+        if ($kb -le 0) { 'N/A' }
+        elseif ($kb -ge 1024) { "$([math]::Round($kb/1024,2))MB" }
+        else { "${kb}KB" }
+    }
+    $TelService = Get-Service -Name DiagTrack -ErrorAction SilentlyContinue
+    $TelemetryStatus = if ($TelService -and $TelService.Status -eq 'Running') { "On" } else { "Off" }
     return [PSCustomObject]@{
         CpuLoad          = [int](Get-CimInstance Win32_PerfFormattedData_PerfOS_Processor -Filter "Name='_Total'").PercentProcessorTime
         CpuClock         = [string]([math]::Round($CpuProc.CurrentClockSpeed/1000, 2))
         CpuTemp          = 42 # Thermal logic usually requires elevated CIM
-        CacheMatrix      = @{ L1=Format-Cache $L1; L2=Format-Cache $L2; L3=Format-Cache $L3; IsX3D=($L3 -gt 33000) }
+        CacheMatrix      = @{ L1=Format-Cache $L1; L2=Format-Cache $L2; L3=Format-Cache $L3; IsX3D=($CpuProc.Name -match '(?i)\b\w*X3D\b') }
+        TelemetryStatus  = $TelemetryStatus
         RamPercent       = [int](($UsedGB / ($OsInfo.TotalVisibleMemorySize/1MB)) * 100)
         RamUsageText     = "$UsedGB / $([math]::Round($OsInfo.TotalVisibleMemorySize/1MB, 2)) GB"
         PagefilePercent  = $PagePercent

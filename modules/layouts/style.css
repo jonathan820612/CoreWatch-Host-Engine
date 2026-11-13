@@ -1,20 +1,19 @@
 /* Core application and window frame styling */
-body {
+html, body {
     background-color: #1a202c;
     color: #f7fafc;
     font-family: 'Consolas', 'Segoe UI', monospace;
+    height: 100vh;
     margin: 0;
     padding: 10px;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
     user-select: none;
     overflow-y: auto;
-}
-/* Add this rule directly to your global window frame container styles block */
-html, body {
-    /* FIXED: Restores active border resizing handles natively on a frameless Chromium container window */
     resize: both;
     overflow: auto;
 }
-
 /* Header toolbar structure */
 .app-header-deck {
     display: flex;
@@ -54,7 +53,10 @@ html, body {
 .dashboard-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr auto; /* Rows 1 & 2 stretch, Console stays auto */
     grid-gap: 8px;
+    flex-grow: 1; /* This pushes everything to the bottom */
+    min-height: 0;
     height: calc(100vh - 65px); /* Matches window height minus header/padding */
     box-sizing: border-box;
 }
@@ -63,7 +65,10 @@ html, body {
     background-color: #212936; 
     border: 1px solid #323c4b;
     padding: 10px; 
-    box-sizing: border-box; 
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    height: 100%; /* Ensures cards stretch to fill their grid cell */
     min-height: 0; /* Remove fixed min-height to allow shrinking */
     overflow: hidden; /* Prevent internal scrollbars on cards */
 }
@@ -127,8 +132,13 @@ h2 {
 
 /* Storage panel rows and data metrics */
 .storage-dynamic-mesh-grid {
-    display: flex; flex-direction: column; gap: 8px;
-    max-height: 200px; overflow-y: auto; padding-right: 4px;
+    display: flex; 
+    flex-direction: column; 
+    gap: 8px;
+    overflow-y: auto;
+    padding-right: 4px;
+    flex-grow: 1;
+    box-sizing: border-box;
 }
 .driver-tag { font-size: 10px; color: #a0aec0; margin: 2px 0 4px 2px; }
 .storage-tight-row { margin-bottom: 2px !important; }
@@ -167,12 +177,8 @@ h2 {
 }
 /* Update this specific block in modules/layouts/style.css */
 .network-adapters-action-btn {
-    /* FIXED: Automatically consumes left space to float the button to the far right margin */
     margin-left: auto !important;
-    
-    /* FIXED: Prevents the button from being forced onto a new line slot */
     white-space: nowrap !important;
-
     background: #2d3748;
     border: 1px solid #4a5568;
     color: #a0aec0;
@@ -190,7 +196,6 @@ h2 {
     border-color: #4299e1;
 }
 
-/* Spans driver row cleanly across the bottom tracking boundary of all 4 columns */
 .net-node.multi-driver-row {
     grid-column: span 4 !important; 
     color: #a0aec0 !important; 
@@ -315,6 +320,7 @@ h2 {
     font-size: 11px;
     color: #a0aec0;
     height: 45px; /* Fixed small height for console */
+    max-height: 80px;
     overflow-y: auto;
     white-space: pre-wrap;
     background: rgba(0,0,0,0.2);
@@ -336,73 +342,15 @@ h2 {
     width: 100%;
     box-sizing: border-box;
 }
-/* =========================================================================
-SLIDING DRAWER UTILITY PANEL OVERLAYS
-   ========================================================================= */
-.side-drawer-panel {
-    position: fixed;
-    top: 0;
-    right: 0;
-    width: 400px;
-    height: 100%;
-    background-color: #212936;
-    border-left: 1px solid #323c4b;
-    box-shadow: -5px 0 25px rgba(0, 0, 0, 0.5);
-    z-index: 10000;
-    padding: 15px;
-    box-sizing: border-box;
-    
-    /* Off-screen by default */
-    transform: translateX(100%);
-    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-    
-    /* Allow separate scroll inside panel if there are many interfaces */
+#adapterInterfaceContainer, #startupAppsContainer {
+    flex-grow: 1;
     overflow-y: auto;
-    -webkit-app-region: no-drag;
+    padding-right: 5px;
 }
-
-/* Active slider slide-in trigger class */
-.side-drawer-panel.drawer-open {
-    transform: translateX(0);
-}
-
-.drawer-header-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    border-bottom: 1px solid #2d3748;
-    margin-bottom: 15px;
-    padding-bottom: 8px;
-}
-.side-drawer-panel {
-    position: fixed;
-    top: 0;
-    right: 0;
-    /* ... structural parameters ... */
-    transform: translateX(100%);  /* 1. Hides it off-screen to start */
-}
-
-.side-drawer-panel.drawer-open {
-    transform: translateX(0);     /* 2. Moves it onto screen when active */
-}
-
-.side-drawer-panel.drawer-open {
-    transform: translateX(0) !important; /* 3. Redundant selector track */
-}
-.dashboard-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    grid-gap: 8px;
-    height: calc(100vh - 150px); /* Fits content to viewport */
-}
-.dashboard-card {
-    background-color: #212936; 
-    border: 1px solid #323c4b;
-    padding: 8px 12px; /* Tighten padding */
-    box-sizing: border-box; 
-    min-height: 0; /* Remove fixed min-height */
-    overflow: hidden;
-}
-.console-box {
-    max-height: 60px; /* Shrink console to save space */
+#viewNetworkManagerPanel, #viewStartupPanel {
+    flex-grow: 1;
+    display: none; /* Controlled by app.js */
+    flex-direction: column;
+    overflow-y: auto;
+    padding-right: 5px;
 }

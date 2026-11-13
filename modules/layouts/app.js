@@ -18,12 +18,12 @@ window.SwitchAppLayoutView = function(targetViewId) {
     Object.values(buttons).forEach(b => { if (b) b.classList.remove('active'); });
 
     if (targetViewId === 'netmanager') {
-        if (panels.netmanager) panels.netmanager.style.display = 'block';
+        if (panels.netmanager) panels.netmanager.style.display = 'flex'; // Changed from 'block'
         if (buttons.netmanager) buttons.netmanager.classList.add('active');
         if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage("UI-Ready");
     } 
-    else if (targetViewId === 'startup') { // ADDED BRANCH
-        if (panels.startup) panels.startup.style.display = 'block';
+    else if (targetViewId === 'startup') {
+        if (panels.startup) panels.startup.style.display = 'flex'; // Changed from 'block'
         if (buttons.startup) buttons.startup.classList.add('active');
         if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage("Request-StartupApps");
     } 
@@ -144,6 +144,22 @@ function SyncToolNavigationHighlights(appStates) {
 // =========================================================================
 // TELEMETRY VIEW DATA MATRIX PAINTERS
 // =========================================================================
+function RenderCpuCacheMatrix(cache) {
+    const container = document.getElementById('cpuCacheContainer');
+    if (!container) return;
+
+    container.replaceChildren();
+    ['L1', 'L2', 'L3'].forEach(level => {
+        const badge = document.createElement('span');
+        badge.className = 'cache-tag';
+        const value = cache?.[level] || 'N/A';
+        const isX3D = level === 'L3' && cache?.IsX3D === true && value !== 'N/A';
+        badge.textContent = `${level}: ${value}${isX3D ? ' (3D V-Cache)' : ''}`;
+        badge.classList.toggle('highlight-x3d', isX3D);
+        container.appendChild(badge);
+    });
+}
+
 function updateDashboardUiMesh(stats) {
     if (!stats) return;
     SyncToolNavigationHighlights(stats);
@@ -186,13 +202,23 @@ function updateDashboardUiMesh(stats) {
     // --- SystemFrame Mapping ---
     const sys = stats.SystemFrame;
     if (sys) {
+        RenderCpuCacheMatrix(sys.CacheMatrix);
         SetDomText('lblCpuLoad',        `${sys.CpuLoad}%`);
         SetDomStyleWidth('barCpuLoad',  `${sys.CpuLoad}%`);
         SetDomText('lblCpuClock',       sys.CpuClock);
         SetDomText('lblCpuTemp',        sys.CpuTemp);
         SetDomText('lblPagefileUsage', sys.PagefileUsageText);
         SetDomStyleWidth('barPagefileUsage', `${sys.PagefilePercent}%`);
+        const telElem = document.getElementById('lblTelemetry');
+        if (telElem) {
+            if (sys.TelemetryStatus === "On") {
+                telElem.innerHTML = `<span style="color:#48bb78; cursor:pointer; text-decoration:underline dotted;" onclick="TriggerTelemetryDisable()" title="Click to Disable Windows Telemetry Services">On (Disable)</span>`;
+            } else {
+                telElem.innerHTML = `<span style="color:#f56565;">Off</span>`;
+            }
+        }
 
+        SetDomText('lblRamUsage',       sys.RamUsageText);
         const cpuBadge = document.getElementById('badgeCpuTemp');
         if (cpuBadge) {
             if (sys.CpuTemp >= 75) {
@@ -238,6 +264,10 @@ function updateDashboardUiMesh(stats) {
         SetDomText('lblWlanSsid',       net.WlanSsid);
         SetDomText('lblExtIPv4',        net.ExtIPv4);
         SetDomText('lblLinkCap',        net.LinkCap);
+        SetDomText('lblFirewall',       net.Firewall);
+        SetDomText('lblRealtime',       net.Realtime);
+        SetDomText('lblDiscovery',      net.Discovery);
+        SetDomText('lblSharing',        net.Sharing);
         SetDomText('lblEthernet',       net.lblEthDriver);
         SetDomText('lblWifi',           net.lblWifiDriver);
         
@@ -579,3 +609,8 @@ document.addEventListener("DOMContentLoaded", () => {
         document.body.style.cursor = 'default';
     });
 });
+window.TriggerTelemetryDisable = function() {
+    if (confirm("Disable Windows Telemetry services (DiagTrack & dmwappushservice)?\nThis will stop and disable the services immediately.")) {
+        window.chrome.webview.postMessage(JSON.stringify({ command: "DISABLE_TELEMETRY" }));
+    }
+};

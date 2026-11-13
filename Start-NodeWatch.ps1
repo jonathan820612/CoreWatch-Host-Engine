@@ -46,7 +46,10 @@ $RunspaceScript = {
                 WlanSsid      = [string]($StaticNet.WlanSsid ?? "None")
                 ExtIPv4       = [string]($StaticNet.ExtIPv4 ?? "Resolving...")
                 LinkCap       = [string]($StaticNet.LinkCap ?? "0 Mbps")
+                Firewall      = [string]($StaticNet.Firewall ?? "Unknown")
+                Realtime      = [string]($StaticNet.Realtime ?? "Unknown")
                 Discovery     = [string]($StaticNet.Discovery ?? "Off")
+                Sharing       = [string]($StaticNet.Sharing ?? "Off")
                 lblEthDriver  = [string]($StaticNet.lblEthDriver ?? "Unknown")
                 lblWifiDriver = [string]($StaticNet.lblWifiDriver ?? "Unknown")
                 NetAssignment = [string]($StaticNet.NetAssignment ?? "DHCP")
@@ -204,11 +207,9 @@ $HandleUiMessageEvent = {
                 try {
                     $Payload = $RawMessage | ConvertFrom-Json
                     
-    if ($Payload.command -eq "SET_POWER_PLAN") {
-        $TargetGuid = $Payload.guid
-        # If targeting Ultimate Performance (Template GUID: e9a42b02-d5df-448d-aa00-03f14749eb61)
-        if ($TargetGuid -eq "e9a42b02-d5df-448d-aa00-03f14749eb61") {
-            # Check if an Ultimate plan already exists to avoid creating 100 copies
+            if ($Payload.command -eq "SET_POWER_PLAN") {
+                $TargetGuid = $Payload.guid
+            if ($TargetGuid -eq "e9a42b02-d5df-448d-aa00-03f14749eb61") {
             $Existing = powercfg /l | Select-String "Ultimate Performance"
             if ($Existing) {
                 # Extract the actual GUID from the existing Ultimate plan
@@ -225,8 +226,11 @@ $HandleUiMessageEvent = {
         }
         # Finally, set the plan active using the corrected GUID
         powercfg /setactive $TargetGuid
-    }
-                    
+        }
+                if ($Payload.command -eq "DISABLE_TELEMETRY") {
+                Stop-Service -Name DiagTrack, dmwappushservice -Force -ErrorAction SilentlyContinue
+                Set-Service -Name DiagTrack, dmwappushservice -StartupType Disabled -ErrorAction SilentlyContinue
+                }
                     # 2. Startup Manager Branch
                     elseif ($Payload.command -eq "REMOVE_STARTUP_APP") {
                         . (Join-Path $Global:NodeWatchRoot "modules\telemetry\StartupManager.ps1")

@@ -40,11 +40,31 @@ function Get-NetworkMetrics {
         }
     }
 
-    $WlanInterfaces = netsh wlan show interfaces | Out-String
-    if ($WlanInterfaces -match '(?i)^\s+SSID\s+:\s+(.*)$') { 
-        $WlanSsid = $Matches[1].Trim() 
-    }
+    $WlanSsid = "Disconnected"
+    $WlanOutput = netsh wlan show interfaces
+    $interfaceIsConnected = $false
 
+    foreach ($line in $WlanOutput) {
+        # 1. Detect if this specific interface block is active
+        if ($line -match 'State\s+:\s+connected') {
+            $interfaceIsConnected = $true
+        }
+        
+        # 2. If we are in a connected block, look for the SSID
+        if ($interfaceIsConnected -and $line -match '^\s+SSID\s+:\s+(.*)$') {
+            $Found = $Matches[1].Trim()
+            # Ensure we don't accidentally grab the 'BSSID' line
+            if ($Found -and $line -notmatch "BSSID") {
+                $WlanSsid = $Found
+                break # Exit loop once the active SSID is found
+            }
+        }
+
+        # 3. Reset the connection flag if we move to a new interface block
+        if ($line -match '^Name') {
+            $interfaceIsConnected = $false
+        }
+    }
     $DiscoveryStatus = "Off"
     $SsdpRule = Get-NetFirewallRule -Name "FPS-LLMNR-In-UDP" -ErrorAction SilentlyContinue
     if ($SsdpRule -and $SsdpRule.Enabled -eq 'True') { $DiscoveryStatus = "On" }
@@ -72,7 +92,45 @@ function Get-NetworkMetrics {
     
     $DhcpStatus = "Static"
     if ($null -ne $IPConfig -and $IPConfig.Dhcp -eq 'Enabled') { $DhcpStatus = "DHCP" }
-    
+        # NEW: Firewall Detection Logic
+    $FirewallStatus = "Off"
+    $FirewallProvider = "Windows Firewall"
+    try {
+        # Check Windows Defender Firewall state
+        $Profiles = Get-NetFirewallProfile -ErrorAction SilentlyContinue
+        if ($Profiles | Where-Object { $_.Enabled -eq 'True' }) { $FirewallStatus = "On" }
+
+        # Query Security Center for 3rd party providers (Norton, McAfee, UFC, etc.)
+        $FwProduct = Get-CimInstance -Namespace "root\SecurityCenter2" -ClassName FirewallProduct -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($FwProduct) { $FirewallProvider = $FwProduct.displayName }
+    } catch {}
+        $RealtimeStatus = "Off"
+    try {
+        # Check Windows Defender specifically
+        $MpStatus = Get-MpComputerStatus -ErrorAction SilentlyContinue
+        if ($MpStatus -and $MpStatus.RealTimeProtectionEnabled) {
+            $RealtimeStatus = "On"
+        } else {
+            # Fallback check for 3rd party AV via Security Center
+            $AvProduct = Get-CimInstance -Namespace "root\SecurityCenter2" -ClassName AntiVirusProduct -ErrorAction SilentlyContinue
+            # If a 3rd party AV is active/enabled, we consider Realtime protection 'On'
+            if ($AvProduct | Where-Object { $_.productState -match '262144|266240' }) { $RealtimeStatus = "On" }
+        }
+    } catch { $RealtimeStatus = "Unknown" }
+    $FirewallCombined = "$FirewallStatus ($FirewallProvider)"
+    $DiscoveryStatus = "Off"
+    try {
+        $DiscoveryRules = Get-NetFirewallRule -Name "FPS-LLMNR-In-UDP", "FPS-SSDP-In-UDP" -ErrorAction SilentlyContinue
+        if ($DiscoveryRules | Where-Object { $_.Enabled -eq 'True' }) {
+            $DiscoveryStatus = "On"
+        }
+    } catch {}
+    $SharingStatus = "Off"
+    try {
+        # Check if SMB (Server Message Block) rules are enabled
+        $SharingRule = Get-NetFirewallRule -Name "FPS-SMB-In-TCP" -ErrorAction SilentlyContinue
+        if ($SharingRule -and $SharingRule.Enabled -eq 'True') { $SharingStatus = "On" }
+    } catch {}
     return [PSCustomObject]@{
         IntIPv4       = [string]$IntIPv4
         SubnetMask    = [string]$SubMask
@@ -82,6 +140,9 @@ function Get-NetworkMetrics {
         ExtIPv4       = [string]$ExtIPv4
         LinkCap       = [string]$LinkCap
         Discovery     = [string]$DiscoveryStatus
+        Firewall      = [string]$FirewallCombined
+        Realtime      = [string]$RealtimeStatus
+        Sharing       = [string]$SharingStatus
         lblEthDriver  = [string]$EthDriver
         lblWifiDriver = [string]$WifiDriver
         NetAssignment = [string]$DhcpStatus

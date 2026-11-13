@@ -16,7 +16,6 @@ APP HEADER NAVIGATION DECK
             <div class="icon-square-frame">
                 <img src="../../Images/Icon.png" class="header-corner-brand" alt="CoreWatch Logo">
             </div>
-            <span style="font-weight: bold; font-size: 13px; color: #edf2f7; letter-spacing: 0.5px;">CoreWatch Host Engine</span>
         </div>
         
         <div class="modular-tabs">
@@ -26,7 +25,7 @@ APP HEADER NAVIGATION DECK
             <button class="tab-btn disabled" disabled>📁 File Organizer</button>
             <button class="tab-btn disabled" disabled>🔍 Port Scanner</button>
         </div>
-        
+        c
         <button class="exit-system-btn" onclick="window.chrome.webview.postMessage('Exit-App')">TERMINATE ENGINE</button>
     </div>
 <!-- =========================================================================
@@ -84,9 +83,11 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
                     <div id="barRamUsage" class="track-fill"></div>
                 </div>
                 <div class="metric-cache-matrix-row" style="margin-top: 6px;">
-                <span class="cache-title-label">Cache Matrix:</span>
+                    <span class="cache-title-label">Cache Matrix:</span>
                     <div id="cpuCacheContainer" class="cache-badge-deck" style="gap: 4px;">
-                    <!-- Dynamic content injected here -->
+                        <span class="cache-tag">L1: N/A</span>
+                        <span class="cache-tag">L2: N/A</span>
+                        <span class="cache-tag">L3: N/A</span>
                     </div>
                 </div>
             </div>
@@ -105,15 +106,16 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
 
         <!-- SYSTEM IDENTITY FRAME -->
         <div class="dashboard-card">
-            <h2>🛠 SYSTEM IDENTITY</h2>
+            <h2>👤 SYSTEM IDENTITY</h2>
             <div class="data-field"><span>🖥️</span> Host: <strong id="lblHostName">Loading...</strong></div>
             <div class="data-field"><span>🌐</span> Domain/WG: <strong id="lblWorkgroup">Loading...</strong></div>
-            <div class="data-field"><span>🪟</span> OS Edition: <strong id="lblOsEdition">Loading...</strong></div>
+            <div class="data-field"><span>🪟</span> <strong id="lblOsEdition">Loading...</strong></div>
             <div class="data-field"><span>📜</span> Build: <strong id="lblWinBuild">Loading...</strong></div>
-            <div class="data-field"><span>📅</span> Update Level: <strong id="lblUpdateLevel">Loading...</strong></div>
+            <div class="data-field"><span>📅</span> Update: <strong id="lblUpdateLevel">Loading...</strong></div>
             <div class="data-field"><span>🎮</span> DirectX: <strong id="lblDirectX">Loading...</strong></div>
-            <div class="data-field"><span>🧬</span> Virtualization: <strong id="lblVirtualization">Loading...</strong></div>
-            <div class="data-field"><span>💎</span> PS Version: <strong id="lblPsVersion">Loading...</strong></div>
+            <div class="data-field"><span>🔲</span> Virtualization: <strong id="lblVirtualization">Loading...</strong></div>
+            <div class="data-field"><span>❯_</span> Powershell: <strong id="lblPsVersion">Loading...</strong></div>
+            <div class="data-field"><span>📡</span> Telemetry: <strong id="lblTelemetry">Loading...</strong></div>
         </div>
 
         <!-- HARDWARE STORAGE LAYOUT ENGINE -->
@@ -126,8 +128,8 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
 
         <!-- SYSTEM INFRASTRUCTURE NODE -->
         <div class="dashboard-card">
-            <h2>... INFRASTRUCTURE</h2>
-            <div class="data-field-split"><span>🧱 Motherboard:</span> <strong id="lblMotherboard">Loading...</strong></div>
+            <h2>🛠️ SYSTEM INFRASTRUCTURE</h2>
+            <div class="data-field-split"><span>📟 Motherboard:</span> <strong id="lblMotherboard">Loading...</strong></div>
             <div class="data-field-split"><span>🧬 BIOS Version:</span> <strong id="lblBiosVersion">Loading...</strong></div>
             <div class="data-field-split"><span>⚡ Power Plan:</span> <strong id="lblPowerPlan">Loading...</strong></div>
             <div class="data-field-split"><span>🕒 System Uptime:</span> <strong id="lblUptime">Loading...</strong></div>
@@ -148,7 +150,10 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
                 <div class="net-node"><span>📶</span> WLAN SSID: <strong id="lblWlanSsid">Disconnected</strong></div>
                 <div class="net-node"><span>🌍</span> Ext IPv4: <strong id="lblExtIPv4">Resolving...</strong></div>
                 <div class="net-node"><span>🚀</span> Link Capacity: <strong id="lblLinkCap">0 Mbps</strong></div>
+                <div class="net-node"><span>🧱</span> Firewall: <strong id="lblFirewall">Unknown</strong></div>
+                <div class="net-node"><span>👁️</span> Realtime Protection: <strong id="lblRealtime">Unknown</strong></div>
                 <div class="net-node"><span>📣</span> Discovery: <strong id="lblDiscovery">Off</strong></div>
+                <div class="net-node"><span>📂</span> Sharing: <strong id="lblSharing">Off</strong></div>
                 <div class="net-node multi-driver-row">
                     <span>🌐</span> Ethernet: <strong id="lblEthernet">Checking...</strong>
                     <span>📶</span> Wi-Fi: <strong id="lblWifi">Checking...</strong>
