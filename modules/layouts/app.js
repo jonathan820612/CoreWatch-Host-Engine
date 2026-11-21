@@ -5,13 +5,15 @@ window.SwitchAppLayoutView = function(targetViewId) {
     const panels = {
         dashboard: document.getElementById('viewDashboardGrid'),
         netmanager: document.getElementById('viewNetworkManagerPanel'),
-        startup: document.getElementById('viewStartupPanel') // ADDED
+        startup: document.getElementById('viewStartupPanel'),
+        sharing: document.getElementById('viewSharingPanel')
     };
 
     const buttons = {
         dashboard: document.getElementById('tabDashboard'),
         netmanager: document.getElementById('tabNetManager'),
-        startup: document.getElementById('tabStartup') // ADDED
+        startup: document.getElementById('tabStartup'),
+        sharing: document.getElementById('tabSharing')
     };
 
     Object.values(panels).forEach(p => { if (p) p.style.display = 'none'; });
@@ -27,6 +29,11 @@ window.SwitchAppLayoutView = function(targetViewId) {
         if (buttons.startup) buttons.startup.classList.add('active');
         if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage("Request-StartupApps");
     } 
+    else if (targetViewId === 'sharing') {
+        panels.sharing.style.display = 'block';
+        buttons.sharing.classList.add('active');
+        RequestSharingCenter();
+    }
     else {
         if (panels.dashboard) panels.dashboard.style.display = 'grid';
         if (buttons.dashboard) buttons.dashboard.classList.add('active');
@@ -106,6 +113,9 @@ const msgType = stats.type || stats.Type;
     if (msgType === "REFRESH_STARTUP_APPS") {
         RenderStartupAppRows(stats.apps || []);
     } 
+    else if (msgType === 'SHARING_CENTER') {
+        RenderSharingCenter(stats);
+    }
     else if (msgType === "REFRESH_ADAPTER_STATE") {
         RenderNetworkAdapterInterfaceRows(stats);
     } 
@@ -120,6 +130,144 @@ const msgType = stats.type || stats.Type;
         });
         window.chrome.webview.postMessage("UI-Ready");
     }
+});
+
+window.RequestSharingCenter = function() {
+    document.getElementById('sharingStatus').textContent = 'Loading shared folders...';
+    window.chrome?.webview?.postMessage('Request-Shares');
+};
+
+function RenderSharingCenter(data) {
+    const status = document.getElementById('sharingStatus');
+    const list = document.getElementById('sharingList');
+    status.textContent = data.error || data.message || `${(data.shares || []).length} shared folders found`;
+    status.classList.toggle('sharing-error', !!data.error);
+    if (data.shares === null || data.shares === undefined) return;
+    list.replaceChildren();
+    const formatSize = bytes => bytes === null || bytes === undefined ? 'Unavailable' :
+        `${(bytes / 1048576).toLocaleString(undefined, {maximumFractionDigits: 1})} MB`;
+    const formatDate = value => value ? new Date(value).toLocaleString() : 'Unavailable';
+    for (const share of data.shares) {
+        const card = document.createElement('article');
+        card.className = 'sharing-card';
+        const title = document.createElement('h3');
+        title.textContent = `${share.name}${share.special ? ' · Windows system share' : ''}`;
+        card.appendChild(title);
+        for (const [label, value] of [
+            ['Local directory', share.path || 'Unavailable'],
+            ['Network path', share.networkPath || 'Unavailable'],
+            ['Size', formatSize(share.sizeBytes)],
+            ['Folder created', formatDate(share.created)], ['Folder modified', formatDate(share.modified)],
+            ['Description', share.description || '—']
+        ]) {
+            const row = document.createElement('div');
+            row.className = 'sharing-detail';
+            const key = document.createElement('span');
+            key.textContent = label;
+            const detail = document.createElement('strong');
+            detail.textContent = value;
+            row.append(key, detail);
+            card.appendChild(row);
+        }
+        const accessSection = document.createElement('section');
+        accessSection.className = 'sharing-permissions';
+        const accessTitle = document.createElement('h4');
+        accessTitle.textContent = 'Share permissions';
+        accessSection.appendChild(accessTitle);
+        if (share.accessError) {
+            const error = document.createElement('div');
+            error.className = 'sharing-error';
+            error.textContent = `Permissions unavailable: ${share.accessError}`;
+            accessSection.appendChild(error);
+        } else if (share.access?.length) {
+            for (const entry of share.access) {
+                const permissionRow = document.createElement('div');
+                permissionRow.className = 'sharing-permission-row';
+                const label = document.createElement('span');
+                label.textContent = `${entry.account} · ${entry.type} ${entry.right}`;
+                permissionRow.appendChild(label);
+                if (!share.special) {
+                    const removeAccess = document.createElement('button');
+                    removeAccess.type = 'button';
+                    removeAccess.textContent = 'Remove';
+                    removeAccess.setAttribute('aria-label', `Remove ${entry.account} permission from ${share.name}`);
+                    removeAccess.addEventListener('click', () => {
+                        if (confirm(`Remove ${entry.account}'s ${entry.type.toLowerCase()} entry from ${share.name}?`)) {
+                            window.chrome.webview.postMessage(JSON.stringify({command: 'REMOVE_SHARE_ACCESS', name: share.name, account: entry.account}));
+                        }
+                    });
+                    permissionRow.appendChild(removeAccess);
+                }
+                accessSection.appendChild(permissionRow);
+            }
+        } else {
+            const empty = document.createElement('div');
+            empty.textContent = 'No share access entries found.';
+            accessSection.appendChild(empty);
+        }
+        if (!share.special) {
+            const form = document.createElement('form');
+            form.className = 'sharing-access-form';
+            const account = document.createElement('input');
+            account.required = true;
+            account.placeholder = 'User or group';
+            account.setAttribute('aria-label', `User or group for ${share.name}`);
+            const right = document.createElement('select');
+            right.setAttribute('aria-label', `Access level for ${share.name}`);
+            for (const level of ['Read', 'Change', 'Full']) {
+                const option = document.createElement('option');
+                option.value = level;
+                option.textContent = level;
+                right.appendChild(option);
+            }
+            const grant = document.createElement('button');
+            grant.type = 'submit';
+            grant.textContent = 'Grant / update';
+            form.append(account, right, grant);
+            form.addEventListener('submit', event => {
+                event.preventDefault();
+                const target = account.value.trim();
+                if (!target) return;
+                if (right.value === 'Full' && !confirm(`Give ${target} full control of ${share.name} over the network?`)) return;
+                window.chrome.webview.postMessage(JSON.stringify({command: 'GRANT_SHARE_ACCESS', name: share.name, account: target, right: right.value}));
+            });
+            accessSection.appendChild(form);
+        }
+        card.appendChild(accessSection);
+        if (!share.special) {
+            const actions = document.createElement('div');
+            actions.className = 'sharing-actions';
+            const stop = document.createElement('button');
+            stop.textContent = 'Stop sharing';
+            stop.addEventListener('click', () => {
+                if (confirm(`Stop sharing ${share.name}? The folder and its files will stay on disk.`))
+                    window.chrome.webview.postMessage(JSON.stringify({command: 'REMOVE_SHARE', name: share.name}));
+            });
+            const remove = document.createElement('button');
+            remove.textContent = 'Delete folder and share';
+            remove.className = 'sharing-danger';
+            remove.addEventListener('click', () => {
+                const typed = prompt(`Permanently delete ${share.path} and all its contents? Type the share name (${share.name}) to confirm.`);
+                if (typed === share.name) window.chrome.webview.postMessage(JSON.stringify({command: 'DELETE_SHARED_FOLDER', name: share.name, confirmName: typed, confirmPath: share.path}));
+            });
+            actions.append(stop, remove);
+            card.appendChild(actions);
+        }
+        list.appendChild(card);
+    }
+    if (!data.shares.length) list.textContent = 'No shared folders found.';
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('shareCreateForm')?.addEventListener('submit', event => {
+        event.preventDefault();
+        const form = event.currentTarget;
+        const values = new FormData(form);
+        window.chrome.webview.postMessage(JSON.stringify({
+            command: 'CREATE_SHARE', name: String(values.get('name')).trim(),
+            path: String(values.get('path')).trim(), description: String(values.get('description')).trim()
+        }));
+    });
 });
 
 

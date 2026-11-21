@@ -42,6 +42,31 @@ html, body {
 .tab-btn.active { background: #3182ce; color: #fff; border-color: #4299e1; }
 .tab-btn.disabled { opacity: 0.4; cursor: not-allowed; }
 
+.sharing-panel { min-height: 500px; }
+.sharing-panel p { color: #a0aec0; font-size: 12px; }
+.sharing-form { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin: 12px 0 18px; }
+.sharing-form label { display: flex; flex-direction: column; gap: 5px; color: #cbd5e0; font-size: 11px; flex: 1 1 180px; }
+.sharing-form input { background: #1a202c; border: 1px solid #4a5568; color: #fff; padding: 7px; min-width: 0; }
+.sharing-form button { padding: 7px 12px; }
+.sharing-status { color: #90cdf4; font-size: 12px; margin-bottom: 10px; }
+.sharing-error { color: #fc8181; }
+.sharing-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 10px; }
+.sharing-card { background: #1a202c; border: 1px solid #4a5568; padding: 12px; min-width: 0; }
+.sharing-card h3 { color: #90cdf4; margin: 0 0 10px; font-size: 14px; }
+.sharing-detail { display: flex; gap: 10px; justify-content: space-between; font-size: 11px; margin: 5px 0; }
+.sharing-detail span { color: #a0aec0; flex: 0 0 75px; }
+.sharing-detail strong { text-align: right; overflow-wrap: anywhere; }
+.sharing-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.sharing-actions button { background: #2d3748; color: #fff; border: 1px solid #4a5568; padding: 6px 9px; cursor: pointer; }
+.sharing-actions .sharing-danger { color: #fc8181; border-color: #c53030; }
+.sharing-permissions { border-top: 1px solid #4a5568; margin-top: 12px; padding-top: 8px; font-size: 11px; }
+.sharing-permissions h4 { margin: 0 0 7px; color: #cbd5e0; }
+.sharing-permission-row { display: flex; justify-content: space-between; gap: 8px; align-items: center; margin: 5px 0; overflow-wrap: anywhere; }
+.sharing-permission-row button, .sharing-access-form button { background: #2d3748; color: #cbd5e0; border: 1px solid #4a5568; padding: 5px 7px; cursor: pointer; }
+.sharing-access-form { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.sharing-access-form input, .sharing-access-form select { background: #212936; border: 1px solid #4a5568; color: #fff; padding: 5px; min-width: 0; }
+.sharing-access-form input { flex: 1 1 120px; }
+
 /* App termination button */
 .exit-system-btn {
     background: #9b2c2c; border: 1px solid #e53e3e; color: #fff;

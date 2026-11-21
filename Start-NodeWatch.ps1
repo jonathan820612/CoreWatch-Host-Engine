@@ -181,6 +181,14 @@ $HandleUiMessageEvent = {
             $Data = Get-StartupAppsMesh | ConvertTo-Json -Compress -Depth 5
             $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($Data)))
         }
+        '^Request-Shares$' {
+            try {
+                . (Join-Path $Global:NodeWatchRoot 'modules\telemetry\SharingManager.ps1')
+                $Data = Get-SharingCenterState
+            } catch { $Data = @{ type = 'SHARING_CENTER'; shares = @(); error = $_.Exception.Message } }
+            $Json = $Data | ConvertTo-Json -Compress -Depth 5
+            $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($Json)))
+        }
         '^Window-Drag:(.+)' {
             $Delta = $Matches[1].Split('|')
             if ($Delta.Count -eq 2) {
@@ -206,6 +214,19 @@ $HandleUiMessageEvent = {
             if ($RawMessage -match '\{.*"command".*\}') {
                 try {
                     $Payload = $RawMessage | ConvertFrom-Json
+                    if ($Payload.command -in @('CREATE_SHARE', 'REMOVE_SHARE', 'DELETE_SHARED_FOLDER', 'GRANT_SHARE_ACCESS', 'REMOVE_SHARE_ACCESS')) {
+                        try {
+                            . (Join-Path $Global:NodeWatchRoot 'modules\telemetry\SharingManager.ps1')
+                            Invoke-SharingCenterAction -Payload $Payload
+                            $Data = Get-SharingCenterState
+                            $Data.message = 'Sharing action completed.'
+                        } catch {
+                            $Data = @{ type = 'SHARING_CENTER'; shares = $null; error = $_.Exception.Message }
+                        }
+                        $Json = $Data | ConvertTo-Json -Compress -Depth 5
+                        $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($Json)))
+                        return
+                    }
                     
             if ($Payload.command -eq "SET_POWER_PLAN") {
                 $TargetGuid = $Payload.guid
