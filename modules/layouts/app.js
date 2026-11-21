@@ -119,6 +119,9 @@ const msgType = stats.type || stats.Type;
     else if (msgType === "REFRESH_ADAPTER_STATE") {
         RenderNetworkAdapterInterfaceRows(stats);
     } 
+    else if (msgType === "SPEED_TEST_RESULTS") {
+        RenderSpeedTestResults(stats);
+    }
     else {
         // Dashboard Telemetry
         AppendLiveDiagnosticConsoleLog(stats);
@@ -654,19 +657,59 @@ window.TriggerNetworkSpeedAnalysis = function() {
     const btn = document.querySelector('.speed-execute-action-btn');
     if (btn) {
         btn.disabled = true;
-        const originalText = btn.textContent;
         btn.textContent = "RUNNING...";
-        
-        if (window.chrome && window.chrome.webview) {
-            window.chrome.webview.postMessage("Execute-SpeedTest");
-        }
-        
-        setTimeout(() => {
-            btn.disabled = false;
-            btn.textContent = originalText;
-        }, 15000);
     }
+    
+    const latElem = document.getElementById('lblNetLatency');
+    const downElem = document.getElementById('lblNetDownload');
+    const upElem = document.getElementById('lblNetUpload');
+    if (latElem) latElem.textContent = "...";
+    if (downElem) downElem.textContent = "...";
+    if (upElem) upElem.textContent = "...";
+
+    const consoleBox = document.getElementById('console-box') || document.querySelector('.console-box');
+    if (consoleBox) {
+        consoleBox.textContent = '[SPEED TEST] Initiating Cloudflare speed analysis mesh...';
+    }
+
+    if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage("Execute-SpeedTest");
+    }
+
+    if (window._speedTestTimeout) clearTimeout(window._speedTestTimeout);
+    window._speedTestTimeout = setTimeout(() => {
+        if (btn && btn.textContent === "RUNNING...") {
+            btn.disabled = false;
+            btn.textContent = "Test Mesh";
+        }
+    }, 30000);
 };
+
+function RenderSpeedTestResults(stats) {
+    const latElem = document.getElementById('lblNetLatency');
+    const downElem = document.getElementById('lblNetDownload');
+    const upElem = document.getElementById('lblNetUpload');
+
+    if (latElem) latElem.textContent = (stats.Latency !== undefined && stats.Latency !== null) ? stats.Latency : '--';
+    if (downElem) downElem.textContent = (stats.Download !== undefined && stats.Download !== null) ? stats.Download : '--';
+    if (upElem) upElem.textContent = (stats.Upload !== undefined && stats.Upload !== null) ? stats.Upload : '--';
+
+    const btn = document.querySelector('.speed-execute-action-btn');
+    if (btn) {
+        btn.disabled = false;
+        btn.textContent = "Test Mesh";
+    }
+
+    if (window._speedTestTimeout) {
+        clearTimeout(window._speedTestTimeout);
+        window._speedTestTimeout = null;
+    }
+
+    const consoleBox = document.getElementById('console-box') || document.querySelector('.console-box');
+    if (consoleBox) {
+        consoleBox.textContent = `[SPEED TEST] Complete: ${stats.Latency} ms latency | ${stats.Download} Mbps down | ${stats.Upload} Mbps up`;
+    }
+}
 
 window.CommitWatchdogTuningProfile = function() {
     const cpuThreshold = document.getElementById('rangeCpuThreshold')?.value || "20";

@@ -189,6 +189,48 @@ $HandleUiMessageEvent = {
             $Json = $Data | ConvertTo-Json -Compress -Depth 5
             $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($Json)))
         }
+        '^Execute-SpeedTest$' {
+            if ($global:SpeedTestRunning) { return }
+            $global:SpeedTestRunning = $true
+
+            $global:SpeedTestPipeline = [powershell]::Create()
+            $null = $global:SpeedTestPipeline.AddScript({
+                param($RootPath)
+                . (Join-Path $RootPath "modules\telemetry\NetworkTest.ps1")
+                $results = Get-NetworkSpeedTest
+                return ($results | ConvertTo-Json -Compress)
+            }).AddArgument($Global:NodeWatchRoot)
+
+            $global:SpeedTestAsyncHandle = $global:SpeedTestPipeline.BeginInvoke()
+
+            $global:SpeedTestTimer = New-Object System.Windows.Forms.Timer
+            $global:SpeedTestTimer.Interval = 200
+            $global:SpeedTestTimer.Add_Tick({
+                if ($null -ne $global:SpeedTestAsyncHandle -and $global:SpeedTestAsyncHandle.IsCompleted) {
+                    $global:SpeedTestTimer.Stop()
+                    try {
+                        $output = $global:SpeedTestPipeline.EndInvoke($global:SpeedTestAsyncHandle)
+                        $json = [string]$output
+                        if ($json -and $null -ne $global:WebViewControl.CoreWebView2) {
+                            $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                            $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String($bytes))
+                        }
+                    } catch {
+                        $errJson = @{ type = "SPEED_TEST_RESULTS"; Latency = "ERR"; Download = "ERR"; Upload = "ERR"; Error = $_.Exception.Message } | ConvertTo-Json -Compress
+                        if ($null -ne $global:WebViewControl.CoreWebView2) {
+                            $bytes = [System.Text.Encoding]::UTF8.GetBytes($errJson)
+                            $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String($bytes))
+                        }
+                    } finally {
+                        if ($null -ne $global:SpeedTestPipeline) { $global:SpeedTestPipeline.Dispose(); $global:SpeedTestPipeline = $null }
+                        $global:SpeedTestAsyncHandle = $null
+                        if ($null -ne $global:SpeedTestTimer) { $global:SpeedTestTimer.Dispose(); $global:SpeedTestTimer = $null }
+                        $global:SpeedTestRunning = $false
+                    }
+                }
+            })
+            $global:SpeedTestTimer.Start()
+        }
         '^Window-Drag:(.+)' {
             $Delta = $Matches[1].Split('|')
             if ($Delta.Count -eq 2) {
@@ -317,6 +359,8 @@ $MainForm.Add_FormClosing({
     if ($null -ne $global:SystemTrayIcon) { $global:SystemTrayIcon.Visible = $false; $global:SystemTrayIcon.Dispose() }
     if ($null -ne $TrayIconInstance) { $TrayIconInstance.Dispose() }
     if ($null -ne $IconHandle) { [CoreWatch.Win32]::DestroyIcon($IconHandle) }
+    if ($null -ne $global:SpeedTestTimer) { $global:SpeedTestTimer.Stop(); $global:SpeedTestTimer.Dispose() }
+    if ($null -ne $global:SpeedTestPipeline) { $global:SpeedTestPipeline.Dispose() }
     $global:TelemetryLoopTimer.Stop()
     $global:SharedData.IsRunning = $false
     if ($null -ne $PowerShellPool) { $PowerShellPool.Dispose() }
