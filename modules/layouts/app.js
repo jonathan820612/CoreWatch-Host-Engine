@@ -351,6 +351,94 @@ function RenderCpuCacheMatrix(cache) {
     });
 }
 
+window._cachedMonitors = [];
+window._selectedMonitorId = null;
+window._lastMonitorSignature = '';
+
+window.OnMonitorSelectionChange = function() {
+    const picker = document.getElementById('selMonitorPicker');
+    if (picker) {
+        window._selectedMonitorId = picker.value;
+    }
+    ApplySelectedMonitorMetrics();
+};
+
+function RenderMonitorDeck(monitors) {
+    const picker = document.getElementById('selMonitorPicker');
+    if (!picker) return;
+
+    const list = Array.isArray(monitors) ? monitors : (monitors ? [monitors] : []);
+    window._cachedMonitors = list;
+
+    if (list.length === 0) {
+        if (window._lastMonitorSignature !== 'EMPTY') {
+            picker.innerHTML = '<option value="">No displays detected</option>';
+            window._lastMonitorSignature = 'EMPTY';
+        }
+        ApplySelectedMonitorMetrics();
+        return;
+    }
+
+    const signature = list.map(m => `${m.Id}|${m.Label}`).join('||');
+    if (signature !== window._lastMonitorSignature) {
+        window._lastMonitorSignature = signature;
+        const previousId = window._selectedMonitorId;
+        picker.replaceChildren();
+
+        list.forEach(m => {
+            const opt = document.createElement('option');
+            opt.value = m.Id;
+            opt.textContent = m.Label || m.FriendlyName || m.Id;
+            picker.appendChild(opt);
+        });
+
+        const match = list.find(m => m.Id === previousId) || list.find(m => m.IsPrimary) || list[0];
+        window._selectedMonitorId = match.Id;
+        picker.value = match.Id;
+    }
+
+    ApplySelectedMonitorMetrics();
+}
+
+function ApplySelectedMonitorMetrics() {
+    const list = window._cachedMonitors || [];
+    const mon = list.find(m => m.Id === window._selectedMonitorId) || list[0];
+
+    if (!mon) {
+        ['lblMonResolution', 'lblMonRefresh', 'lblMonConnection', 'lblMonScale',
+         'lblMonOrientation', 'lblMonHdr', 'lblMonNightLight', 'lblMonColorProfile']
+            .forEach(id => SetDomText(id, '--'));
+        return;
+    }
+
+    SetDomText('lblMonResolution',  mon.Resolution || '--');
+    SetDomText('lblMonRefresh',     mon.RefreshRate || '--');
+    SetDomText('lblMonConnection',  mon.ConnectionType || '--');
+    SetDomText('lblMonScale',       mon.Scale || '--');
+    SetDomText('lblMonOrientation', mon.Orientation || '--');
+
+    const hdrEl = document.getElementById('lblMonHdr');
+    if (hdrEl) {
+        const hdr = mon.HdrStatus || 'Unknown';
+        hdrEl.textContent = hdr;
+        hdrEl.style.color = hdr === 'On' ? '#48bb78' : (hdr.startsWith('Off') ? '#a0aec0' : '#718096');
+    }
+
+    const nlEl = document.getElementById('lblMonNightLight');
+    if (nlEl) {
+        const nl = mon.NightLight || 'Off';
+        nlEl.textContent = nl;
+        nlEl.style.color = nl === 'On' ? '#ecc94b' : '#a0aec0';
+    }
+
+    const cpEl = document.getElementById('lblMonColorProfile');
+    if (cpEl) {
+        const cp = mon.ColorProfile || 'sRGB (Default)';
+        cpEl.textContent = cp;
+        cpEl.title = cp;
+    }
+}
+
 function RenderAdapterStatusDeck(adapterStatuses) {
     const container = document.getElementById('adapterStatusContainer');
     if (!container) return;
@@ -469,6 +557,7 @@ function updateDashboardUiMesh(stats) {
         SetDomText('lblUptime',         infra.UptimeText);
         SetDomText('lblAudioOutput',    infra.SoundCardIdentity);
         SetDomText('lblAudioInput',     infra.MicrophoneIdentity);
+        RenderMonitorDeck(infra.Monitors);
         const plan = stats.SystemFrame?.PowerPlan || "Unknown";
         const powerPlanHtml = `<span style="cursor:pointer; text-decoration:underline dotted;" onclick="TriggerPowerPlanMenu()">${plan}</span>`;
         const planElem = document.getElementById('lblPowerPlan');

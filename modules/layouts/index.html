@@ -148,6 +148,24 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
                 <div class="data-field-split"><span>🔈 Audio Output:</span> <strong id="lblAudioOutput">Resolving output...</strong></div>
                 <div class="data-field-split"><span>🎙️ Audio Input:</span> <strong id="lblAudioInput">Resolving input...</strong></div>
             </div>
+            <div class="video-sub-deck">
+                <div class="video-header-row">
+                    <span>🖥️ Display:</span>
+                    <select id="selMonitorPicker" class="infra-monitor-select" onchange="OnMonitorSelectionChange()" aria-label="Select display monitor">
+                        <option value="">Detecting monitors...</option>
+                    </select>
+                </div>
+                <div class="video-metrics-grid">
+                    <div class="video-metric-item"><span>Resolution:</span> <strong id="lblMonResolution">--</strong></div>
+                    <div class="video-metric-item"><span>Refresh Rate:</span> <strong id="lblMonRefresh">--</strong></div>
+                    <div class="video-metric-item"><span>Connection:</span> <strong id="lblMonConnection">--</strong></div>
+                    <div class="video-metric-item"><span>Scale:</span> <strong id="lblMonScale">--</strong></div>
+                    <div class="video-metric-item"><span>Orientation:</span> <strong id="lblMonOrientation">--</strong></div>
+                    <div class="video-metric-item"><span>HDR Status:</span> <strong id="lblMonHdr">--</strong></div>
+                    <div class="video-metric-item"><span>Night Light:</span> <strong id="lblMonNightLight">--</strong></div>
+                    <div class="video-metric-item"><span>Color Profile:</span> <strong id="lblMonColorProfile" class="video-truncate">--</strong></div>
+                </div>
+            </div>
         </div>
         <!-- NETWORK PROFILE SYSTEM -->
         <div class="dashboard-card wide-sub-console">

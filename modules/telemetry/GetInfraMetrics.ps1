@@ -1,10 +1,14 @@
 # File: modules/telemetry/GetInfraMetrics.ps1
 
+. (Join-Path $PSScriptRoot "GetDisplayMetrics.ps1")
+
 $script:StaticInfraCache = $null
 $script:LastDynamicInfra = [datetime]::MinValue
+$script:LastDisplayCheck = [datetime]::MinValue
 $script:CachedPowerPlanInfra = "Balanced"
 $script:CachedAudioOut   = "Speakers / Default Output"
 $script:CachedAudioIn    = "No Active Input Device"
+$script:CachedMonitors   = @()
 
 function Get-InfraMetrics {
     if ($null -eq $script:StaticInfraCache) {
@@ -50,6 +54,14 @@ function Get-InfraMetrics {
         $script:LastDynamicInfra = [datetime]::Now
     }
 
+    # Refresh display / video metrics every 5 seconds
+    if (([datetime]::Now - $script:LastDisplayCheck).TotalSeconds -ge 5) {
+        try {
+            $script:CachedMonitors = @(Get-DisplayMetrics)
+        } catch {}
+        $script:LastDisplayCheck = [datetime]::Now
+    }
+
     return [PSCustomObject]@{
         OsEdition          = $script:StaticInfraCache.OsEdition
         WindowsBuild       = $script:StaticInfraCache.WindowsBuild
@@ -66,5 +78,6 @@ function Get-InfraMetrics {
         PowerPlan          = [string]$script:CachedPowerPlanInfra
         SoundCardIdentity  = [string]$script:CachedAudioOut
         MicrophoneIdentity = [string]$script:CachedAudioIn
+        Monitors           = @($script:CachedMonitors)
     }
 }
