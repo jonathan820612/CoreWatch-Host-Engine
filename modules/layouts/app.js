@@ -20,14 +20,14 @@ window.SwitchAppLayoutView = function(targetViewId) {
     Object.values(buttons).forEach(b => { if (b) b.classList.remove('active'); });
 
     if (targetViewId === 'netmanager') {
-        if (panels.netmanager) panels.netmanager.style.display = 'flex'; // Changed from 'block'
+        if (panels.netmanager) panels.netmanager.style.display = 'block';
         if (buttons.netmanager) buttons.netmanager.classList.add('active');
-        if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage("UI-Ready");
+        RequestNetworkAdapters();
     } 
     else if (targetViewId === 'startup') {
-        if (panels.startup) panels.startup.style.display = 'flex'; // Changed from 'block'
+        if (panels.startup) panels.startup.style.display = 'block';
         if (buttons.startup) buttons.startup.classList.add('active');
-        if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage("Request-StartupApps");
+        RequestStartupApps();
     } 
     else if (targetViewId === 'sharing') {
         panels.sharing.style.display = 'block';
@@ -111,7 +111,7 @@ document.addEventListener("DOMContentLoaded", () => {
 const msgType = stats.type || stats.Type;
 
     if (msgType === "REFRESH_STARTUP_APPS") {
-        RenderStartupAppRows(stats.apps || []);
+        RenderStartupAppRows(stats);
     } 
     else if (msgType === 'SHARING_CENTER') {
         RenderSharingCenter(stats);
@@ -270,6 +270,27 @@ document.addEventListener('DOMContentLoaded', () => {
             command: 'CREATE_SHARE', name: String(values.get('name')).trim(),
             path: String(values.get('path')).trim(), description: String(values.get('description')).trim()
         }));
+    });
+
+    document.getElementById('startupCreateForm')?.addEventListener('submit', event => {
+        event.preventDefault();
+        const form = event.currentTarget;
+        const values = new FormData(form);
+        const name = String(values.get('name') || '').trim();
+        const commandLine = String(values.get('command') || '').trim();
+        const scope = String(values.get('scope') || 'HKCU').trim();
+        if (!name || !commandLine) return;
+
+        const status = document.getElementById('startupStatus');
+        if (status) status.textContent = `Adding ${name} to startup...`;
+
+        window.chrome?.webview?.postMessage(JSON.stringify({
+            command: 'CREATE_STARTUP_APP',
+            name: name,
+            commandLine: commandLine,
+            scope: scope
+        }));
+        form.reset();
     });
 });
 
@@ -516,73 +537,239 @@ function updateDashboardUiMesh(stats) {
 // =========================================================================
 // INLINE VIEW NETWORK ADAPTER RENDERING MATRIX & COMMITS
 // =========================================================================
-function RenderNetworkAdapterInterfaceRows(interfaces) {
-    // FIX: Updated to match your exact HTML panel element target ID block
-    const container = document.getElementById("adapterInterfaceContainer");
+window.RequestNetworkAdapters = function() {
+    const status = document.getElementById('netManagerStatus');
+    if (status) status.textContent = 'Scanning network hardware interfaces...';
+    if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage('Request-Adapters');
+    }
+};
+
+window.FlushDnsCache = function() {
+    const status = document.getElementById('netManagerStatus');
+    if (status) status.textContent = 'Flushing Windows DNS Resolver Cache...';
+    if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage(JSON.stringify({ command: 'FLUSH_DNS_CACHE' }));
+    }
+};
+
+window.RestartNetworkAdapter = function(interfaceAlias) {
+    if (confirm(`Restart network adapter [ ${interfaceAlias} ]?\nThis will cycle the link down and up.`)) {
+        const status = document.getElementById('netManagerStatus');
+        if (status) status.textContent = `Restarting adapter [ ${interfaceAlias} ]...`;
+        if (window.chrome && window.chrome.webview) {
+            window.chrome.webview.postMessage(JSON.stringify({
+                command: 'RESTART_ADAPTER',
+                interfaceAlias: interfaceAlias
+            }));
+        }
+    }
+};
+
+window.RenameNetworkAdapter = function(oldAlias) {
+    const newName = prompt(`Enter new name for network adapter [ ${oldAlias} ]:`, oldAlias);
+    if (newName && newName.trim() && newName.trim() !== oldAlias) {
+        const status = document.getElementById('netManagerStatus');
+        if (status) status.textContent = `Renaming adapter to [ ${newName.trim()} ]...`;
+        if (window.chrome && window.chrome.webview) {
+            window.chrome.webview.postMessage(JSON.stringify({
+                command: 'RENAME_ADAPTER',
+                interfaceAlias: oldAlias,
+                newAlias: newName.trim(),
+                newName: newName.trim()
+            }));
+        }
+    }
+};
+
+window.ExecuteAdapterDhcpRelease = function(interfaceAlias) {
+    if (confirm(`Revert [ ${interfaceAlias} ] to automatic DHCP addressing?`)) {
+        const status = document.getElementById('netManagerStatus');
+        if (status) status.textContent = `Reverting [ ${interfaceAlias} ] to DHCP...`;
+        if (window.chrome && window.chrome.webview) {
+            window.chrome.webview.postMessage(JSON.stringify({
+                command: 'TRIGGER_DHCP_REVERSION',
+                interfaceAlias: interfaceAlias
+            }));
+        }
+    }
+};
+
+window.ExecuteAdapterStaticProvisioning = function(interfaceAlias, form) {
+    const ip = form.ipAddress?.value.trim();
+    if (!ip) return alert("Error: A valid destination IP allocation is required.");
+    const mask = form.subnetMask?.value.trim() || "255.255.255.0";
+    const gw = form.gateway?.value.trim() || "";
+    const dns = form.dns?.value.trim() || "";
+
+    const status = document.getElementById('netManagerStatus');
+    if (status) status.textContent = `Applying static configuration to [ ${interfaceAlias} ]...`;
+
+    const payload = {
+        command: "SET_STATIC_IP",
+        interfaceAlias: interfaceAlias,
+        ipAddress: ip,
+        subnetMask: mask,
+        gateway: gw,
+        dns: dns
+    };
+    if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage(JSON.stringify(payload));
+    }
+};
+
+function RenderNetworkAdapterInterfaceRows(data) {
+    const status = document.getElementById('netManagerStatus');
+    const container = document.getElementById('adapterInterfaceContainer');
     if (!container) return;
 
-    // Guard clause to handle wrapper objects and extract the true array safely
-    let targetArray = interfaces;
-    if (interfaces && !Array.isArray(interfaces) && Array.isArray(interfaces.interfaces)) {
-        targetArray = interfaces.interfaces;
+    let targetArray = data;
+    if (data && !Array.isArray(data)) {
+        if (status) {
+            const count = Array.isArray(data.interfaces) ? data.interfaces.length : (data.interfaces ? 1 : 0);
+            status.textContent = data.error || data.message || `${count} network adapters found`;
+            status.classList.toggle('sharing-error', !!data.error);
+        }
+        targetArray = Array.isArray(data.interfaces) ? data.interfaces : (data.interfaces ? [data.interfaces] : []);
     }
-
-    container.innerHTML = "";
+    container.replaceChildren();
 
     if (!targetArray || !Array.isArray(targetArray) || targetArray.length === 0) {
         container.innerHTML = `<div class="driver-text-node">No connected hardware lines returned from engine.</div>`;
         return;
     }
 
-    targetArray.forEach((adapter, index) => {
-        const isDhcp = adapter.Profile === "DHCP";
-        
-        const rowTemplateHtml = `
-            <div class="metric-row storage-tight-row" style="background-color: #1a202c; border: 1px solid #323c4b; padding: 12px; margin-bottom: 8px; border-left: 4px solid ${isDhcp ? '#319795' : '#b794f4'}; box-sizing: border-box;">
-                <div class="metric-metadata">
-                    <span class="storage-interactive-row-header">
-                        <span class="storage-tag-icon">📡</span>
-                        <span class="drive-title text-local">${adapter.Alias}</span>
-                    </span>
-                    <div class="cache-badge-deck">
-                        <span class="hardware-stat-tag text-assignment">${adapter.Profile}</span>
-                    </div>
-                </div>
-                
-                <div style="font-size: 11px; font-family: monospace; color: #cbd5e0; margin-top: 6px; line-height: 1.4;">
-                    IP Address: <strong>${adapter.IPAddress}</strong><br>
-                    Subnet Mask: ${adapter.SubnetMask} (/${adapter.PrefixLength})<br>
-                    Gateway    : ${adapter.Gateway}
-                </div>
+    targetArray.forEach(adapter => {
+        const card = document.createElement('article');
+        card.className = 'sharing-card';
 
-                <div class="hardware-metric-footer-row" style="border-top: 1px dashed #2d3748; padding-top: 8px; margin-top: 8px; display: flex; flex-direction: column; gap: 6px; align-items: stretch; justify-content: flex-start;">
-                    <div style="display: flex; gap: 6px; align-items: center; width: 100%;">
-                        <input type="text" id="drawer_ip_${index}" placeholder="Static IP" value="${isDhcp ? '' : adapter.IPAddress}" style="background-color: #2d3748; border: 1px solid #4a5568; color: #fff; font-family: 'Consolas', monospace; font-size: 11px; padding: 3px 6px; flex-grow: 1; min-width: 0; box-sizing: border-box; height: 23px;">
-                        <button class="network-adapters-action-btn" onclick="ExecuteDrawerStaticProvisioning('${adapter.Alias}', ${index})" style="margin-left: 0 !important; height: 23px; padding: 2px 8px;">Set Static</button>
-                    </div>
-                    ${!isDhcp ? `<button class="network-adapters-action-btn" onclick="ExecuteDrawerDhcpRelease('${adapter.Alias}')" style="background-color: rgba(49, 151, 149, 0.1); border-color: #319795; color: #319795; width: 100%; text-align: center; height: 23px; padding: 2px 8px;">Revert to DHCP Auto</button>` : ''}
-                </div>
-            </div>
-        `;
-        container.insertAdjacentHTML('beforeend', rowTemplateHtml);
+        const title = document.createElement('h3');
+        title.textContent = `${adapter.Alias} · ${adapter.InterfaceDescription || 'Network Adapter'}`;
+        card.appendChild(title);
+
+        const rawStatus = (adapter.Status || '').trim().toLowerCase();
+        const adminDown = (adapter.AdminStatus || '').trim().toLowerCase() === 'down';
+        let statusBadgeHtml = '';
+        if (adminDown || rawStatus === 'disabled') {
+            statusBadgeHtml = '<span class="sharing-badge badge-danger">Disabled</span>';
+        } else if (rawStatus === 'up') {
+            statusBadgeHtml = '<span class="sharing-badge badge-success">Connected</span>';
+        } else if (rawStatus === 'disconnected' || rawStatus === 'not connected') {
+            statusBadgeHtml = '<span class="sharing-badge badge-purple">D/C</span>';
+        } else {
+            statusBadgeHtml = `<span class="sharing-badge badge-neutral">${adapter.Status || 'Unknown'}</span>`;
+        }
+
+        const details = [
+            ['Physical Status', statusBadgeHtml, true],
+            ['MAC Address', adapter.MacAddress || 'Unavailable'],
+            ['Link Speed', adapter.LinkSpeed || 'Unavailable'],
+            ['IPv4 Address', adapter.IPAddress || 'Disconnected'],
+            ['Subnet Mask', `${adapter.SubnetMask} (/${adapter.PrefixLength})`],
+            ['Gateway', adapter.Gateway || 'N/A'],
+            ['DNS Servers', adapter.DnsServers || 'DHCP / Automatic'],
+            ['Assignment', adapter.Profile || 'DHCP']
+        ];
+
+        details.forEach(([label, value, isHtml]) => {
+            const row = document.createElement('div');
+            row.className = 'sharing-detail';
+            const key = document.createElement('span');
+            key.textContent = label;
+            const detail = document.createElement('strong');
+            if (isHtml) {
+                detail.innerHTML = value;
+            } else {
+                detail.textContent = value;
+            }
+            row.append(key, detail);
+            card.appendChild(row);
+        });
+
+        const configSection = document.createElement('section');
+        configSection.className = 'sharing-permissions';
+        const configTitle = document.createElement('h4');
+        configTitle.textContent = 'IP Allocation & DNS Configuration';
+        configSection.appendChild(configTitle);
+
+        const form = document.createElement('form');
+        form.className = 'sharing-access-form';
+
+        const ipInput = document.createElement('input');
+        ipInput.name = 'ipAddress';
+        ipInput.required = true;
+        ipInput.placeholder = 'Static IP (e.g. 192.168.1.100)';
+        ipInput.value = adapter.Profile === 'DHCP' ? '' : (adapter.IPAddress !== 'Disconnected' ? adapter.IPAddress : '');
+
+        const maskInput = document.createElement('input');
+        maskInput.name = 'subnetMask';
+        maskInput.placeholder = 'Subnet Mask';
+        maskInput.value = adapter.SubnetMask || '255.255.255.0';
+
+        const gwInput = document.createElement('input');
+        gwInput.name = 'gateway';
+        gwInput.placeholder = 'Gateway';
+        gwInput.value = (adapter.Gateway && adapter.Gateway !== 'N/A') ? adapter.Gateway : '';
+
+        const dnsInput = document.createElement('input');
+        dnsInput.name = 'dns';
+        dnsInput.placeholder = 'DNS (comma separated)';
+        dnsInput.value = (adapter.DnsServers && adapter.DnsServers !== 'DHCP / Automatic') ? adapter.DnsServers : '';
+
+        const submitBtn = document.createElement('button');
+        submitBtn.type = 'submit';
+        submitBtn.textContent = 'Apply IP / DNS';
+
+        form.append(ipInput, maskInput, gwInput, dnsInput, submitBtn);
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            ExecuteAdapterStaticProvisioning(adapter.Alias, form);
+        });
+        configSection.appendChild(form);
+        card.appendChild(configSection);
+
+        const actions = document.createElement('div');
+        actions.className = 'sharing-actions';
+
+        if (adapter.Profile !== 'DHCP') {
+            const dhcpBtn = document.createElement('button');
+            dhcpBtn.type = 'button';
+            dhcpBtn.textContent = 'Revert to DHCP';
+            dhcpBtn.addEventListener('click', () => ExecuteAdapterDhcpRelease(adapter.Alias));
+            actions.appendChild(dhcpBtn);
+        }
+
+        const restartBtn = document.createElement('button');
+        restartBtn.type = 'button';
+        restartBtn.textContent = 'Restart Adapter';
+        restartBtn.addEventListener('click', () => RestartNetworkAdapter(adapter.Alias));
+        actions.appendChild(restartBtn);
+
+        const renameBtn = document.createElement('button');
+        renameBtn.type = 'button';
+        renameBtn.textContent = 'Rename';
+        renameBtn.addEventListener('click', () => RenameNetworkAdapter(adapter.Alias));
+        actions.appendChild(renameBtn);
+
+        const toggleBtn = document.createElement('button');
+        toggleBtn.type = 'button';
+        const isOff = adminDown || rawStatus === 'disabled';
+        if (isOff) {
+            toggleBtn.textContent = 'Enable Adapter';
+            toggleBtn.style.color = '#48bb78';
+            toggleBtn.style.borderColor = '#38a169';
+            toggleBtn.addEventListener('click', (e) => ToggleNetworkAdapterState(adapter.Alias, 'Off', e));
+        } else {
+            toggleBtn.textContent = 'Disable Adapter';
+            toggleBtn.className = 'sharing-danger';
+            toggleBtn.addEventListener('click', (e) => ToggleNetworkAdapterState(adapter.Alias, 'On', e));
+        }
+        actions.appendChild(toggleBtn);
+
+        card.appendChild(actions);
+        container.appendChild(card);
     });
 }
-window.ExecuteDrawerStaticProvisioning = function(interfaceAlias, index) {
-    const targetIp = document.getElementById(`drawer_ip_${index}`)?.value.trim();
-    if (!targetIp) return alert("Error: A valid destination IP allocation layout is required.");
-
-    const payload = { command: "SET_STATIC_IP", interfaceAlias: interfaceAlias, ipAddress: targetIp };
-    if (window.chrome && window.chrome.webview) {
-        window.chrome.webview.postMessage(JSON.stringify(payload));
-    }
-};
-
-window.ExecuteDrawerDhcpRelease = function(interfaceAlias) {
-    const payload = { command: "TRIGGER_DHCP_REVERSION", interfaceAlias: interfaceAlias };
-    if (window.chrome && window.chrome.webview) {
-        window.chrome.webview.postMessage(JSON.stringify(payload));
-    }
-};
 
 window.ToggleNetworkAdapterState = function(adapterName, currentStatus, event) {
     if (event) {
@@ -620,50 +807,155 @@ window.ToggleNetworkAdapterState = function(adapterName, currentStatus, event) {
 // =========================================================================
 // STARTUP APPLICATION MANAGER RENDERING
 // =========================================================================
-function RenderStartupAppRows(apps) {
-    const container = document.getElementById("startupAppsContainer");
+window.RequestStartupApps = function() {
+    const status = document.getElementById('startupStatus');
+    if (status) status.textContent = 'Fetching boot registration entries...';
+    if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage('Request-StartupApps');
+    }
+};
+
+window.ToggleStartupApp = function(name, type, enable) {
+    if (confirm(`${enable ? 'Enable' : 'Disable'} [ ${name} ] on system boot?`)) {
+        const status = document.getElementById('startupStatus');
+        if (status) status.textContent = `Updating boot state for [ ${name} ]...`;
+        if (window.chrome && window.chrome.webview) {
+            window.chrome.webview.postMessage(JSON.stringify({
+                command: "TOGGLE_STARTUP_APP",
+                name: name,
+                type: type,
+                enable: enable
+            }));
+        }
+    }
+};
+
+window.OpenStartupFileLocation = function(targetExe) {
+    if (!targetExe || targetExe === 'Unavailable') {
+        return alert("Error: Executable target path is unavailable.");
+    }
+    const status = document.getElementById('startupStatus');
+    if (status) status.textContent = `Opening file location for [ ${targetExe} ]...`;
+    if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage(JSON.stringify({
+            command: "OPEN_FILE_LOCATION",
+            targetExe: targetExe
+        }));
+    }
+};
+
+window.RemoveStartupApp = function(name, loc, type) {
+    if (confirm(`Permanently remove [ ${name} ] from system boot registrations?`)) {
+        const status = document.getElementById('startupStatus');
+        if (status) status.textContent = `Removing [ ${name} ]...`;
+        if (window.chrome && window.chrome.webview) {
+            window.chrome.webview.postMessage(JSON.stringify({ 
+                command: "REMOVE_STARTUP_APP", 
+                name: name, 
+                location: loc, 
+                type: type 
+            }));
+        }
+    }
+};
+
+function RenderStartupAppRows(data) {
+    const status = document.getElementById('startupStatus');
+    const container = document.getElementById('startupAppsContainer');
     if (!container) return;
     
-    container.innerHTML = "";
-    if (apps.length === 0) {
+    let targetArray = data;
+    if (data && !Array.isArray(data)) {
+        const appsList = Array.isArray(data.apps) ? data.apps : (data.apps ? [data.apps] : []);
+        if (status) {
+            status.textContent = data.error || data.message || `${appsList.length} startup applications found`;
+            status.classList.toggle('sharing-error', !!data.error);
+        }
+        targetArray = appsList;
+    }
+    container.replaceChildren();
+
+    if (!targetArray || !Array.isArray(targetArray) || targetArray.length === 0) {
         container.innerHTML = `<div class="driver-text-node">No startup applications found in system registry or folders.</div>`;
         return;
     }
 
-    apps.forEach(app => {
-        const rowHtml = `
-            <div class="metric-row storage-tight-row" style="background-color: #1a202c; border: 1px solid #323c4b; padding: 12px; margin-bottom: 8px; border-left: 4px solid #4299e1;">
-                <div class="metric-metadata">
-                    <span class="drive-title text-local">🚀 ${app.Name}</span>
-                    <span class="hardware-stat-tag text-assignment">${app.Type}</span>
-                </div>
-                <div style="font-size: 10px; font-family: monospace; color: #a0aec0; margin: 6px 0; word-break: break-all; opacity: 0.8;">
-                    ${app.Command}
-                </div>
-                <div class="hardware-metric-footer-row" style="border-top: 1px dashed #2d3748; padding-top: 8px; margin-top: 8px;">
-                    <button class="console-clear-btn" style="color: #fc8181; border-color: #fc8181; font-size: 10px; height: 22px; padding: 0 10px;" 
-                        onclick="RemoveStartupApp('${app.Name}', '${app.Location.replace(/\\/g, '\\\\')}', '${app.Type}')">
-                        Remove from Boot
-                    </button>
-                </div>
-            </div>`;
-        container.insertAdjacentHTML('beforeend', rowHtml);
+    targetArray.forEach(app => {
+        const card = document.createElement('article');
+        card.className = 'sharing-card';
+
+        const title = document.createElement('h3');
+        const pubText = (app.Publisher && app.Publisher !== 'Unavailable') ? app.Publisher : (app.Scope || 'Startup Entry');
+        title.textContent = `${app.Name} · ${pubText}`;
+        card.appendChild(title);
+
+        const isEnabled = (app.Status || '').toLowerCase() === 'enabled';
+        const statusBadgeHtml = isEnabled 
+            ? '<span class="sharing-badge badge-success">Enabled</span>' 
+            : '<span class="sharing-badge badge-danger">Disabled</span>';
+        
+        const fileStatusHtml = app.FileExists 
+            ? '<span style="color:#48bb78;">Verified on disk</span>' 
+            : '<span style="color:#fc8181;">Target missing</span>';
+
+        const details = [
+            ['Publisher', app.Publisher || 'Unavailable'],
+            ['Product', app.ProductName || 'Unavailable'],
+            ['Registration', `${app.Type} · ${app.Scope}`],
+            ['Startup Status', statusBadgeHtml, true],
+            ['File Status', fileStatusHtml, true],
+            ['Location', app.Location || 'Unavailable'],
+            ['Command', app.Command || 'Unavailable']
+        ];
+
+        details.forEach(([label, value, isHtml]) => {
+            const row = document.createElement('div');
+            row.className = 'sharing-detail';
+            const key = document.createElement('span');
+            key.textContent = label;
+            const detail = document.createElement('strong');
+            if (isHtml) {
+                detail.innerHTML = value;
+            } else {
+                detail.textContent = value;
+            }
+            row.append(key, detail);
+            card.appendChild(row);
+        });
+
+        const actions = document.createElement('div');
+        actions.className = 'sharing-actions';
+
+        const toggleBtn = document.createElement('button');
+        toggleBtn.type = 'button';
+        if (isEnabled) {
+            toggleBtn.textContent = 'Disable on boot';
+            toggleBtn.addEventListener('click', () => ToggleStartupApp(app.Name, app.Type, false));
+        } else {
+            toggleBtn.textContent = 'Enable on boot';
+            toggleBtn.style.color = '#48bb78';
+            toggleBtn.style.borderColor = '#38a169';
+            toggleBtn.addEventListener('click', () => ToggleStartupApp(app.Name, app.Type, true));
+        }
+        actions.appendChild(toggleBtn);
+
+        const openBtn = document.createElement('button');
+        openBtn.type = 'button';
+        openBtn.textContent = 'Open file location';
+        openBtn.addEventListener('click', () => OpenStartupFileLocation(app.TargetExe || app.Command));
+        actions.appendChild(openBtn);
+
+        const removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.className = 'sharing-danger';
+        removeBtn.textContent = 'Remove from boot';
+        removeBtn.addEventListener('click', () => RemoveStartupApp(app.Name, app.Location, app.Type));
+        actions.appendChild(removeBtn);
+
+        card.appendChild(actions);
+        container.appendChild(card);
     });
 }
-
-window.RemoveStartupApp = function(name, loc, type) {
-    if (confirm(`Are you sure you want to remove [ ${name} ] from system startup?`)) {
-        const payload = { 
-            command: "REMOVE_STARTUP_APP", 
-            name: name, 
-            location: loc, 
-            type: type 
-        };
-        if (window.chrome && window.chrome.webview) {
-            window.chrome.webview.postMessage(JSON.stringify(payload));
-        }
-    }
-};
 // =========================================================================
 // GENERAL CORE GRAPHICS OBJECT SHORTCUTS
 // =========================================================================

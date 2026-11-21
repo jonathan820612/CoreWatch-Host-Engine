@@ -156,13 +156,13 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
                     <span>🌐</span> Ethernet: <strong id="lblEthernet">Checking...</strong>
                     <span>📶</span> Wi-Fi: <strong id="lblWifi">Checking...</strong>
                 </div>
-            </div>
                 <div class="net-node multi-driver-row adapter-status-row">
                     <span>🔌</span> Adapter Status:
                     <div id="adapterStatusContainer" class="adapter-status-deck">
                         <span class="adapter-status-item">Checking...</span>
                     </div>
                 </div>
+            </div>
             <!-- Speedtest Mesh Panel -->
             <div class="speedtest-wrapper-deck">
                 <div class="speed-metrics-panel">
@@ -200,30 +200,58 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
             <div id="console-box" class="console-box">[CoreWatch Host Engine Interface Active: Polling live CIM loops...]</div>
         </div>
     </div>
-    <div id="viewNetworkManagerPanel" class="wide-sub-console" style="display: none; min-height: 500px; margin-top: 10px;">
+    <!-- =========================================================================
+VIEW 2: NETWORK MANAGER
+========================================================================= -->
+    <section id="viewNetworkManagerPanel" class="wide-sub-console sharing-panel" style="display: none; margin-top: 10px;" aria-labelledby="netManagerTitle">
         <div class="console-header-row">
-            <h2>📡 HARDWARE LAYER: ACTIVE NETWORK INTERFACE CONFIGURATIONS</h2>
-            <button class="console-clear-btn" onclick="SwitchAppLayoutView('dashboard')">✕ Return to Dashboard</button>
+            <h2 id="netManagerTitle">📡 NETWORK MANAGER</h2>
+            <div style="display: flex; gap: 8px;">
+                <button type="button" class="console-clear-btn" onclick="FlushDnsCache()">Flush DNS Cache</button>
+                <button type="button" class="console-clear-btn" onclick="RequestNetworkAdapters()">Refresh</button>
+            </div>
         </div>
-        
-        <!-- Target dynamic runtime container row -->
-        <div id="adapterInterfaceContainer" class="storage-dynamic-mesh-grid" style="max-height: none; overflow: visible; padding: 5px;">
+        <p>Configure hardware network adapters, static IP allocations, default gateways, DNS resolvers, and hardware link states. Changes may require administrator privileges.</p>
+        <div id="netManagerStatus" class="sharing-status" role="status">Evaluating connected network interfaces...</div>
+        <div id="adapterInterfaceContainer" class="sharing-list">
             <div class="driver-text-node">Awaiting dynamic data mesh stream link from host layer...</div>
         </div>
-    </div>
-    <div id="viewStartupPanel" class="wide-sub-console" style="display: none; min-height: 500px; margin-top: 10px;">
-    <div class="console-header-row">
-        <h2>🚀 STARTUP CONTROL: WINDOWS BOOT ENTRIES</h2>
-        <button class="console-clear-btn" onclick="SwitchAppLayoutView('dashboard')">✕ Return</button>
+    </section>
+
+    <!-- =========================================================================
+VIEW 3: STARTUP APPLICATION MANAGER
+========================================================================= -->
+    <section id="viewStartupPanel" class="wide-sub-console sharing-panel" style="display: none; margin-top: 10px;" aria-labelledby="startupTitle">
+        <div class="console-header-row">
+            <h2 id="startupTitle">🚀 STARTUP APPS</h2>
+            <button type="button" class="console-clear-btn" onclick="RequestStartupApps()">Refresh</button>
         </div>
-        <div id="startupAppsContainer" class="storage-dynamic-mesh-grid" style="padding: 5px;">
-        <div class="driver-text-node">Fetching boot registration entries...</div>
-    </div>
-    </div>
+        <p>Manage applications and tasks configured to launch automatically when Windows boots. Changes update the Windows Registry or user/system startup folders.</p>
+        <form id="startupCreateForm" class="sharing-form">
+            <label>App name <input name="name" required maxlength="80" placeholder="My Application"></label>
+            <label>Executable or command <input name="command" required placeholder="C:\Program Files\App\app.exe"></label>
+            <label>Scope
+                <select name="scope">
+                    <option value="HKCU">Current User Registry (Run)</option>
+                    <option value="StartupFolder">User Startup Folder</option>
+                    <option value="HKLM">All Users Registry (Admin)</option>
+                </select>
+            </label>
+            <button type="submit" class="console-clear-btn">Add to startup</button>
+        </form>
+        <div id="startupStatus" class="sharing-status" role="status">Fetching boot registration entries...</div>
+        <div id="startupAppsContainer" class="sharing-list">
+            <div class="driver-text-node">Fetching boot registration entries...</div>
+        </div>
+    </section>
+
+    <!-- =========================================================================
+VIEW 4: SHARING CENTER
+========================================================================= -->
     <section id="viewSharingPanel" class="wide-sub-console sharing-panel" style="display: none; margin-top: 10px;" aria-labelledby="sharingTitle">
         <div class="console-header-row">
             <h2 id="sharingTitle">📂 SHARING CENTER</h2>
-            <button class="console-clear-btn" onclick="RequestSharingCenter()">Refresh</button>
+            <button type="button" class="console-clear-btn" onclick="RequestSharingCenter()">Refresh</button>
         </div>
         <p>Manage SMB folders shared from this PC. Changes may require administrator rights. Share permissions control network access; folder security permissions can further restrict it.</p>
         <form id="shareCreateForm" class="sharing-form">

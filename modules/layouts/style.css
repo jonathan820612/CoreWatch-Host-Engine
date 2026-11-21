@@ -46,7 +46,7 @@ html, body {
 .sharing-panel p { color: #a0aec0; font-size: 12px; }
 .sharing-form { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin: 12px 0 18px; }
 .sharing-form label { display: flex; flex-direction: column; gap: 5px; color: #cbd5e0; font-size: 11px; flex: 1 1 180px; }
-.sharing-form input { background: #1a202c; border: 1px solid #4a5568; color: #fff; padding: 7px; min-width: 0; }
+.sharing-form input, .sharing-form select { background: #1a202c; border: 1px solid #4a5568; color: #fff; padding: 7px; min-width: 0; }
 .sharing-form button { padding: 7px 12px; }
 .sharing-status { color: #90cdf4; font-size: 12px; margin-bottom: 10px; }
 .sharing-error { color: #fc8181; }
@@ -54,11 +54,13 @@ html, body {
 .sharing-card { background: #1a202c; border: 1px solid #4a5568; padding: 12px; min-width: 0; }
 .sharing-card h3 { color: #90cdf4; margin: 0 0 10px; font-size: 14px; }
 .sharing-detail { display: flex; gap: 10px; justify-content: space-between; font-size: 11px; margin: 5px 0; }
-.sharing-detail span { color: #a0aec0; flex: 0 0 75px; }
+.sharing-detail span { color: #a0aec0; flex: 0 0 110px; }
 .sharing-detail strong { text-align: right; overflow-wrap: anywhere; }
 .sharing-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-.sharing-actions button { background: #2d3748; color: #fff; border: 1px solid #4a5568; padding: 6px 9px; cursor: pointer; }
+.sharing-actions button { background: #2d3748; color: #fff; border: 1px solid #4a5568; padding: 6px 9px; cursor: pointer; transition: background 0.15s, border-color 0.15s; }
+.sharing-actions button:hover { background: #3182ce; border-color: #4299e1; }
 .sharing-actions .sharing-danger { color: #fc8181; border-color: #c53030; }
+.sharing-actions .sharing-danger:hover { background: #9b2c2c; border-color: #e53e3e; }
 .sharing-permissions { border-top: 1px solid #4a5568; margin-top: 12px; padding-top: 8px; font-size: 11px; }
 .sharing-permissions h4 { margin: 0 0 7px; color: #cbd5e0; }
 .sharing-permission-row { display: flex; justify-content: space-between; gap: 8px; align-items: center; margin: 5px 0; overflow-wrap: anywhere; }
@@ -66,6 +68,20 @@ html, body {
 .sharing-access-form { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .sharing-access-form input, .sharing-access-form select { background: #212936; border: 1px solid #4a5568; color: #fff; padding: 5px; min-width: 0; }
 .sharing-access-form input { flex: 1 1 120px; }
+
+/* Status Badges for Cards */
+.sharing-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    font-size: 10px;
+    font-family: 'Consolas', monospace;
+    border-radius: 2px;
+    font-weight: bold;
+}
+.sharing-badge.badge-success { background: rgba(72, 187, 120, 0.15); color: #48bb78; border: 1px solid rgba(72, 187, 120, 0.4); }
+.sharing-badge.badge-danger  { background: rgba(245, 101, 101, 0.15); color: #f56565; border: 1px solid rgba(245, 101, 101, 0.4); }
+.sharing-badge.badge-purple  { background: rgba(159, 122, 234, 0.15); color: #b794f4; border: 1px solid rgba(159, 122, 234, 0.4); }
+.sharing-badge.badge-neutral { background: rgba(160, 174, 192, 0.15); color: #a0aec0; border: 1px solid rgba(160, 174, 192, 0.4); }
 
 /* App termination button */
 .exit-system-btn {
@@ -232,8 +248,8 @@ h2 {
     color: #a0aec0 !important; 
     font-size: 11px !important; 
     margin-top: 6px !important;
-    border-top: 1px dashed #2d3748 !important; 
-    padding-top: 6px !important; 
+    border-top: none !important; 
+    padding-top: 4px !important; 
     display: flex !important; 
     gap: 8px !important; 
     align-items: center !important;
@@ -243,8 +259,8 @@ h2 {
 /* Adapter status row under network drivers */
 .net-node.multi-driver-row.adapter-status-row {
     margin-top: 4px !important;
-    padding-top: 4px !important;
-    border-top: 1px dashed #2d3748 !important;
+    padding-top: 2px !important;
+    border-top: none !important;
 }
 .adapter-status-deck {
     display: inline-flex;

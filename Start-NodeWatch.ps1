@@ -158,15 +158,11 @@ $HandleUiMessageEvent = {
         '^\s*UI-Ready\s*$' {
             if (-not $global:TelemetryLoopTimer.Enabled) { $global:TelemetryLoopTimer.Start() }
             try {
-                $LogManagerPath = Join-Path $Global:NodeWatchRoot "modules\telemetry\NetworkManager.ps1"
+                $LogManagerPath = Join-Path $Global:NodeWatchRoot "modules\tabs\NetworkManager.ps1"
                 if (Test-Path $LogManagerPath) {
-                    . $LogManagerPath # This will now work without the comment error
-                    
+                    . $LogManagerPath
                     $RawMesh = Get-AdapterStateMesh
-                    
-                    # Convert to JSON with high depth to ensure nested arrays are captured
                     $JsonString = $RawMesh | ConvertTo-Json -Compress -Depth 10
-                    
                     if ($null -ne $global:WebViewControl.CoreWebView2) {
                         $Bytes = [System.Text.Encoding]::UTF8.GetBytes($JsonString)
                         $Base64String = [Convert]::ToBase64String($Bytes)
@@ -177,14 +173,25 @@ $HandleUiMessageEvent = {
                 Write-Error "NetworkManager failed: $_"
             }
         }
+        '^Request-Adapters$' {
+            try {
+                . (Join-Path $Global:NodeWatchRoot "modules\tabs\NetworkManager.ps1")
+                $Data = Get-AdapterStateMesh
+            } catch { $Data = @{ type = 'REFRESH_ADAPTER_STATE'; interfaces = @(); error = $_.Exception.Message } }
+            $Json = $Data | ConvertTo-Json -Compress -Depth 10
+            $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($Json)))
+        }
         '^Request-StartupApps$' {
-            . (Join-Path $Global:NodeWatchRoot "modules\telemetry\StartupManager.ps1")
-            $Data = Get-StartupAppsMesh | ConvertTo-Json -Compress -Depth 5
-            $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($Data)))
+            try {
+                . (Join-Path $Global:NodeWatchRoot "modules\tabs\StartupManager.ps1")
+                $Data = Get-StartupAppsMesh
+            } catch { $Data = @{ type = 'REFRESH_STARTUP_APPS'; apps = @(); error = $_.Exception.Message } }
+            $Json = $Data | ConvertTo-Json -Compress -Depth 5
+            $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($Json)))
         }
         '^Request-Shares$' {
             try {
-                . (Join-Path $Global:NodeWatchRoot 'modules\telemetry\SharingManager.ps1')
+                . (Join-Path $Global:NodeWatchRoot 'modules\tabs\SharingManager.ps1')
                 $Data = Get-SharingCenterState
             } catch { $Data = @{ type = 'SHARING_CENTER'; shares = @(); error = $_.Exception.Message } }
             $Json = $Data | ConvertTo-Json -Compress -Depth 5
@@ -259,7 +266,7 @@ $HandleUiMessageEvent = {
                     $Payload = $RawMessage | ConvertFrom-Json
                     if ($Payload.command -in @('CREATE_SHARE', 'REMOVE_SHARE', 'DELETE_SHARED_FOLDER', 'GRANT_SHARE_ACCESS', 'REMOVE_SHARE_ACCESS')) {
                         try {
-                            . (Join-Path $Global:NodeWatchRoot 'modules\telemetry\SharingManager.ps1')
+                            . (Join-Path $Global:NodeWatchRoot 'modules\tabs\SharingManager.ps1')
                             Invoke-SharingCenterAction -Payload $Payload
                             $Data = Get-SharingCenterState
                             $Data.message = 'Sharing action completed.'
@@ -270,61 +277,61 @@ $HandleUiMessageEvent = {
                         $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($Json)))
                         return
                     }
-                    
-            if ($Payload.command -eq "SET_POWER_PLAN") {
-                $TargetGuid = $Payload.guid
-            if ($TargetGuid -eq "e9a42b02-d5df-448d-aa00-03f14749eb61") {
-            $Existing = powercfg /l | Select-String "Ultimate Performance"
-            if ($Existing) {
-                # Extract the actual GUID from the existing Ultimate plan
-                if ($Existing.ToString() -match "([a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12})") {
-                    $TargetGuid = $Matches[1]
-                }
-            } else {
-                # Create the copy from template and grab the new GUID
-                $NewScheme = powercfg -duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61
-                if ($NewScheme -match "([a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12})") {
-                    $TargetGuid = $Matches[1]
-                }
-            }
-        }
-        # Finally, set the plan active using the corrected GUID
-        powercfg /setactive $TargetGuid
-        }
-                if ($Payload.command -eq "DISABLE_TELEMETRY") {
-                Stop-Service -Name DiagTrack, dmwappushservice -Force -ErrorAction SilentlyContinue
-                Set-Service -Name DiagTrack, dmwappushservice -StartupType Disabled -ErrorAction SilentlyContinue
-                }
-                    # 2. Startup Manager Branch
-                    elseif ($Payload.command -eq "REMOVE_STARTUP_APP") {
-                        . (Join-Path $Global:NodeWatchRoot "modules\telemetry\StartupManager.ps1")
-                        Remove-StartupApp -Name $Payload.name -Location $Payload.location -Type $Payload.type
-                        
-                        # Return refreshed list immediately
-                        $Data = Get-StartupAppsMesh | ConvertTo-Json -Compress -Depth 5
-                        $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($Data)))
+
+                    if ($Payload.command -in @('REMOVE_STARTUP_APP', 'CREATE_STARTUP_APP', 'TOGGLE_STARTUP_APP', 'OPEN_FILE_LOCATION')) {
+                        try {
+                            . (Join-Path $Global:NodeWatchRoot "modules\tabs\StartupManager.ps1")
+                            $Data = Invoke-StartupAppAction -Payload $Payload
+                        } catch {
+                            $Data = @{ type = 'REFRESH_STARTUP_APPS'; apps = @(); error = $_.Exception.Message }
+                        }
+                        $Json = $Data | ConvertTo-Json -Compress -Depth 5
+                        $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($Json)))
+                        return
                     }
-                    
-                    # 3. Network Manager Branch (IP changes, DHCP, Adapter Renaming, Toggle State)
-                    elseif ($Payload.command -match "SET_STATIC_IP|TRIGGER_DHCP_REVERSION|RENAME_ADAPTER|TOGGLE_ADAPTER_STATE") {
-                        $LogManagerPath = Join-Path $Global:NodeWatchRoot "modules\telemetry\NetworkManager.ps1"
-                        if (Test-Path $LogManagerPath) {
-                            . $LogManagerPath
-                            # Invoke-AdapterProvisioningControl is the single source of truth for hardware changes
-                            $UpdateMesh = Invoke-AdapterProvisioningControl -PayloadMessageString $RawMessage
-                            
-                            # Return updated state to UI
-                            $Json = $UpdateMesh | ConvertTo-Json -Compress -Depth 5
+
+                    if ($Payload.command -match "SET_STATIC_IP|TRIGGER_DHCP_REVERSION|RENAME_ADAPTER|TOGGLE_ADAPTER_STATE|SET_CUSTOM_DNS|FLUSH_DNS_CACHE|RESTART_ADAPTER") {
+                        $NetTabPath = Join-Path $Global:NodeWatchRoot "modules\tabs\NetworkManager.ps1"
+                        if (Test-Path $NetTabPath) {
+                            . $NetTabPath
+                            $UpdateMesh = Invoke-AdapterProvisioningControl -Payload $Payload
+                            $Json = $UpdateMesh | ConvertTo-Json -Compress -Depth 10
                             $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($Json)))
                         }
+                        return
                     }
-                        elseif ($Payload.command -eq "RENAME_COMPUTER") {
-                    Rename-Computer -NewName $Payload.newName -Force -Confirm:$false -ErrorAction SilentlyContinue
-                    # Note: Requires restart to fully propagate in Windows
+
+                    if ($Payload.command -eq "SET_POWER_PLAN") {
+                        $TargetGuid = $Payload.guid
+                        if ($TargetGuid -eq "e9a42b02-d5df-448d-aa00-03f14749eb61") {
+                            $Existing = powercfg /l | Select-String "Ultimate Performance"
+                            if ($Existing -and $Existing.ToString() -match "([a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12})") {
+                                $TargetGuid = $Matches[1]
+                            } else {
+                                $NewScheme = powercfg -duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61
+                                if ($NewScheme -match "([a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12})") {
+                                    $TargetGuid = $Matches[1]
+                                }
+                            }
+                        }
+                        powercfg /setactive $TargetGuid
+                        return
                     }
-                    elseif ($Payload.command -eq "RENAME_WORKGROUP") {
-                    Add-Computer -WorkgroupName $Payload.newName -Force -Confirm:$false -ErrorAction SilentlyContinue
-                }
+
+                    if ($Payload.command -eq "DISABLE_TELEMETRY") {
+                        Stop-Service -Name DiagTrack, dmwappushservice -Force -ErrorAction SilentlyContinue
+                        Set-Service -Name DiagTrack, dmwappushservice -StartupType Disabled -ErrorAction SilentlyContinue
+                        return
+                    }
+
+                    if ($Payload.command -eq "RENAME_COMPUTER") {
+                        Rename-Computer -NewName $Payload.newName -Force -Confirm:$false -ErrorAction SilentlyContinue
+                        return
+                    }
+                    if ($Payload.command -eq "RENAME_WORKGROUP") {
+                        Add-Computer -WorkgroupName $Payload.newName -Force -Confirm:$false -ErrorAction SilentlyContinue
+                        return
+                    }
                 } catch {
                     Write-Warning "Failed to dispatch JSON command frame: $_"
                 }
