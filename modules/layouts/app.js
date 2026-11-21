@@ -311,6 +311,38 @@ function RenderCpuCacheMatrix(cache) {
     });
 }
 
+function RenderAdapterStatusDeck(adapterStatuses) {
+    const container = document.getElementById('adapterStatusContainer');
+    if (!container) return;
+
+    const list = Array.isArray(adapterStatuses) ? adapterStatuses : (adapterStatuses ? [adapterStatuses] : []);
+    if (list.length === 0) {
+        container.innerHTML = '<span class="driver-text-node">No adapters detected</span>';
+        return;
+    }
+
+    container.innerHTML = list.map(adapter => {
+        const rawState = (adapter.Status || '').trim();
+        const icon = adapter.Type === 'Wi-Fi' ? '📶' : (adapter.Type === 'Ethernet' ? '🌐' : '🔌');
+        const safeName = (adapter.Name || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+        let badgeHtml = '';
+        if (rawState === 'On') {
+            const titleText = `${adapter.Description || adapter.Name} (Connected) - Click to turn Off`;
+            badgeHtml = `<button type="button" class="adapter-status-badge status-on" onclick="ToggleNetworkAdapterState('${safeName}', 'On', event)" title="${titleText}">On</button>`;
+        } else if (rawState === 'D/C') {
+            const titleText = `${adapter.Description || adapter.Name} (Disconnected / Cable unplugged)`;
+            badgeHtml = `<span class="adapter-status-badge status-dc" title="${titleText}">D/C</span>`;
+        } else {
+            // Off / Disabled
+            const titleText = `${adapter.Description || adapter.Name} (Disabled) - Click to turn On`;
+            badgeHtml = `<button type="button" class="adapter-status-badge status-off" onclick="ToggleNetworkAdapterState('${safeName}', 'Off', event)" title="${titleText}">Off</button>`;
+        }
+
+        return `<span class="adapter-status-item"><span>${icon}</span> <span class="adapter-name">${adapter.Name}:</span> ${badgeHtml}</span>`;
+    }).join('');
+}
+
 function updateDashboardUiMesh(stats) {
     if (!stats) return;
     SyncToolNavigationHighlights(stats);
@@ -358,7 +390,7 @@ function updateDashboardUiMesh(stats) {
         SetDomStyleWidth('barCpuLoad',  `${sys.CpuLoad}%`);
         SetDomText('lblCpuClock',       sys.CpuClock);
         SetDomText('lblCpuTemp',        sys.CpuTemp);
-        SetDomText('lblPagefileUsage', sys.PagefileUsageText);
+        SetDomText('lblPagefileUsage', sys.PagefileUsageText); 
         SetDomStyleWidth('barPagefileUsage', `${sys.PagefilePercent}%`);
         const telElem = document.getElementById('lblTelemetry');
         if (telElem) {
@@ -421,6 +453,7 @@ function updateDashboardUiMesh(stats) {
         SetDomText('lblSharing',        net.Sharing);
         SetDomText('lblEthernet',       net.lblEthDriver);
         SetDomText('lblWifi',           net.lblWifiDriver);
+        RenderAdapterStatusDeck(net.AdapterStatuses);
         
         const rxValue = net.RxText || "0.00 KB/s";
         const rxElem = document.getElementById('lblNetRxValue') || document.getElementById('lblNetRx') || document.querySelector('.rx-numeric-text');
@@ -546,6 +579,40 @@ window.ExecuteDrawerStaticProvisioning = function(interfaceAlias, index) {
 
 window.ExecuteDrawerDhcpRelease = function(interfaceAlias) {
     const payload = { command: "TRIGGER_DHCP_REVERSION", interfaceAlias: interfaceAlias };
+    if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage(JSON.stringify(payload));
+    }
+};
+
+window.ToggleNetworkAdapterState = function(adapterName, currentStatus, event) {
+    if (event) {
+        event.stopPropagation();
+    }
+    const isCurrentlyOn = (currentStatus || '').toLowerCase() === 'on';
+    const targetState = isCurrentlyOn ? 'Off' : 'On';
+    const actionWord = isCurrentlyOn ? 'disable' : 'enable';
+
+    if (isCurrentlyOn && !confirm(`Are you sure you want to disable network adapter [ ${adapterName} ]?`)) {
+        return;
+    }
+
+    if (event && event.currentTarget) {
+        const btn = event.currentTarget;
+        btn.textContent = '...';
+        btn.disabled = true;
+    }
+
+    const payload = {
+        command: "TOGGLE_ADAPTER_STATE",
+        interfaceAlias: adapterName,
+        targetState: targetState
+    };
+
+    const consoleBox = document.getElementById('console-box') || document.querySelector('.console-box');
+    if (consoleBox) {
+        consoleBox.textContent = `[NETWORK: HARDWARE PROVISIONING] Requesting ${actionWord.toUpperCase()} for adapter [ ${adapterName} ]...`;
+    }
+
     if (window.chrome && window.chrome.webview) {
         window.chrome.webview.postMessage(JSON.stringify(payload));
     }

@@ -72,6 +72,32 @@ function Invoke-AdapterProvisioningControl {
             # Rename the physical hardware alias
             Rename-NetAdapter -Name $Payload.interfaceAlias -NewName $Payload.newAlias -Confirm:$false
         }
+        elseif ($Payload.command -eq "TOGGLE_ADAPTER_STATE") {
+            try {
+                $Current = Get-NetAdapter -Name $Payload.interfaceAlias -ErrorAction SilentlyContinue
+                $shouldEnable = if ($Payload.targetState -eq "On") {
+                    $true
+                } elseif ($Payload.targetState -eq "Off") {
+                    $false
+                } else {
+                    ($Current -and ($Current.Status -eq "Disabled" -or $Current.AdminStatus -eq "Down"))
+                }
+
+                if ($shouldEnable) {
+                    Enable-NetAdapter -Name $Payload.interfaceAlias -Confirm:$false -ErrorAction Stop
+                } else {
+                    Disable-NetAdapter -Name $Payload.interfaceAlias -Confirm:$false -ErrorAction Stop
+                }
+            } catch {
+                Write-Warning "Failed to toggle adapter via NetAdapter cmdlet: $_. Trying netsh fallback..."
+                try {
+                    $adminState = if ($shouldEnable) { "enable" } else { "disable" }
+                    netsh interface set interface name="$($Payload.interfaceAlias)" admin=$adminState
+                } catch {
+                    Write-Warning "Netsh toggle also failed: $_"
+                }
+            }
+        }
     } catch {
         Write-Warning "Network engine failed to commit hardware rule changes: $_"
     }

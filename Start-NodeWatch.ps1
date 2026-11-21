@@ -50,9 +50,10 @@ $RunspaceScript = {
                 Realtime      = [string]($StaticNet.Realtime ?? "Unknown")
                 Discovery     = [string]($StaticNet.Discovery ?? "Off")
                 Sharing       = [string]($StaticNet.Sharing ?? "Off")
-                lblEthDriver  = [string]($StaticNet.lblEthDriver ?? "Unknown")
-                lblWifiDriver = [string]($StaticNet.lblWifiDriver ?? "Unknown")
-                NetAssignment = [string]($StaticNet.NetAssignment ?? "DHCP")
+                lblEthDriver    = [string]($StaticNet.lblEthDriver ?? "Unknown")
+                lblWifiDriver   = [string]($StaticNet.lblWifiDriver ?? "Unknown")
+                NetAssignment   = [string]($StaticNet.NetAssignment ?? "DHCP")
+                AdapterStatuses = @($StaticNet.AdapterStatuses)
                 RxPct         = [int]($DynamicNet.RxPct ?? 0)
                 TxPct         = [int]($DynamicNet.TxPct ?? 0)
                 RxText        = [string]($DynamicNet.RxText ?? "0.00 KB/s")
@@ -304,8 +305,8 @@ $HandleUiMessageEvent = {
                         $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($Data)))
                     }
                     
-                    # 3. Network Manager Branch (IP changes, DHCP, Adapter Renaming)
-                    elseif ($Payload.command -match "SET_STATIC_IP|TRIGGER_DHCP_REVERSION|RENAME_ADAPTER") {
+                    # 3. Network Manager Branch (IP changes, DHCP, Adapter Renaming, Toggle State)
+                    elseif ($Payload.command -match "SET_STATIC_IP|TRIGGER_DHCP_REVERSION|RENAME_ADAPTER|TOGGLE_ADAPTER_STATE") {
                         $LogManagerPath = Join-Path $Global:NodeWatchRoot "modules\telemetry\NetworkManager.ps1"
                         if (Test-Path $LogManagerPath) {
                             . $LogManagerPath

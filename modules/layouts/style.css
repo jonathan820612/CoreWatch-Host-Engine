@@ -89,10 +89,11 @@ html, body {
 .dashboard-card {
     background-color: #212936; 
     border: 1px solid #323c4b;
-    padding: 10px; 
+    padding: 8px; 
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
+    line-height: 1;
     height: 100%; /* Ensures cards stretch to fill their grid cell */
     min-height: 0; /* Remove fixed min-height to allow shrinking */
     overflow: hidden; /* Prevent internal scrollbars on cards */
@@ -128,7 +129,9 @@ html, body {
     grid-column: span 2 !important; 
     background-color: #212936;
     border: 1px solid #323c4b; 
-    padding: 8px 10px;
+    padding: 8px 8px;
+    line-height: 1;
+    text-align: center;
     width: 100% !important;
     box-sizing: border-box;
 }
@@ -185,17 +188,20 @@ h2 {
 .network-matrix-grid { 
     display: grid !important; 
     grid-template-columns: repeat(4, 1fr) !important; 
-    grid-gap: 8px 12px !important; 
+    grid-gap: 8px 8px !important; 
     font-size: 12px !important; 
     color: #cbd5e0 !important; 
     width: 100% !important;
     box-sizing: border-box !important;
+    line-height: 1 !important;
+    text-align: middle !important;
 }
 
 /* Keeps data points horizontal on a single line space matrix */
 .net-node { 
     display: flex !important; 
-    align-items: center !important; 
+    align-items: center !important;
+    text-align: middle !important; 
     gap: 6px !important; 
     white-space: nowrap !important; 
     width: 100% !important;
@@ -233,6 +239,84 @@ h2 {
     align-items: center !important;
 }
 .net-node.multi-driver-row strong:first-of-type { margin-right: 20px !important; }
+
+/* Adapter status row under network drivers */
+.net-node.multi-driver-row.adapter-status-row {
+    margin-top: 4px !important;
+    padding-top: 4px !important;
+    border-top: 1px dashed #2d3748 !important;
+}
+.adapter-status-deck {
+    display: inline-flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+.adapter-status-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: #cbd5e0;
+    font-size: 11px;
+}
+.adapter-status-item .adapter-name {
+    color: #a0aec0;
+}
+.adapter-status-badge {
+    font-family: 'Consolas', monospace;
+    font-size: 10px;
+    font-weight: bold;
+    padding: 1px 7px;
+    border-radius: 2px;
+    text-transform: uppercase;
+    user-select: none;
+    transition: all 0.15s ease-in-out;
+    background: transparent;
+    border: none;
+    line-height: 1.2;
+    display: inline-block;
+    box-sizing: border-box;
+}
+button.adapter-status-badge {
+    cursor: pointer;
+}
+button.adapter-status-badge:hover {
+    filter: brightness(1.25);
+    transform: scale(1.05);
+}
+button.adapter-status-badge:active {
+    transform: scale(0.95);
+}
+button.adapter-status-badge:disabled {
+    opacity: 0.5;
+    cursor: wait;
+    pointer-events: none;
+}
+.adapter-status-badge.status-on {
+    background-color: rgba(72, 187, 120, 0.15);
+    color: #48bb78;
+    border: 1px solid rgba(72, 187, 120, 0.4);
+}
+button.adapter-status-badge.status-on:hover {
+    background-color: rgba(72, 187, 120, 0.3);
+    border-color: #48bb78;
+}
+.adapter-status-badge.status-dc {
+    background-color: rgba(159, 122, 234, 0.15);
+    color: #b794f4;
+    border: 1px solid rgba(159, 122, 234, 0.4);
+    cursor: default !important;
+    pointer-events: none;
+}
+.adapter-status-badge.status-off {
+    background-color: rgba(245, 101, 101, 0.15);
+    color: #f56565;
+    border: 1px solid rgba(245, 101, 101, 0.4);
+}
+button.adapter-status-badge.status-off:hover {
+    background-color: rgba(245, 101, 101, 0.3);
+    border-color: #f56565;
+}
 
 /* Performance speed tests and usage layout blocks */
 .speedtest-wrapper-deck {

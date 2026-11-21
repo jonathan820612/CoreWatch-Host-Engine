@@ -70,14 +70,38 @@ function Get-NetworkMetrics {
     if ($SsdpRule -and $SsdpRule.Enabled -eq 'True') { $DiscoveryStatus = "On" }
 
     # FIXED: Replaced heavy Get-CimInstance queries with lightning-fast native Get-NetAdapter calls
+    $AdapterStatuses = @()
     try {
-        $AllAdapters = Get-NetAdapter -Physical -ErrorAction SilentlyContinue
+        $AllAdapters = Get-NetAdapter | Where-Object { $_.Status -ne "Not Present" -and -not $_.Virtual } -ErrorAction SilentlyContinue
+        if (-not $AllAdapters) {
+            $AllAdapters = Get-NetAdapter -Physical -ErrorAction SilentlyContinue
+        }
         foreach ($Adapter in $AllAdapters) {
-            if ($Adapter.Name -like "*Wireless*" -or $Adapter.Name -like "*Wi-Fi*" -or $Adapter.InterfaceDescription -like "*Wireless*" -or $Adapter.InterfaceDescription -like "*Wi-Fi*") { 
+            $isWifi = ($Adapter.Name -like "*Wireless*" -or $Adapter.Name -like "*Wi-Fi*" -or $Adapter.InterfaceDescription -like "*Wireless*" -or $Adapter.InterfaceDescription -like "*Wi-Fi*")
+            $isEth  = ($Adapter.Name -like "*Ethernet*" -or $Adapter.InterfaceDescription -like "*Ethernet*" -or $Adapter.InterfaceDescription -like "*Gigabit*" -or $Adapter.InterfaceDescription -like "*Realtek*")
+
+            if ($isWifi) { 
                 $WifiDriver = $Adapter.InterfaceDescription 
             }
-            elseif ($Adapter.Name -like "*Ethernet*" -or $Adapter.InterfaceDescription -like "*Ethernet*" -or $Adapter.InterfaceDescription -like "*Gigabit*" -or $Adapter.InterfaceDescription -like "*Realtek*") { 
+            elseif ($isEth) { 
                 $EthDriver = $Adapter.InterfaceDescription 
+            }
+
+            $type = if ($isWifi) { "Wi-Fi" } elseif ($isEth) { "Ethernet" } else { "Other" }
+            $statusStr = if ($Adapter.Status -eq "Up") { 
+                "On" 
+            } elseif ($Adapter.Status -eq "Disabled" -or $Adapter.AdminStatus -eq "Down") { 
+                "Off" 
+            } else { 
+                "D/C" 
+            }
+
+            $AdapterStatuses += [PSCustomObject]@{
+                Name        = [string]$Adapter.Name
+                Description = [string]$Adapter.InterfaceDescription
+                Type        = [string]$type
+                Status      = [string]$statusStr
+                RawStatus   = [string]$Adapter.Status
             }
         }
     } catch {}
@@ -143,8 +167,9 @@ function Get-NetworkMetrics {
         Firewall      = [string]$FirewallCombined
         Realtime      = [string]$RealtimeStatus
         Sharing       = [string]$SharingStatus
-        lblEthDriver  = [string]$EthDriver
-        lblWifiDriver = [string]$WifiDriver
-        NetAssignment = [string]$DhcpStatus
+        lblEthDriver    = [string]$EthDriver
+        lblWifiDriver   = [string]$WifiDriver
+        NetAssignment   = [string]$DhcpStatus
+        AdapterStatuses = @($AdapterStatuses)
     }
 }
