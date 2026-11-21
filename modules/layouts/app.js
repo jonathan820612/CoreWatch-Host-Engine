@@ -69,7 +69,20 @@ window.ToggleNetworkDrawer = function(shouldOpen) {
 // =========================================================================
 // UNIFIED CHROMIUM ENVIRONMENT INBOUND WIRE MESSAGE PARSER
 // =========================================================================
+window._splashDismissed = false;
+function DismissSplashOverlay() {
+    if (window._splashDismissed) return;
+    window._splashDismissed = true;
+    const splash = document.getElementById('appSplashOverlayView');
+    if (splash) {
+        splash.classList.add('hidden-canvas');
+    }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
+    // Safety fallback so splash never blocks indefinitely if a telemetry probe stalls
+    setTimeout(() => DismissSplashOverlay(), 8000);
+
     if (window.chrome && window.chrome.webview) {
         window.chrome.webview.addEventListener("message", (event) => {
             try {
@@ -110,7 +123,10 @@ document.addEventListener("DOMContentLoaded", () => {
                 
 const msgType = stats.type || stats.Type;
 
-    if (msgType === "REFRESH_STARTUP_APPS") {
+    if (msgType === "FAST_TELEMETRY") {
+        updateFastTelemetryMesh(stats);
+    }
+    else if (msgType === "REFRESH_STARTUP_APPS") {
         RenderStartupAppRows(stats);
     } 
     else if (msgType === 'SHARING_CENTER') {
@@ -123,9 +139,12 @@ const msgType = stats.type || stats.Type;
         RenderSpeedTestResults(stats);
     }
     else {
-        // Dashboard Telemetry
+        // Dashboard Full Telemetry (1s cadence)
         AppendLiveDiagnosticConsoleLog(stats);
         updateDashboardUiMesh(stats);
+        if (stats.IdentityFrame && stats.SystemFrame) {
+            DismissSplashOverlay();
+        }
     }
             } catch (err) {
                 console.error("Failed to unpack metrics package:", err);
@@ -362,6 +381,58 @@ function RenderAdapterStatusDeck(adapterStatuses) {
 
         return `<span class="adapter-status-item"><span>${icon}</span> <span class="adapter-name">${adapter.Name}:</span> ${badgeHtml}</span>`;
     }).join('');
+}
+
+function updateFastTelemetryMesh(stats) {
+    if (!stats) return;
+
+    const sys = stats.SystemFrame;
+    if (sys) {
+        SetDomText('lblCpuLoad', `${sys.CpuLoad}%`);
+        SetDomStyleWidth('barCpuLoad', `${sys.CpuLoad}%`);
+        if (sys.CpuClock) SetDomText('lblCpuClock', sys.CpuClock);
+        if (sys.CpuTemp !== undefined) {
+            SetDomText('lblCpuTemp', sys.CpuTemp);
+            const cpuBadge = document.getElementById('badgeCpuTemp');
+            if (cpuBadge) {
+                cpuBadge.classList.toggle('therm-hot', sys.CpuTemp >= 75);
+                cpuBadge.classList.toggle('therm-cool', sys.CpuTemp < 75);
+            }
+        }
+
+        if (sys.GpuLoad !== undefined) {
+            SetDomText('lblGpuLoad', `${sys.GpuLoad}%`);
+            SetDomStyleWidth('barGpuLoad', `${sys.GpuLoad}%`);
+        }
+        if (sys.GpuPower !== undefined) SetDomText('lblGpuPower', sys.GpuPower);
+        if (sys.GpuTemp !== undefined) {
+            SetDomText('lblGpuTemp', sys.GpuTemp);
+            const gpuBadge = document.getElementById('badgeGpuTemp');
+            if (gpuBadge) {
+                gpuBadge.classList.toggle('therm-hot', sys.GpuTemp >= 75);
+                gpuBadge.classList.toggle('therm-cool', sys.GpuTemp < 75);
+            }
+        }
+
+        if (sys.RamUsageText) SetDomText('lblRamUsage', sys.RamUsageText);
+        if (sys.RamPercent !== undefined) SetDomStyleWidth('barRamUsage', `${sys.RamPercent}%`);
+        if (sys.PagefileUsageText) SetDomText('lblPagefileUsage', sys.PagefileUsageText);
+        if (sys.PagefilePercent !== undefined) SetDomStyleWidth('barPagefileUsage', `${sys.PagefilePercent}%`);
+    }
+
+    const net = stats.NetworkActivity;
+    if (net) {
+        const rxElem = document.getElementById('lblNetRxValue') || document.getElementById('lblNetRx') || document.querySelector('.rx-numeric-text');
+        if (rxElem) rxElem.innerText = net.RxText || "0.00 KB/s";
+
+        const txElem = document.getElementById('lblNetTxValue') || document.getElementById('lblNetTx') || document.querySelector('.tx-numeric-text');
+        if (txElem) txElem.innerText = net.TxText || "0.00 KB/s";
+
+        const rxHalfPct = Math.min((net.RxPct || 0) * 0.5, 50);
+        const txHalfPct = Math.min((net.TxPct || 0) * 0.5, 50);
+        SetDomStyleWidth('barNetRx', `${rxHalfPct}%`);
+        SetDomStyleWidth('barNetTx', `${txHalfPct}%`);
+    }
 }
 
 function updateDashboardUiMesh(stats) {

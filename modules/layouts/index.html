@@ -7,6 +7,19 @@
     <script src="app.js" defer></script>
 </head>
 <body>
+    <!-- =========================================================================
+    PRELOADING SPLASH OVERLAY
+    ========================================================================= -->
+    <div id="appSplashOverlayView" role="status" aria-live="polite">
+        <div class="splash-card">
+            <img src="../../Images/Icon.png" class="splash-logo" alt="CoreWatch Logo">
+            <div class="splash-title">COREWATCH HOST ENGINE</div>
+            <div id="splashStatusText" class="splash-subtitle">Initializing hardware &amp; telemetry pipelines...</div>
+            <div class="splash-progress-track">
+                <div class="splash-progress-bar"></div>
+            </div>
+        </div>
+    </div>
 
     <!-- =========================================================================
 APP HEADER NAVIGATION DECK

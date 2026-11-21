@@ -1,38 +1,57 @@
 # File: modules/telemetry/GetTrafficMetrics.ps1
 
-$IPConfig = Get-NetIPInterface -AddressFamily IPv4 -ConnectionState Connected | 
-            Where-Object { $_.InterfaceAlias -notlike "*Loopback*" -and $_.InterfaceAlias -notlike "*vEthernet*" } | 
-            Select-Object -First 1
+$script:LastTrafficRxBytes = $null
+$script:LastTrafficTxBytes = $null
+$script:TrafficStopwatch   = $null
 
-$RxPct  = 0
-$TxPct  = 0
-$RxText = "0.00 KB/s"
-$TxText = "0.00 KB/s"
+function Get-TrafficMetrics {
+    $RxPct  = 0
+    $TxPct  = 0
+    $RxText = "0.00 KB/s"
+    $TxText = "0.00 KB/s"
 
-if ($null -ne $IPConfig) {
-    $CurrentNic = Get-CimInstance -ClassName Win32_NetworkAdapter | Where-Object { $_.InterfaceIndex -eq $IPConfig.InterfaceIndex } -ErrorAction SilentlyContinue
-    if ($CurrentNic) {
-        # Clean the name string to match standard Windows Performance Counter formatting
-        $CleanedName = $CurrentNic.Name -replace ' - ', ' ' -replace '/', '_' -replace '#', '_' -replace '\(', '[' -replace '\)', ']'
-        
-        # Read the raw byte traffic metrics directly via the high-speed native counter engine
-        $RxCounter = Get-Counter -Counter "\Network Interface($CleanedName)\Bytes Received/sec" -ErrorAction SilentlyContinue
-        $TxCounter = Get-Counter -Counter "\Network Interface($CleanedName)\Bytes Sent/sec" -ErrorAction SilentlyContinue
+    try {
+        $totalRx = [double]0
+        $totalTx = [double]0
 
-        # Fallback to a wildcard match if the primary adapter name formatting changes
-        if (-not $RxCounter -or -not $TxCounter) {
-            $RxCounter = Get-Counter -Counter "\Network Interface(*)\Bytes Received/sec" -ErrorAction SilentlyContinue | Select-Object -First 1
-            $TxCounter = Get-Counter -Counter "\Network Interface(*)\Bytes Sent/sec" -ErrorAction SilentlyContinue | Select-Object -First 1
+        $nics = [System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces()
+        foreach ($nic in $nics) {
+            if ($nic.OperationalStatus -ne [System.Net.NetworkInformation.OperationalStatus]::Up) { continue }
+            $nicType = $nic.NetworkInterfaceType
+            if ($nicType -eq [System.Net.NetworkInformation.NetworkInterfaceType]::Loopback -or
+                $nicType -eq [System.Net.NetworkInformation.NetworkInterfaceType]::Tunnel) { continue }
+            if ($nic.Name -like "*vEthernet*" -or $nic.Description -like "*Hyper-V*") { continue }
+
+            $stats = $nic.GetIPv4Statistics()
+            $totalRx += [double]$stats.BytesReceived
+            $totalTx += [double]$stats.BytesSent
         }
 
-        $RxBytes = if ($RxCounter) { [double]$RxCounter.CounterSamples[0].CookedValue } else { 0 }
-        $TxBytes = if ($TxCounter) { [double]$TxCounter.CounterSamples[0].CookedValue } else { 0 }
+        if ($null -eq $script:TrafficStopwatch) {
+            $script:TrafficStopwatch   = [System.Diagnostics.Stopwatch]::StartNew()
+            $script:LastTrafficRxBytes = $totalRx
+            $script:LastTrafficTxBytes = $totalTx
+            $RxBytes = 0.0
+            $TxBytes = 0.0
+        } else {
+            $elapsedSec = $script:TrafficStopwatch.Elapsed.TotalSeconds
+            $script:TrafficStopwatch.Restart()
 
-        # Format Human-Readable String Output Tracers
+            if ($elapsedSec -gt 0.05) {
+                $RxBytes = [math]::Max(0.0, ($totalRx - $script:LastTrafficRxBytes) / $elapsedSec)
+                $TxBytes = [math]::Max(0.0, ($totalTx - $script:LastTrafficTxBytes) / $elapsedSec)
+            } else {
+                $RxBytes = 0.0
+                $TxBytes = 0.0
+            }
+
+            $script:LastTrafficRxBytes = $totalRx
+            $script:LastTrafficTxBytes = $totalTx
+        }
+
         $RxText = if ($RxBytes -gt 1MB) { "$([math]::Round($RxBytes / 1MB, 2)) MB/s" } else { "$([math]::Round($RxBytes / 1KB, 2)) KB/s" }
         $TxText = if ($TxBytes -gt 1MB) { "$([math]::Round($TxBytes / 1MB, 2)) MB/s" } else { "$([math]::Round($TxBytes / 1KB, 2)) KB/s" }
 
-        # Logarithmic scaling maps minor traffic drops to noticeable UI changes
         if ($RxBytes -gt 0) {
             $RxPct = [int](([math]::Log($RxBytes) / [math]::Log(1.5)) * 2)
             if ($RxPct -lt 8) { $RxPct = 8 }
@@ -43,13 +62,12 @@ if ($null -ne $IPConfig) {
             if ($TxPct -lt 8) { $TxPct = 8 }
             if ($TxPct -gt 100) { $TxPct = 100 }
         }
-    }
-}
+    } catch {}
 
-# Emits the telemetry object down the runspace pipeline directly
-[PSCustomObject]@{
-    RxPct  = [int]$RxPct
-    TxPct  = [int]$TxPct
-    RxText = [string]$RxText
-    TxText = [string]$TxText
+    return [PSCustomObject]@{
+        RxPct  = [int]$RxPct
+        TxPct  = [int]$TxPct
+        RxText = [string]$RxText
+        TxText = [string]$TxText
+    }
 }

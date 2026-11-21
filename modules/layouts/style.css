@@ -452,8 +452,79 @@ button.adapter-status-badge.status-off:hover {
     padding: 5px;
     border-radius: 2px;
 }
-#appSplashOverlayView { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: #1a202c; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 99999; transition: opacity 0.4s ease-out, visibility 0.4s; }
-#appSplashOverlayView.hidden-canvas { opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; }
+#appSplashOverlayView {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: #1a202c;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 99999;
+    transition: opacity 0.35s ease-out, visibility 0.35s;
+}
+#appSplashOverlayView.hidden-canvas {
+    opacity: 0 !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+}
+.splash-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 28px 36px;
+    background-color: #212936;
+    border: 1px solid #323c4b;
+    min-width: 320px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+.splash-logo {
+    width: 56px;
+    height: 56px;
+    object-fit: contain;
+    animation: splashPulse 1.8s ease-in-out infinite;
+}
+.splash-title {
+    font-family: 'Consolas', 'Segoe UI', monospace;
+    font-size: 14px;
+    font-weight: bold;
+    letter-spacing: 1.5px;
+    color: #90cdf4;
+}
+.splash-subtitle {
+    font-family: 'Consolas', monospace;
+    font-size: 11px;
+    color: #a0aec0;
+}
+.splash-progress-track {
+    width: 240px;
+    height: 4px;
+    background-color: #2d3748;
+    overflow: hidden;
+    position: relative;
+    margin-top: 4px;
+}
+.splash-progress-bar {
+    position: absolute;
+    top: 0;
+    left: -40%;
+    width: 40%;
+    height: 100%;
+    background: linear-gradient(90deg, #3182ce, #63b3ed, #3182ce);
+    animation: splashSlide 1.1s ease-in-out infinite;
+}
+@keyframes splashSlide {
+    0%   { left: -40%; }
+    100% { left: 100%; }
+}
+@keyframes splashPulse {
+    0%, 100% { opacity: 0.85; transform: scale(1); }
+    50%      { opacity: 1; transform: scale(1.04); }
+}
 .audio-sub-deck { margin-top: 6px; padding-top: 6px; border-top: 1px dashed #2d3748; }
 .metric-cache-matrix-row, .hardware-metric-footer-row { 
     display: flex; 

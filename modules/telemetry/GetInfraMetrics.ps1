@@ -1,57 +1,70 @@
 # File: modules/telemetry/GetInfraMetrics.ps1
 
+$script:StaticInfraCache = $null
+$script:LastDynamicInfra = [datetime]::MinValue
+$script:CachedPowerPlanInfra = "Balanced"
+$script:CachedAudioOut   = "Speakers / Default Output"
+$script:CachedAudioIn    = "No Active Input Device"
+
 function Get-InfraMetrics {
-    $OsInfo   = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction Stop
-    $BiosInfo = Get-CimInstance -ClassName Win32_Bios -ErrorAction SilentlyContinue
-    $Board    = Get-CimInstance -ClassName Win32_BaseBoard -ErrorAction SilentlyContinue
+    if ($null -eq $script:StaticInfraCache) {
+        $OsInfo   = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction SilentlyContinue
+        $BiosInfo = Get-CimInstance -ClassName Win32_Bios -ErrorAction SilentlyContinue
+        $Board    = Get-CimInstance -ClassName Win32_BaseBoard -ErrorAction SilentlyContinue
 
-    # Calculate accurate direct subtraction uptime
-    $BootTime   = $OsInfo.LastBootUpTime
-    $UptimeSpan = [DateTime]::Now - $BootTime
-    $UptimeStr  = "{0}d {1}h {2:00}m" -f $UptimeSpan.Days, $UptimeSpan.Hours, $UptimeSpan.Minutes
-
-    # Query active power allocation plan
-    $ActivePlan = Get-CimInstance -Namespace "root\cimv2\power" -ClassName Win32_PowerPlan -Filter "IsActive=True" -ErrorAction SilentlyContinue
-    $PlanName   = if ($ActivePlan) { $ActivePlan.ElementName } else { "High performance" }
-
-    # =========================================================================
-    # HIGH-ACCURACY WINDOWS AUDIO CORE API ACTIVE DEVICE DISCOVERY
-    # =========================================================================
-    $ActiveOutput = "Speakers / Default Output"
-    $ActiveInput  = "No Active Input Device"
-
-    try {
-        # 1. Pull the native Windows Multimedia API device name from the current user registry map keys
-        $RegPlaybackKey = "HKCU:\Software\Microsoft\Multimedia\Audio"
-        if (Test-Path $RegPlaybackKey) {
-            # Grabs the specific friendly name mapping string of the system's live mixer device assignment
-            $RegOutput = Get-ItemPropertyValue -Path $RegPlaybackKey -Name "PlaybackDevice" -ErrorAction SilentlyContinue
-            if ($RegOutput) { $ActiveOutput = [string]$RegOutput }
+        $script:StaticInfraCache = @{
+            OsEdition    = if ($OsInfo) { [string]$OsInfo.Caption } else { "Windows" }
+            WindowsBuild = if ($OsInfo) { [string]$OsInfo.BuildNumber } else { "Unknown" }
+            LastBootTime = if ($OsInfo) { $OsInfo.LastBootUpTime } else { [datetime]::Now }
+            BiosVersion  = if ($BiosInfo) { [string]$BiosInfo.SMBIOSBIOSVersion } else { "Unknown BIOS" }
+            Motherboard  = if ($Board) { [string]"$($Board.Manufacturer) $($Board.Product)" } else { "Unknown Motherboard" }
+            PsVersion    = [string]$global:PSVersionTable.PSVersion.ToString()
         }
-    } catch {
-        # Graceful fallback context string rule
     }
 
-    # 2. ISOLATE INPUT ROUTE: Match active operational system voice stream captures cleanly
-    $ActiveEndpoints = Get-CimInstance -ClassName Win32_PnPEntity -Filter "PNPClass='AudioEndpoint' and Status='OK'" -ErrorAction SilentlyContinue
-    $ActiveInputQuery = $ActiveEndpoints | Where-Object { $_.Name -like "*Microphone*" -or $_.Name -like "*Mic*" -or $_.Name -like "*Scarlett*" } | Select-Object -First 1
-    if ($ActiveInputQuery) { $ActiveInput = $ActiveInputQuery.Name }
+    # Fast live uptime calculation (< 0.01ms)
+    $UptimeSpan = [DateTime]::Now - $script:StaticInfraCache.LastBootTime
+    $UptimeStr  = "{0}d {1}h {2:00}m" -f $UptimeSpan.Days, $UptimeSpan.Hours, $UptimeSpan.Minutes
+
+    # Refresh slow PnP audio & power plan queries every 15 seconds
+    if (([datetime]::Now - $script:LastDynamicInfra).TotalSeconds -ge 15) {
+        try {
+            $ActivePlan = powercfg /getactivescheme
+            if ($ActivePlan -match '\((.*)\)') { $script:CachedPowerPlanInfra = $Matches[1] }
+        } catch {}
+
+        try {
+            $RegPlaybackKey = "HKCU:\Software\Microsoft\Multimedia\Audio"
+            if (Test-Path $RegPlaybackKey) {
+                $RegOutput = Get-ItemPropertyValue -Path $RegPlaybackKey -Name "PlaybackDevice" -ErrorAction SilentlyContinue
+                if ($RegOutput) { $script:CachedAudioOut = [string]$RegOutput }
+            }
+        } catch {}
+
+        try {
+            $ActiveEndpoints = Get-CimInstance -ClassName Win32_PnPEntity -Filter "PNPClass='AudioEndpoint' and Status='OK'" -ErrorAction SilentlyContinue
+            $ActiveInputQuery = $ActiveEndpoints | Where-Object { $_.Name -like "*Microphone*" -or $_.Name -like "*Mic*" -or $_.Name -like "*Scarlett*" } | Select-Object -First 1
+            if ($ActiveInputQuery) { $script:CachedAudioIn = [string]$ActiveInputQuery.Name }
+        } catch {}
+
+        $script:LastDynamicInfra = [datetime]::Now
+    }
 
     return [PSCustomObject]@{
-        OsEdition          = [string]$OsInfo.Caption
-        WindowsBuild       = [string]$OsInfo.BuildNumber
-        BiosVersion        = if ($BiosInfo) { [string]$BiosInfo.SMBIOSBIOSVersion } else { "Unknown BIOS" }
-        PsVersion          = [string]$global:PSVersionTable.PSVersion.ToString()
+        OsEdition          = $script:StaticInfraCache.OsEdition
+        WindowsBuild       = $script:StaticInfraCache.WindowsBuild
+        BiosVersion        = $script:StaticInfraCache.BiosVersion
+        PsVersion          = $script:StaticInfraCache.PsVersion
         CpuDriverVersion   = "Standard Driver"
         Virtualization     = "On"
         SecureBoot         = "On"
         ChassisType        = "Custom PC"
         WindowsUpdateLevel = "Up to Date"
         UptimeText         = [string]$UptimeStr
-        Motherboard        = if ($Board) { [string]"$($Board.Manufacturer) $($Board.Product)" } else { "Unknown Motherboard" }
+        Motherboard        = $script:StaticInfraCache.Motherboard
         DirectX            = "DirectX 12"
-        PowerPlan          = [string]$PlanName
-        SoundCardIdentity  = [string]$ActiveOutput # <--- Permanently maps the actual system audio output device in use
-        MicrophoneIdentity = [string]$ActiveInput
+        PowerPlan          = [string]$script:CachedPowerPlanInfra
+        SoundCardIdentity  = [string]$script:CachedAudioOut
+        MicrophoneIdentity = [string]$script:CachedAudioIn
     }
 }

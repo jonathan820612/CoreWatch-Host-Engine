@@ -20,8 +20,50 @@ $UserDataFolder = [System.IO.Path]::GetFullPath((Join-Path $BinPath "WebView2Use
 if (-not (Test-Path $UserDataFolder)) { $null = New-Item -ItemType Directory -Path $UserDataFolder -Force }
 $env:WEBVIEW2_USER_DATA_FOLDER = $UserDataFolder
 
-$global:SharedData = [hashtable]::Synchronized(@{ JsonPayload = $null; IsRunning = $true })
+$global:SharedData = [hashtable]::Synchronized(@{
+    FullPayload = $null
+    FullVersion = 0
+    FastPayload = $null
+    FastVersion = 0
+    IsRunning   = $true
+})
 
+# =========================================================================
+# BACKGROUND RUNSPACE 1: FAST 0.5s HARDWARE & NETWORK ACTIVITY PIPELINE
+# =========================================================================
+$FastRunspaceScript = {
+    param($RootPath, $SharedData)
+    $TelemetryPath = Join-Path $RootPath "modules\telemetry"
+    . (Join-Path $TelemetryPath "GetSystemMetrics.ps1")
+    . (Join-Path $TelemetryPath "GetTrafficMetrics.ps1")
+
+    Initialize-StaticSystemCache
+    $null = Get-FastHardwareMetrics
+    $null = Get-TrafficMetrics
+
+    while ($SharedData.IsRunning) {
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        try {
+            $FastHw  = Get-FastHardwareMetrics
+            $FastNet = Get-TrafficMetrics
+
+            $FastObject = [PSCustomObject]@{
+                type            = "FAST_TELEMETRY"
+                SystemFrame     = $FastHw
+                NetworkActivity = $FastNet
+            }
+            $SharedData.FastPayload = $FastObject | ConvertTo-Json -Compress -Depth 4
+            $SharedData.FastVersion++
+        } catch {}
+
+        $sleepMs = [int][math]::Max(50, 500 - $sw.ElapsedMilliseconds)
+        [System.Threading.Thread]::Sleep($sleepMs)
+    }
+}
+
+# =========================================================================
+# BACKGROUND RUNSPACE 2: STANDARD 1.0s FULL TELEMETRY PIPELINE
+# =========================================================================
 $RunspaceScript = {
     param($RootPath, $SharedData)
     $TelemetryPath = Join-Path $RootPath "modules\telemetry"
@@ -33,31 +75,32 @@ $RunspaceScript = {
     . (Join-Path $TelemetryPath "StorageEngine.ps1")
 
     while ($SharedData.IsRunning) {
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
         try {
-            $StaticNet  = Get-NetworkMetrics
-            $DynamicNet = . (Join-Path $TelemetryPath "GetTrafficMetrics.ps1")
+            $StaticNet   = Get-NetworkMetrics
+            $DynamicNet  = Get-TrafficMetrics
             $SystemFrame = Get-SystemMetrics
 
             $MergedNetworkFrame = [PSCustomObject]@{
-                IntIPv4       = [string]($StaticNet.IntIPv4 ?? "0.0.0.0")
-                SubnetMask    = [string]($StaticNet.SubnetMask ?? "0.0.0.0")
-                Gateway       = [string]($StaticNet.Gateway ?? "N/A")
-                NetworkStatus = [string]($StaticNet.NetworkStatus ?? "Offline")
-                WlanSsid      = [string]($StaticNet.WlanSsid ?? "None")
-                ExtIPv4       = [string]($StaticNet.ExtIPv4 ?? "Resolving...")
-                LinkCap       = [string]($StaticNet.LinkCap ?? "0 Mbps")
-                Firewall      = [string]($StaticNet.Firewall ?? "Unknown")
-                Realtime      = [string]($StaticNet.Realtime ?? "Unknown")
-                Discovery     = [string]($StaticNet.Discovery ?? "Off")
-                Sharing       = [string]($StaticNet.Sharing ?? "Off")
+                IntIPv4         = [string]($StaticNet.IntIPv4 ?? "0.0.0.0")
+                SubnetMask      = [string]($StaticNet.SubnetMask ?? "0.0.0.0")
+                Gateway         = [string]($StaticNet.Gateway ?? "N/A")
+                NetworkStatus   = [string]($StaticNet.NetworkStatus ?? "Offline")
+                WlanSsid        = [string]($StaticNet.WlanSsid ?? "None")
+                ExtIPv4         = [string]($StaticNet.ExtIPv4 ?? "Resolving...")
+                LinkCap         = [string]($StaticNet.LinkCap ?? "0 Mbps")
+                Firewall        = [string]($StaticNet.Firewall ?? "Unknown")
+                Realtime        = [string]($StaticNet.Realtime ?? "Unknown")
+                Discovery       = [string]($StaticNet.Discovery ?? "Off")
+                Sharing         = [string]($StaticNet.Sharing ?? "Off")
                 lblEthDriver    = [string]($StaticNet.lblEthDriver ?? "Unknown")
                 lblWifiDriver   = [string]($StaticNet.lblWifiDriver ?? "Unknown")
                 NetAssignment   = [string]($StaticNet.NetAssignment ?? "DHCP")
                 AdapterStatuses = @($StaticNet.AdapterStatuses)
-                RxPct         = [int]($DynamicNet.RxPct ?? 0)
-                TxPct         = [int]($DynamicNet.TxPct ?? 0)
-                RxText        = [string]($DynamicNet.RxText ?? "0.00 KB/s")
-                TxText        = [string]($DynamicNet.TxText ?? "0.00 KB/s")
+                RxPct           = [int]($DynamicNet.RxPct ?? 0)
+                TxPct           = [int]($DynamicNet.TxPct ?? 0)
+                RxText          = [string]($DynamicNet.RxText ?? "0.00 KB/s")
+                TxText          = [string]($DynamicNet.TxText ?? "0.00 KB/s")
             }
 
             $MasterObject = [PSCustomObject]@{
@@ -68,13 +111,26 @@ $RunspaceScript = {
                 StorageFrame   = Get-StorageMetrics
                 PipelineStatus = "SUCCESS"
             }
-            $SharedData.JsonPayload = $MasterObject | ConvertTo-Json -Compress -Depth 5
+            $SharedData.FullPayload = $MasterObject | ConvertTo-Json -Compress -Depth 5
+            $SharedData.FullVersion++
         } catch {
-            $SharedData.JsonPayload = @{ PipelineStatus = "LOOP_CRASH: $($_.Exception.Message)" } | ConvertTo-Json -Compress
+            $SharedData.FullPayload = @{ PipelineStatus = "LOOP_CRASH: $($_.Exception.Message)" } | ConvertTo-Json -Compress
+            $SharedData.FullVersion++
         }
-        [System.Threading.Thread]::Sleep(1000)
+        $sleepMs = [int][math]::Max(100, 1000 - $sw.ElapsedMilliseconds)
+        [System.Threading.Thread]::Sleep($sleepMs)
     }
 }
+
+$FastRunspace = [runspacefactory]::CreateRunspace()
+$FastRunspace.ApartmentState = "MTA"
+$FastRunspace.ThreadOptions = "ReuseThread"
+$FastRunspace.Open()
+
+$FastPowerShellPool = [powershell]::Create()
+$FastPowerShellPool.Runspace = $FastRunspace
+$null = $FastPowerShellPool.AddScript($FastRunspaceScript).AddArgument($Global:NodeWatchRoot).AddArgument($global:SharedData)
+$null = $FastPowerShellPool.BeginInvoke()
 
 $Runspace = [runspacefactory]::CreateRunspace()
 $Runspace.ApartmentState = "STA"
@@ -131,16 +187,28 @@ $global:WebViewControl = New-Object Microsoft.Web.WebView2.WinForms.WebView2
 $global:WebViewControl.Dock = "Fill"
 $MainForm.Controls.Add($global:WebViewControl)
 
-$global:TelemetryLoopTimer = New-Object System.Windows.Forms.Timer
-$global:TelemetryLoopTimer.Interval = 1000
-$global:TelemetryLoopTimer.Add_Tick({
-    if ($null -ne $global:WebViewControl.CoreWebView2 -and $null -ne $global:SharedData.JsonPayload) {
-        try {
-            $Bytes = [System.Text.Encoding]::UTF8.GetBytes($global:SharedData.JsonPayload)
+$global:LastSentFullVersion = -1
+$global:LastSentFastVersion = -1
+
+$global:FlushTelemetryToUi = {
+    if ($null -eq $global:WebViewControl.CoreWebView2) { return }
+    try {
+        if ($null -ne $global:SharedData.FullPayload -and $global:SharedData.FullVersion -ne $global:LastSentFullVersion) {
+            $global:LastSentFullVersion = $global:SharedData.FullVersion
+            $Bytes = [System.Text.Encoding]::UTF8.GetBytes($global:SharedData.FullPayload)
             $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String($Bytes))
-        } catch {}
-    }
-})
+        }
+        if ($null -ne $global:SharedData.FastPayload -and $global:SharedData.FastVersion -ne $global:LastSentFastVersion) {
+            $global:LastSentFastVersion = $global:SharedData.FastVersion
+            $FastBytes = [System.Text.Encoding]::UTF8.GetBytes($global:SharedData.FastPayload)
+            $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String($FastBytes))
+        }
+    } catch {}
+}
+
+$global:TelemetryLoopTimer = New-Object System.Windows.Forms.Timer
+$global:TelemetryLoopTimer.Interval = 500
+$global:TelemetryLoopTimer.Add_Tick($global:FlushTelemetryToUi)
 
 # =========================================================================
 # UNIFIED HOST UI MESSAGE DESERIALIZATION & COMMAND HANDLER LOOP
@@ -157,21 +225,8 @@ $HandleUiMessageEvent = {
         
         '^\s*UI-Ready\s*$' {
             if (-not $global:TelemetryLoopTimer.Enabled) { $global:TelemetryLoopTimer.Start() }
-            try {
-                $LogManagerPath = Join-Path $Global:NodeWatchRoot "modules\tabs\NetworkManager.ps1"
-                if (Test-Path $LogManagerPath) {
-                    . $LogManagerPath
-                    $RawMesh = Get-AdapterStateMesh
-                    $JsonString = $RawMesh | ConvertTo-Json -Compress -Depth 10
-                    if ($null -ne $global:WebViewControl.CoreWebView2) {
-                        $Bytes = [System.Text.Encoding]::UTF8.GetBytes($JsonString)
-                        $Base64String = [Convert]::ToBase64String($Bytes)
-                        $global:WebViewControl.CoreWebView2.PostWebMessageAsString($Base64String)
-                    }
-                }
-            } catch {
-                Write-Error "NetworkManager failed: $_"
-            }
+            # Immediately push any already-sampled telemetry so startup is instant
+            & $global:FlushTelemetryToUi
         }
         '^Request-Adapters$' {
             try {
@@ -371,6 +426,8 @@ $MainForm.Add_FormClosing({
     if ($null -ne $global:SpeedTestPipeline) { $global:SpeedTestPipeline.Dispose() }
     $global:TelemetryLoopTimer.Stop()
     $global:SharedData.IsRunning = $false
+    if ($null -ne $FastPowerShellPool) { $FastPowerShellPool.Dispose() }
+    if ($null -ne $FastRunspace) { $FastRunspace.Close(); $FastRunspace.Dispose() }
     if ($null -ne $PowerShellPool) { $PowerShellPool.Dispose() }
     if ($null -ne $Runspace) { $Runspace.Close(); $Runspace.Dispose() }
 })
