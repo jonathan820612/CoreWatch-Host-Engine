@@ -220,6 +220,60 @@ $global:TelemetryLoopTimer = New-Object System.Windows.Forms.Timer
 $global:TelemetryLoopTimer.Interval = 500
 $global:TelemetryLoopTimer.Add_Tick($global:FlushTelemetryToUi)
 
+$global:ActiveTabTasks = New-Object System.Collections.ArrayList
+
+function Start-AsyncTabTask {
+    param(
+        [Parameter(Mandatory)][scriptblock]$ScriptBlock,
+        [object[]]$Arguments = @(),
+        [string]$FallbackType = "TAB_ERROR"
+    )
+    $ps = [powershell]::Create()
+    $null = $ps.AddScript($ScriptBlock)
+    foreach ($arg in $Arguments) {
+        $null = $ps.AddArgument($arg)
+    }
+    $handle = $ps.BeginInvoke()
+
+    $timer = New-Object System.Windows.Forms.Timer
+    $timer.Interval = 120
+    $taskObj = [PSCustomObject]@{
+        PS           = $ps
+        Handle       = $handle
+        Timer        = $timer
+        FallbackType = $FallbackType
+    }
+    $null = $global:ActiveTabTasks.Add($taskObj)
+
+    $timer.Tag = $taskObj
+    $timer.Add_Tick({
+        param($sender, $e)
+        $t = $sender.Tag
+        if ($null -ne $t -and $null -ne $t.Handle -and $t.Handle.IsCompleted) {
+            $sender.Stop()
+            try {
+                $output = $t.PS.EndInvoke($t.Handle)
+                $json = [string]($output | Select-Object -Last 1)
+                if ($json -and $null -ne $global:WebViewControl.CoreWebView2) {
+                    $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                    $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String($bytes))
+                }
+            } catch {
+                $errJson = @{ type = $t.FallbackType; error = $_.Exception.Message } | ConvertTo-Json -Compress
+                if ($null -ne $global:WebViewControl.CoreWebView2) {
+                    $bytes = [System.Text.Encoding]::UTF8.GetBytes($errJson)
+                    $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String($bytes))
+                }
+            } finally {
+                try { $t.PS.Dispose() } catch {}
+                try { $sender.Dispose() } catch {}
+                $null = $global:ActiveTabTasks.Remove($t)
+            }
+        }
+    })
+    $timer.Start()
+}
+
 # =========================================================================
 # UNIFIED HOST UI MESSAGE DESERIALIZATION & COMMAND HANDLER LOOP
 # =========================================================================
@@ -261,6 +315,22 @@ $HandleUiMessageEvent = {
             } catch { $Data = @{ type = 'SHARING_CENTER'; shares = @(); error = $_.Exception.Message } }
             $Json = $Data | ConvertTo-Json -Compress -Depth 5
             $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($Json)))
+        }
+        '^Request-InstalledApps$' {
+            Start-AsyncTabTask -FallbackType "REFRESH_INSTALLED_APPS" -Arguments @($Global:NodeWatchRoot) -ScriptBlock {
+                param($RootPath)
+                . (Join-Path $RootPath "modules\tabs\InstalledAppsManager.ps1")
+                $data = Get-InstalledAppsMesh
+                return ($data | ConvertTo-Json -Compress -Depth 6)
+            }
+        }
+        '^Request-SystemDevices$' {
+            Start-AsyncTabTask -FallbackType "REFRESH_SYSTEM_DEVICES" -Arguments @($Global:NodeWatchRoot) -ScriptBlock {
+                param($RootPath)
+                . (Join-Path $RootPath "modules\tabs\DeviceManager.ps1")
+                $data = Get-SystemDevicesMesh
+                return ($data | ConvertTo-Json -Compress -Depth 6)
+            }
         }
         '^Execute-SpeedTest$' {
             if ($global:SpeedTestRunning) { return }
@@ -367,6 +437,26 @@ $HandleUiMessageEvent = {
                         return
                     }
 
+                    if ($Payload.command -in @('UNINSTALL_APP', 'MODIFY_APP', 'MOVE_APP', 'OPEN_APP_FOLDER', 'OPEN_APP_REGISTRY', 'CALC_APP_SIZE')) {
+                        Start-AsyncTabTask -FallbackType "REFRESH_INSTALLED_APPS" -Arguments @($Global:NodeWatchRoot, $RawMessage) -ScriptBlock {
+                            param($RootPath, $RawJson)
+                            . (Join-Path $RootPath "modules\tabs\InstalledAppsManager.ps1")
+                            $data = Invoke-InstalledAppAction -Payload $RawJson
+                            return ($data | ConvertTo-Json -Compress -Depth 6)
+                        }
+                        return
+                    }
+
+                    if ($Payload.command -in @('RESCAN_HARDWARE', 'OPEN_NATIVE_DEVMGMT', 'OPEN_DRIVER_INF', 'TOGGLE_DEVICE_STATE', 'RESTART_DEVICE')) {
+                        Start-AsyncTabTask -FallbackType "REFRESH_SYSTEM_DEVICES" -Arguments @($Global:NodeWatchRoot, $RawMessage) -ScriptBlock {
+                            param($RootPath, $RawJson)
+                            . (Join-Path $RootPath "modules\tabs\DeviceManager.ps1")
+                            $data = Invoke-DeviceManagerAction -Payload $RawJson
+                            return ($data | ConvertTo-Json -Compress -Depth 6)
+                        }
+                        return
+                    }
+
                     if ($Payload.command -eq "SET_POWER_PLAN") {
                         $TargetGuid = $Payload.guid
                         if ($TargetGuid -eq "e9a42b02-d5df-448d-aa00-03f14749eb61") {
@@ -435,6 +525,13 @@ $MainForm.Add_FormClosing({
     if ($null -ne $IconHandle) { [CoreWatch.Win32]::DestroyIcon($IconHandle) }
     if ($null -ne $global:SpeedTestTimer) { $global:SpeedTestTimer.Stop(); $global:SpeedTestTimer.Dispose() }
     if ($null -ne $global:SpeedTestPipeline) { $global:SpeedTestPipeline.Dispose() }
+    if ($null -ne $global:ActiveTabTasks) {
+        foreach ($t in @($global:ActiveTabTasks)) {
+            try { if ($t.Timer) { $t.Timer.Stop(); $t.Timer.Dispose() } } catch {}
+            try { if ($t.PS) { $t.PS.Dispose() } } catch {}
+        }
+        $global:ActiveTabTasks.Clear()
+    }
     $global:TelemetryLoopTimer.Stop()
     $global:SharedData.IsRunning = $false
     if ($null -ne $FastPowerShellPool) { $FastPowerShellPool.Dispose() }

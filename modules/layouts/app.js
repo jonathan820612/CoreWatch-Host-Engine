@@ -6,14 +6,18 @@ window.SwitchAppLayoutView = function(targetViewId) {
         dashboard: document.getElementById('viewDashboardGrid'),
         netmanager: document.getElementById('viewNetworkManagerPanel'),
         startup: document.getElementById('viewStartupPanel'),
-        sharing: document.getElementById('viewSharingPanel')
+        sharing: document.getElementById('viewSharingPanel'),
+        apps: document.getElementById('viewInstalledAppsPanel'),
+        devices: document.getElementById('viewSystemDevicesPanel')
     };
 
     const buttons = {
         dashboard: document.getElementById('tabDashboard'),
         netmanager: document.getElementById('tabNetManager'),
         startup: document.getElementById('tabStartup'),
-        sharing: document.getElementById('tabSharing')
+        sharing: document.getElementById('tabSharing'),
+        apps: document.getElementById('tabInstalledApps'),
+        devices: document.getElementById('tabDevices')
     };
 
     Object.values(panels).forEach(p => { if (p) p.style.display = 'none'; });
@@ -33,6 +37,20 @@ window.SwitchAppLayoutView = function(targetViewId) {
         if (panels.sharing) panels.sharing.style.display = 'flex';
         if (buttons.sharing) buttons.sharing.classList.add('active');
         RequestSharingCenter();
+    }
+    else if (targetViewId === 'apps') {
+        if (panels.apps) panels.apps.style.display = 'flex';
+        if (buttons.apps) buttons.apps.classList.add('active');
+        if (!window._installedAppsLoaded) {
+            RequestInstalledApps();
+        }
+    }
+    else if (targetViewId === 'devices') {
+        if (panels.devices) panels.devices.style.display = 'flex';
+        if (buttons.devices) buttons.devices.classList.add('active');
+        if (!window._systemDevicesLoaded) {
+            RequestSystemDevices();
+        }
     }
     else {
         if (panels.dashboard) panels.dashboard.style.display = 'grid';
@@ -134,7 +152,16 @@ const msgType = stats.type || stats.Type;
     }
     else if (msgType === "REFRESH_ADAPTER_STATE") {
         RenderNetworkAdapterInterfaceRows(stats);
-    } 
+    }
+    else if (msgType === "REFRESH_INSTALLED_APPS") {
+        RenderInstalledAppsData(stats);
+    }
+    else if (msgType === "APP_FOLDER_SIZE") {
+        HandleCalculatedAppFolderSize(stats);
+    }
+    else if (msgType === "REFRESH_SYSTEM_DEVICES") {
+        RenderSystemDevicesData(stats);
+    }
     else if (msgType === "SPEED_TEST_RESULTS") {
         RenderSpeedTestResults(stats);
     }
@@ -1340,3 +1367,694 @@ window.TriggerTelemetryDisable = function() {
         window.chrome.webview.postMessage(JSON.stringify({ command: "DISABLE_TELEMETRY" }));
     }
 };
+
+// =========================================================================
+// VIEW 5: INSTALLED APPLICATIONS MANAGER CONTROLLER
+// =========================================================================
+window._installedAppsCache = [];
+window._installedAppDrives = [];
+window._installedAppsFilter = 'user';
+window._installedAppsLoaded = false;
+window._moveModalTargetApp = null;
+
+window.RequestInstalledApps = function() {
+    const status = document.getElementById('installedAppsStatus');
+    if (status) {
+        status.classList.remove('sharing-error');
+        status.textContent = 'Scanning installed applications across Windows registries...';
+    }
+    if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage('Request-InstalledApps');
+    }
+};
+
+window.SetInstalledAppsFilter = function(filterKey) {
+    window._installedAppsFilter = filterKey;
+    document.querySelectorAll('#appsFilterPills .filter-pill').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.filter === filterKey);
+    });
+    ApplyInstalledAppsFilter();
+};
+
+function RenderInstalledAppsData(data) {
+    window._installedAppsLoaded = true;
+    const status = document.getElementById('installedAppsStatus');
+
+    const appsList = Array.isArray(data.apps) ? data.apps : (data.apps ? [data.apps] : []);
+    window._installedAppsCache = appsList;
+    window._installedAppDrives = Array.isArray(data.drives) ? data.drives : (data.drives ? [data.drives] : []);
+
+    const sum = data.summary || {};
+    SetDomText('sumAppsTotal',   sum.total ?? appsList.length);
+    SetDomText('sumAppsUser',    sum.userApps ?? appsList.filter(a => !a.isSystem).length);
+    SetDomText('sumAppsMovable', sum.movable ?? appsList.filter(a => a.canMove).length);
+    SetDomText('sumAppsMoved',   sum.moved ?? appsList.filter(a => a.isJunction).length);
+    SetDomText('sumAppsSystem',  sum.systemApps ?? appsList.filter(a => a.isSystem).length);
+    SetDomText('sumAppsSize',    sum.totalGB !== undefined ? `${sum.totalGB} GB` : '--');
+
+    if (status) {
+        status.classList.toggle('sharing-error', !!data.error);
+        status.textContent = data.error || data.message || `${appsList.length} installed applications indexed.`;
+    }
+    if (data.message) AppendConsoleLogEntry(`[APPS] ${data.message}`);
+    if (data.error) AppendConsoleLogEntry(`[APPS ERROR] ${data.error}`);
+
+    ApplyInstalledAppsFilter();
+}
+
+function HandleCalculatedAppFolderSize(data) {
+    const status = document.getElementById('installedAppsStatus');
+    if (data.error) {
+        if (status) {
+            status.classList.add('sharing-error');
+            status.textContent = data.error;
+        }
+        return;
+    }
+    const app = window._installedAppsCache.find(a => a.id === data.id);
+    if (app) {
+        app.sizeMB = data.sizeMB;
+        app.measuredFiles = data.fileCount;
+    }
+    if (status) {
+        status.classList.remove('sharing-error');
+        status.textContent = data.message || `Measured ${data.name}: ${data.sizeMB} MB`;
+    }
+    AppendConsoleLogEntry(`[APPS] ${data.message}`);
+    ApplyInstalledAppsFilter();
+}
+
+function FormatAppSizeMB(mb) {
+    if (mb === null || mb === undefined || Number.isNaN(Number(mb))) return 'Unknown';
+    const num = Number(mb);
+    if (num >= 1024) return `${(num / 1024).toFixed(2)} GB`;
+    return `${num.toFixed(1)} MB`;
+}
+
+window.ApplyInstalledAppsFilter = function() {
+    const container = document.getElementById('installedAppsContainer');
+    if (!container) return;
+
+    const query = (document.getElementById('appsSearchInput')?.value || '').trim().toLowerCase();
+    const sortBy = document.getElementById('appsSortSelect')?.value || 'name';
+    const filter = window._installedAppsFilter || 'user';
+
+    let list = window._installedAppsCache.filter(app => {
+        if (filter === 'user' && app.isSystem) return false;
+        if (filter === 'movable' && !app.canMove) return false;
+        if (filter === 'moved' && !app.isJunction) return false;
+        if (filter === 'system' && !app.isSystem) return false;
+
+        if (query) {
+            const haystack = [
+                app.name, app.publisher, app.version, app.installLocation,
+                app.junctionTarget, app.installDrive, app.scope
+            ].filter(Boolean).join(' ').toLowerCase();
+            if (!haystack.includes(query)) return false;
+        }
+        return true;
+    });
+
+    list.sort((a, b) => {
+        if (sortBy === 'size') return (b.sizeMB || -1) - (a.sizeMB || -1);
+        if (sortBy === 'date') return String(b.installDate || '').localeCompare(String(a.installDate || ''));
+        if (sortBy === 'publisher') return String(a.publisher || '').localeCompare(String(b.publisher || ''));
+        if (sortBy === 'drive') return String(a.installDrive || 'Z').localeCompare(String(b.installDrive || 'Z')) || String(a.name || '').localeCompare(String(b.name || ''));
+        return String(a.name || '').localeCompare(String(b.name || ''));
+    });
+
+    container.replaceChildren();
+    if (!list.length) {
+        const empty = document.createElement('div');
+        empty.className = 'driver-text-node';
+        empty.textContent = 'No installed applications match the current filter.';
+        container.appendChild(empty);
+        return;
+    }
+
+    const fragment = document.createDocumentFragment();
+    list.forEach(app => {
+        const card = document.createElement('article');
+        card.className = 'sharing-card';
+
+        const header = document.createElement('div');
+        header.className = 'card-title-row';
+        const title = document.createElement('h3');
+        title.textContent = app.name;
+        header.appendChild(title);
+
+        const badgeDeck = document.createElement('div');
+        badgeDeck.className = 'card-badge-group';
+        if (app.isSystem) {
+            badgeDeck.innerHTML += '<span class="sharing-badge badge-neutral">System</span>';
+        } else {
+            badgeDeck.innerHTML += '<span class="sharing-badge badge-success">User App</span>';
+        }
+        if (app.isJunction) {
+            badgeDeck.innerHTML += '<span class="sharing-badge badge-purple">Relocated</span>';
+        }
+        if (app.installDrive) {
+            badgeDeck.innerHTML += `<span class="sharing-badge badge-info">${app.installDrive}</span>`;
+        }
+        header.appendChild(badgeDeck);
+        card.appendChild(header);
+
+        const sizeLabel = app.measuredFiles
+            ? `${FormatAppSizeMB(app.sizeMB)} (${app.measuredFiles.toLocaleString()} files)`
+            : FormatAppSizeMB(app.sizeMB);
+
+        const details = [
+            ['Publisher', app.publisher || 'Unknown'],
+            ['Version', app.version || 'Unknown'],
+            ['Installed', app.installDate || 'Unknown'],
+            ['Size', sizeLabel],
+            ['Scope / Arch', `${app.scope} · ${app.architecture}`],
+            ['Install Folder', app.installLocation || 'Not registered (MSI / system installer)']
+        ];
+        if (app.isJunction && app.junctionTarget) {
+            details.push(['Moved Target', app.junctionTarget]);
+        }
+        if (app.executablePath) {
+            details.push(['Executable', app.executablePath]);
+        }
+
+        details.forEach(([label, value]) => {
+            const row = document.createElement('div');
+            row.className = 'sharing-detail';
+            const k = document.createElement('span');
+            k.textContent = label;
+            const v = document.createElement('strong');
+            v.textContent = value;
+            v.title = value;
+            row.append(k, v);
+            card.appendChild(row);
+        });
+
+        const actions = document.createElement('div');
+        actions.className = 'sharing-actions';
+
+        if (app.installLocation) {
+            const openFolderBtn = document.createElement('button');
+            openFolderBtn.type = 'button';
+            openFolderBtn.textContent = 'Open Folder';
+            openFolderBtn.addEventListener('click', () => TriggerInstalledAppAction('OPEN_APP_FOLDER', app));
+            actions.appendChild(openFolderBtn);
+
+            const calcSizeBtn = document.createElement('button');
+            calcSizeBtn.type = 'button';
+            calcSizeBtn.textContent = 'Measure Size';
+            calcSizeBtn.addEventListener('click', () => {
+                const status = document.getElementById('installedAppsStatus');
+                if (status) status.textContent = `Measuring disk footprint for [ ${app.name} ]...`;
+                TriggerInstalledAppAction('CALC_APP_SIZE', app);
+            });
+            actions.appendChild(calcSizeBtn);
+        }
+
+        if (app.registryPath) {
+            const regBtn = document.createElement('button');
+            regBtn.type = 'button';
+            regBtn.textContent = 'Registry Key';
+            regBtn.addEventListener('click', () => TriggerInstalledAppAction('OPEN_APP_REGISTRY', app));
+            actions.appendChild(regBtn);
+        }
+
+        if (app.canMove) {
+            const moveBtn = document.createElement('button');
+            moveBtn.type = 'button';
+            moveBtn.className = 'btn-move-app';
+            moveBtn.textContent = 'Move Drive / Dir';
+            moveBtn.addEventListener('click', () => OpenMoveAppModal(app));
+            actions.appendChild(moveBtn);
+        }
+
+        if (app.hasModify) {
+            const modBtn = document.createElement('button');
+            modBtn.type = 'button';
+            modBtn.textContent = 'Modify / Repair';
+            modBtn.addEventListener('click', () => TriggerInstalledAppAction('MODIFY_APP', app));
+            actions.appendChild(modBtn);
+        }
+
+        if (app.canUninstall) {
+            const uninBtn = document.createElement('button');
+            uninBtn.type = 'button';
+            uninBtn.className = 'sharing-danger';
+            uninBtn.textContent = 'Uninstall';
+            uninBtn.addEventListener('click', () => {
+                if (confirm(`Launch uninstaller for [ ${app.name} ]?\n\nPublisher: ${app.publisher}\nVersion: ${app.version}`)) {
+                    TriggerInstalledAppAction('UNINSTALL_APP', app);
+                }
+            });
+            actions.appendChild(uninBtn);
+        }
+
+        card.appendChild(actions);
+        fragment.appendChild(card);
+    });
+    container.appendChild(fragment);
+};
+
+function TriggerInstalledAppAction(command, app, extra) {
+    const payload = Object.assign({
+        command: command,
+        id: app.id,
+        name: app.name,
+        isSystem: !!app.isSystem,
+        installLocation: app.junctionTarget || app.installLocation || '',
+        registryPath: app.registryPath || '',
+        uninstallString: app.uninstallString || '',
+        modifyPath: app.modifyPath || ''
+    }, extra || {});
+    if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage(JSON.stringify(payload));
+    }
+}
+
+window.OpenMoveAppModal = function(app) {
+    if (!app || !app.canMove || app.isSystem) return;
+    window._moveModalTargetApp = app;
+
+    SetDomText('moveModalAppName', app.name);
+    SetDomText('moveModalSourcePath', app.installLocation);
+
+    const driveSelect = document.getElementById('moveModalDriveSelect');
+    const targetInput = document.getElementById('moveModalTargetDir');
+    if (driveSelect) {
+        driveSelect.replaceChildren();
+        const drives = window._installedAppDrives || [];
+        drives.forEach(d => {
+            const opt = document.createElement('option');
+            opt.value = d.letter;
+            const currentTag = (app.installDrive && d.letter.toUpperCase() === app.installDrive.toUpperCase()) ? ' (Current)' : '';
+            opt.textContent = `${d.letter}\\ ${d.label} — ${d.freeGB} GB free / ${d.totalGB} GB${currentTag}`;
+            driveSelect.appendChild(opt);
+        });
+        const altDrive = drives.find(d => !app.installDrive || d.letter.toUpperCase() !== app.installDrive.toUpperCase());
+        if (altDrive) driveSelect.value = altDrive.letter;
+    }
+
+    if (targetInput && driveSelect && driveSelect.value) {
+        targetInput.value = `${driveSelect.value}\\Apps`;
+    }
+    UpdateMoveModalPreview();
+
+    const modal = document.getElementById('moveAppModal');
+    if (modal) modal.style.display = 'flex';
+};
+
+window.CloseMoveAppModal = function() {
+    window._moveModalTargetApp = null;
+    const modal = document.getElementById('moveAppModal');
+    if (modal) modal.style.display = 'none';
+};
+
+window.OnMoveDriveChanged = function() {
+    const driveSelect = document.getElementById('moveModalDriveSelect');
+    const targetInput = document.getElementById('moveModalTargetDir');
+    if (driveSelect && targetInput && driveSelect.value) {
+        targetInput.value = `${driveSelect.value}\\Apps`;
+    }
+    UpdateMoveModalPreview();
+};
+
+function UpdateMoveModalPreview() {
+    const app = window._moveModalTargetApp;
+    const targetDir = (document.getElementById('moveModalTargetDir')?.value || '').trim().replace(/\\+$/, '');
+    if (!app || !app.installLocation || !targetDir) {
+        SetDomText('moveModalPreviewPath', '--');
+        return;
+    }
+    const leaf = app.installLocation.split('\\').filter(Boolean).pop() || app.name;
+    SetDomText('moveModalPreviewPath', `${targetDir}\\${leaf}`);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('moveModalTargetDir')?.addEventListener('input', UpdateMoveModalPreview);
+    document.getElementById('moveAppForm')?.addEventListener('submit', event => {
+        event.preventDefault();
+        const app = window._moveModalTargetApp;
+        if (!app) return;
+        const targetDir = (document.getElementById('moveModalTargetDir')?.value || '').trim();
+        if (!targetDir) return;
+
+        const preview = document.getElementById('moveModalPreviewPath')?.textContent || targetDir;
+        if (!confirm(`Move [ ${app.name} ]?\n\nFrom: ${app.installLocation}\nTo:   ${preview}\n\nAn NTFS Directory Junction will be created at the original path so shortcuts and updaters continue working.`)) {
+            return;
+        }
+
+        const status = document.getElementById('installedAppsStatus');
+        if (status) {
+            status.classList.remove('sharing-error');
+            status.textContent = `Moving [ ${app.name} ] to ${preview}... Please wait (running in background).`;
+        }
+        AppendConsoleLogEntry(`[APPS] Starting move of [ ${app.name} ] -> ${preview}`);
+
+        TriggerInstalledAppAction('MOVE_APP', app, {
+            installLocation: app.installLocation,
+            targetDirectory: targetDir
+        });
+        CloseMoveAppModal();
+    });
+});
+
+// =========================================================================
+// VIEW 6: SYSTEM DEVICES & DRIVERS OVERVIEW CONTROLLER
+// =========================================================================
+window._systemDevicesCache = [];
+window._systemDevicesFilter = 'all';
+window._systemDevicesLoaded = false;
+window._expandedDeviceCategories = new Set(['Display adapters', 'Network adapters', 'Audio inputs and outputs', 'Sound, video and game controllers', 'Disk drives', 'Other / Unknown devices']);
+window._expandedDeviceIds = new Set();
+
+window.RequestSystemDevices = function() {
+    const status = document.getElementById('devicesStatus');
+    if (status) {
+        status.classList.remove('sharing-error');
+        status.textContent = 'Querying Windows PnP hardware & signed drivers...';
+    }
+    if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage('Request-SystemDevices');
+    }
+};
+
+window.TriggerDeviceRescan = function() {
+    const status = document.getElementById('devicesStatus');
+    if (status) {
+        status.classList.remove('sharing-error');
+        status.textContent = 'Scanning hardware buses for changes (pnputil /scan-devices)...';
+    }
+    AppendConsoleLogEntry('[DEVICES] Triggering PnP hardware rescan...');
+    if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage(JSON.stringify({ command: 'RESCAN_HARDWARE' }));
+    }
+};
+
+window.OpenNativeDeviceManager = function() {
+    if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage(JSON.stringify({ command: 'OPEN_NATIVE_DEVMGMT' }));
+    }
+};
+
+window.SetSystemDevicesFilter = function(filterKey) {
+    window._systemDevicesFilter = filterKey;
+    document.querySelectorAll('#devicesFilterPills .filter-pill').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.filter === filterKey);
+    });
+    ApplySystemDevicesFilter();
+};
+
+window.ToggleAllDeviceCategories = function(expand) {
+    if (expand) {
+        window._systemDevicesCache.forEach(d => window._expandedDeviceCategories.add(d.categoryLabel));
+    } else {
+        window._expandedDeviceCategories.clear();
+    }
+    ApplySystemDevicesFilter();
+};
+
+function RenderSystemDevicesData(data) {
+    window._systemDevicesLoaded = true;
+    const status = document.getElementById('devicesStatus');
+    const devices = Array.isArray(data.devices) ? data.devices : (data.devices ? [data.devices] : []);
+    window._systemDevicesCache = devices;
+
+    const sum = data.summary || {};
+    SetDomText('sumDevTotal',      sum.total ?? devices.length);
+    SetDomText('sumDevOk',         sum.ok ?? devices.filter(d => d.status === 'OK').length);
+    SetDomText('sumDevIssues',     sum.issues ?? devices.filter(d => d.status === 'Error').length);
+    SetDomText('sumDevDisabled',   sum.disabled ?? devices.filter(d => d.status === 'Disabled').length);
+    SetDomText('sumDevThirdParty', sum.thirdParty ?? devices.filter(d => d.isThirdParty).length);
+
+    // Auto-expand any category containing a problem/warning device
+    devices.forEach(d => {
+        if (d.status !== 'OK') window._expandedDeviceCategories.add(d.categoryLabel);
+    });
+
+    if (status) {
+        status.classList.toggle('sharing-error', !!data.error);
+        status.textContent = data.error || data.message || `${devices.length} present system devices indexed.`;
+    }
+    if (data.message) AppendConsoleLogEntry(`[DEVICES] ${data.message}`);
+    if (data.error) AppendConsoleLogEntry(`[DEVICES ERROR] ${data.error}`);
+
+    ApplySystemDevicesFilter();
+}
+
+window.ApplySystemDevicesFilter = function() {
+    const container = document.getElementById('systemDevicesContainer');
+    if (!container) return;
+
+    const query = (document.getElementById('devicesSearchInput')?.value || '').trim().toLowerCase();
+    const filter = window._systemDevicesFilter || 'all';
+
+    const filtered = window._systemDevicesCache.filter(dev => {
+        if (filter === 'issues' && dev.status !== 'Error') return false;
+        if (filter === 'disabled' && dev.status !== 'Disabled') return false;
+        if (filter === 'thirdparty' && !dev.isThirdParty) return false;
+        if (filter === 'hardware') {
+            const hwBus = ['PCI / PCIe', 'USB', 'USB Storage', 'HD Audio', 'Intel Audio', 'Bluetooth', 'SCSI / NVMe / SATA', 'Display Output'];
+            if (!hwBus.includes(dev.busType)) return false;
+        }
+        if (query) {
+            const hay = [
+                dev.name, dev.categoryLabel, dev.manufacturer, dev.driverProvider,
+                dev.driverVersion, dev.infName, dev.service, dev.hardwareId, dev.id, dev.busType
+            ].filter(Boolean).join(' ').toLowerCase();
+            if (!hay.includes(query)) return false;
+        }
+        return true;
+    });
+
+    container.replaceChildren();
+    if (!filtered.length) {
+        const empty = document.createElement('div');
+        empty.className = 'driver-text-node';
+        empty.textContent = 'No system devices match the current filter.';
+        container.appendChild(empty);
+        return;
+    }
+
+    // Group devices by Device Manager category while preserving sort priority
+    const groups = new Map();
+    filtered.forEach(dev => {
+        const key = dev.categoryLabel || 'Other';
+        if (!groups.has(key)) {
+            groups.set(key, { label: key, icon: dev.categoryIcon || '🔧', devices: [], issueCount: 0, disabledCount: 0 });
+        }
+        const g = groups.get(key);
+        g.devices.push(dev);
+        if (dev.status === 'Error') g.issueCount++;
+        if (dev.status === 'Disabled') g.disabledCount++;
+    });
+
+    const forceExpand = query.length > 0 || filter !== 'all';
+    const fragment = document.createDocumentFragment();
+
+    groups.forEach(group => {
+        const isOpen = forceExpand || window._expandedDeviceCategories.has(group.label);
+
+        const groupEl = document.createElement('div');
+        groupEl.className = 'device-category-group';
+
+        const headerBtn = document.createElement('button');
+        headerBtn.type = 'button';
+        headerBtn.className = 'device-category-header';
+        headerBtn.innerHTML = `
+            <span class="device-cat-left">
+                <span class="device-chevron">${isOpen ? '▾' : '▸'}</span>
+                <span>${group.icon}</span>
+                <strong>${group.label}</strong>
+                <span class="device-cat-count">(${group.devices.length})</span>
+            </span>
+            <span class="device-cat-badges">
+                ${group.issueCount > 0 ? `<span class="sharing-badge badge-danger">${group.issueCount} Issue${group.issueCount > 1 ? 's' : ''}</span>` : ''}
+                ${group.disabledCount > 0 ? `<span class="sharing-badge badge-purple">${group.disabledCount} Disabled</span>` : ''}
+            </span>
+        `;
+        headerBtn.addEventListener('click', () => {
+            if (window._expandedDeviceCategories.has(group.label)) {
+                window._expandedDeviceCategories.delete(group.label);
+            } else {
+                window._expandedDeviceCategories.add(group.label);
+            }
+            ApplySystemDevicesFilter();
+        });
+        groupEl.appendChild(headerBtn);
+
+        if (isOpen) {
+            const listEl = document.createElement('div');
+            listEl.className = 'device-category-items';
+
+            group.devices.forEach(dev => {
+                const isSelected = window._expandedDeviceIds.has(dev.id);
+                const itemWrap = document.createElement('div');
+                itemWrap.className = `device-row-wrap${isSelected ? ' expanded' : ''}`;
+
+                const rowBtn = document.createElement('button');
+                rowBtn.type = 'button';
+                rowBtn.className = 'device-item-row';
+
+                let statusBadge = '<span class="sharing-badge badge-success">OK</span>';
+                if (dev.status === 'Error') statusBadge = `<span class="sharing-badge badge-danger">ERR ${dev.problemCode}</span>`;
+                else if (dev.status === 'Disabled') statusBadge = '<span class="sharing-badge badge-purple">Disabled</span>';
+
+                const ageBadge = dev.driverAgeText
+                    ? `<span class="device-age-tag${dev.driverAgeDays > 1095 ? ' age-old' : ''}" title="Driver Date: ${dev.driverDate}">${dev.driverAgeText}</span>`
+                    : '';
+
+                const leftSpan = document.createElement('span');
+                leftSpan.className = 'device-row-main';
+                leftSpan.innerHTML = `<span class="device-row-caret">${isSelected ? '▾' : '▸'}</span>`;
+                const nameStrong = document.createElement('strong');
+                nameStrong.className = 'device-row-name';
+                nameStrong.textContent = dev.name;
+                leftSpan.appendChild(nameStrong);
+
+                const rightSpan = document.createElement('span');
+                rightSpan.className = 'device-row-meta';
+                rightSpan.innerHTML = `
+                    <span class="device-ver-text" title="Driver Version">${dev.driverVersion}</span>
+                    ${ageBadge}
+                    <span class="device-bus-tag">${dev.busType}</span>
+                    ${statusBadge}
+                `;
+
+                rowBtn.append(leftSpan, rightSpan);
+                rowBtn.addEventListener('click', () => {
+                    if (window._expandedDeviceIds.has(dev.id)) {
+                        window._expandedDeviceIds.delete(dev.id);
+                    } else {
+                        window._expandedDeviceIds.add(dev.id);
+                    }
+                    ApplySystemDevicesFilter();
+                });
+                itemWrap.appendChild(rowBtn);
+
+                if (isSelected) {
+                    const drawer = document.createElement('div');
+                    drawer.className = 'device-detail-drawer';
+
+                    const grid = document.createElement('div');
+                    grid.className = 'device-detail-grid';
+
+                    const fields = [
+                        ['Status', dev.problemText],
+                        ['Driver Version', dev.driverVersion],
+                        ['Driver Date', dev.driverAgeText ? `${dev.driverDate} (${dev.driverAgeText} old)` : dev.driverDate],
+                        ['Driver Provider', dev.driverProvider],
+                        ['Manufacturer', dev.manufacturer],
+                        ['Digital Signer', dev.isSigned ? `${dev.signer} (Signed)` : dev.signer],
+                        ['INF Package', dev.infName || 'None / Built-in'],
+                        ['Kernel Service', dev.service || 'None'],
+                        ['Bus / Transport', dev.busType],
+                        ['Location', dev.locationInfo || 'Not reported'],
+                        ['Hardware ID', dev.hardwareId || 'Unavailable'],
+                        ['Instance ID', dev.id]
+                    ];
+
+                    fields.forEach(([k, v]) => {
+                        const cell = document.createElement('div');
+                        cell.className = 'device-detail-cell';
+                        const lbl = document.createElement('span');
+                        lbl.textContent = k;
+                        const val = document.createElement('strong');
+                        val.textContent = v;
+                        val.title = v;
+                        cell.append(lbl, val);
+                        grid.appendChild(cell);
+                    });
+                    drawer.appendChild(grid);
+
+                    const actions = document.createElement('div');
+                    actions.className = 'sharing-actions';
+
+                    if (dev.hardwareId) {
+                        const copyBtn = document.createElement('button');
+                        copyBtn.type = 'button';
+                        copyBtn.textContent = 'Copy Hardware ID';
+                        copyBtn.addEventListener('click', () => {
+                            navigator.clipboard?.writeText(dev.hardwareId);
+                            const st = document.getElementById('devicesStatus');
+                            if (st) st.textContent = `Copied Hardware ID: ${dev.hardwareId}`;
+                        });
+                        actions.appendChild(copyBtn);
+                    }
+
+                    if (dev.infName) {
+                        const infBtn = document.createElement('button');
+                        infBtn.type = 'button';
+                        infBtn.textContent = `Open INF (${dev.infName})`;
+                        infBtn.addEventListener('click', () => TriggerDeviceAction('OPEN_DRIVER_INF', dev));
+                        actions.appendChild(infBtn);
+                    }
+
+                    if (!dev.isCritical) {
+                        const restartBtn = document.createElement('button');
+                        restartBtn.type = 'button';
+                        restartBtn.textContent = 'Restart Device';
+                        restartBtn.addEventListener('click', () => {
+                            if (confirm(`Restart device [ ${dev.name} ]?\nThis cycles the device off and back on (requires Administrator).`)) {
+                                TriggerDeviceAction('RESTART_DEVICE', dev);
+                            }
+                        });
+                        actions.appendChild(restartBtn);
+
+                        const toggleBtn = document.createElement('button');
+                        toggleBtn.type = 'button';
+                        const isDisabled = dev.status === 'Disabled';
+                        if (isDisabled) {
+                            toggleBtn.textContent = 'Enable Device';
+                            toggleBtn.style.color = '#48bb78';
+                            toggleBtn.style.borderColor = '#38a169';
+                            toggleBtn.addEventListener('click', () => TriggerDeviceAction('TOGGLE_DEVICE_STATE', dev, { enable: true }));
+                        } else {
+                            toggleBtn.textContent = 'Disable Device';
+                            toggleBtn.className = 'sharing-danger';
+                            toggleBtn.addEventListener('click', () => {
+                                if (confirm(`Disable hardware device [ ${dev.name} ]?\n(Requires Administrator privileges)`)) {
+                                    TriggerDeviceAction('TOGGLE_DEVICE_STATE', dev, { enable: false });
+                                }
+                            });
+                            actions.appendChild(toggleBtn);
+                        }
+                        if (isDisabled) actions.appendChild(toggleBtn);
+                    } else {
+                        const critNote = document.createElement('span');
+                        critNote.className = 'device-critical-note';
+                        critNote.textContent = 'Core system device (disable/restart protected)';
+                        actions.appendChild(critNote);
+                    }
+
+                    drawer.appendChild(actions);
+                    itemWrap.appendChild(drawer);
+                }
+
+                listEl.appendChild(itemWrap);
+            });
+
+            groupEl.appendChild(listEl);
+        }
+
+        fragment.appendChild(groupEl);
+    });
+
+    container.appendChild(fragment);
+};
+
+function TriggerDeviceAction(command, dev, extra) {
+    const status = document.getElementById('devicesStatus');
+    if (status) {
+        status.classList.remove('sharing-error');
+        status.textContent = `Executing ${command} on [ ${dev.name} ]...`;
+    }
+    const payload = Object.assign({
+        command: command,
+        deviceId: dev.id,
+        deviceName: dev.name,
+        infName: dev.infName || ''
+    }, extra || {});
+    if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage(JSON.stringify(payload));
+    }
+}

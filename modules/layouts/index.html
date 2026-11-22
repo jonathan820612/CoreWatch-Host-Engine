@@ -36,6 +36,8 @@ APP HEADER NAVIGATION DECK
             <button id="tabNetManager" class="tab-btn" onclick="SwitchAppLayoutView('netmanager')">📡 Network Manager</button>
             <button id="tabStartup" class="tab-btn" onclick="SwitchAppLayoutView('startup')">🚀 Startup Apps</button>
             <button id="tabSharing" class="tab-btn" onclick="SwitchAppLayoutView('sharing')">📂 Sharing Center</button>
+            <button id="tabInstalledApps" class="tab-btn" onclick="SwitchAppLayoutView('apps')">📦 Installed Apps</button>
+            <button id="tabDevices" class="tab-btn" onclick="SwitchAppLayoutView('devices')">🧩 System Devices</button>
         </div>
         <button class="exit-system-btn" onclick="window.chrome.webview.postMessage('Exit-App')">TERMINATE ENGINE</button>
     </div>
@@ -293,6 +295,113 @@ VIEW 4: SHARING CENTER
         </form>
         <div id="sharingStatus" class="sharing-status" role="status">Loading shared folders...</div>
         <div id="sharingList" class="sharing-list"></div>
+    </section>
+
+    <!-- =========================================================================
+VIEW 5: INSTALLED APPLICATIONS MANAGER
+========================================================================= -->
+    <section id="viewInstalledAppsPanel" class="tab-view-panel sharing-panel" style="display: none;" aria-labelledby="installedAppsTitle">
+        <div class="console-header-row">
+            <h2 id="installedAppsTitle">📦 INSTALLED APPS</h2>
+            <button type="button" class="console-clear-btn" onclick="RequestInstalledApps()">Refresh</button>
+        </div>
+        <p>Inspect installed programs, installation paths, registry sources, sizes, and architecture. User-installed apps can be uninstalled or safely relocated to another directory or drive via transparent NTFS junctions (system components are protected).</p>
+        <div id="installedAppsSummary" class="tab-summary-strip">
+            <span class="summary-chip">Total: <strong id="sumAppsTotal">--</strong></span>
+            <span class="summary-chip">User Apps: <strong id="sumAppsUser">--</strong></span>
+            <span class="summary-chip">Movable: <strong id="sumAppsMovable">--</strong></span>
+            <span class="summary-chip">Relocated: <strong id="sumAppsMoved">--</strong></span>
+            <span class="summary-chip">System / Runtimes: <strong id="sumAppsSystem">--</strong></span>
+            <span class="summary-chip">Est. Size: <strong id="sumAppsSize">--</strong></span>
+        </div>
+        <div class="tab-filter-toolbar">
+            <input type="text" id="appsSearchInput" class="tab-search-input" placeholder="Search app name, publisher, folder path, drive..." oninput="ApplyInstalledAppsFilter()">
+            <select id="appsSortSelect" class="tab-sort-select" onchange="ApplyInstalledAppsFilter()" aria-label="Sort installed apps">
+                <option value="name">Sort: Name (A-Z)</option>
+                <option value="size">Sort: Size (Largest)</option>
+                <option value="date">Sort: Install Date (Newest)</option>
+                <option value="publisher">Sort: Publisher</option>
+                <option value="drive">Sort: Drive</option>
+            </select>
+        </div>
+        <div class="tab-filter-pills" id="appsFilterPills">
+            <button type="button" class="filter-pill active" data-filter="user" onclick="SetInstalledAppsFilter('user')">User Installed</button>
+            <button type="button" class="filter-pill" data-filter="all" onclick="SetInstalledAppsFilter('all')">All Apps</button>
+            <button type="button" class="filter-pill" data-filter="movable" onclick="SetInstalledAppsFilter('movable')">Movable</button>
+            <button type="button" class="filter-pill" data-filter="moved" onclick="SetInstalledAppsFilter('moved')">Relocated (Junction)</button>
+            <button type="button" class="filter-pill" data-filter="system" onclick="SetInstalledAppsFilter('system')">System / Runtimes</button>
+        </div>
+        <div id="installedAppsStatus" class="sharing-status" role="status">Scanning installed applications...</div>
+        <div id="installedAppsContainer" class="sharing-list">
+            <div class="driver-text-node">Scanning Windows application registries...</div>
+        </div>
+    </section>
+
+    <!-- MOVE APPLICATION MODAL DIALOG -->
+    <div id="moveAppModal" class="corewatch-modal-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="moveAppModalTitle">
+        <div class="corewatch-modal-card">
+            <div class="console-header-row">
+                <h2 id="moveAppModalTitle">🚚 MOVE USER APPLICATION</h2>
+                <button type="button" class="console-clear-btn" onclick="CloseMoveAppModal()">Close</button>
+            </div>
+            <p class="modal-desc">Moves the application's files to a new drive/directory and links the original path with a transparent NTFS Directory Junction so shortcuts, updates, and uninstallers keep working.</p>
+            <div class="sharing-detail"><span>Application</span><strong id="moveModalAppName">--</strong></div>
+            <div class="sharing-detail"><span>Current Folder</span><strong id="moveModalSourcePath">--</strong></div>
+            <form id="moveAppForm" class="modal-form">
+                <label>Target Drive
+                    <select id="moveModalDriveSelect" onchange="OnMoveDriveChanged()"></select>
+                </label>
+                <label>Destination Parent Directory
+                    <input type="text" id="moveModalTargetDir" required placeholder="D:\Apps">
+                </label>
+                <div class="modal-preview-box">
+                    Final Destination: <strong id="moveModalPreviewPath">--</strong>
+                </div>
+                <div class="modal-warning-note">Make sure the application is completely closed before moving. Moving files inside Program Files may require running CoreWatch as Administrator.</div>
+                <div class="sharing-actions" style="justify-content: flex-end;">
+                    <button type="button" onclick="CloseMoveAppModal()">Cancel</button>
+                    <button type="submit" class="modal-confirm-btn">Move Application</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- =========================================================================
+VIEW 6: SYSTEM DEVICES & DRIVERS OVERVIEW
+========================================================================= -->
+    <section id="viewSystemDevicesPanel" class="tab-view-panel sharing-panel" style="display: none;" aria-labelledby="systemDevicesTitle">
+        <div class="console-header-row">
+            <h2 id="systemDevicesTitle">🧩 SYSTEM DEVICES &amp; DRIVERS</h2>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                <button type="button" class="console-clear-btn" onclick="TriggerDeviceRescan()">Rescan Hardware</button>
+                <button type="button" class="console-clear-btn" onclick="OpenNativeDeviceManager()">Windows Device Mgr</button>
+                <button type="button" class="console-clear-btn" onclick="ToggleAllDeviceCategories(true)">Expand All</button>
+                <button type="button" class="console-clear-btn" onclick="ToggleAllDeviceCategories(false)">Collapse All</button>
+                <button type="button" class="console-clear-btn" onclick="RequestSystemDevices()">Refresh</button>
+            </div>
+        </div>
+        <p>Device Manager-style hardware tree enriched with driver versions, release dates &amp; age, digital signers, INF packages, kernel services, bus locations, and Hardware IDs.</p>
+        <div id="devicesSummary" class="tab-summary-strip">
+            <span class="summary-chip">Total Devices: <strong id="sumDevTotal">--</strong></span>
+            <span class="summary-chip chip-ok">Working OK: <strong id="sumDevOk">--</strong></span>
+            <span class="summary-chip chip-warn">Issues: <strong id="sumDevIssues">--</strong></span>
+            <span class="summary-chip chip-disabled">Disabled: <strong id="sumDevDisabled">--</strong></span>
+            <span class="summary-chip chip-accent">3rd-Party Drivers: <strong id="sumDevThirdParty">--</strong></span>
+        </div>
+        <div class="tab-filter-toolbar">
+            <input type="text" id="devicesSearchInput" class="tab-search-input" placeholder="Search device name, driver version, INF, service, manufacturer, Hardware ID..." oninput="ApplySystemDevicesFilter()">
+        </div>
+        <div class="tab-filter-pills" id="devicesFilterPills">
+            <button type="button" class="filter-pill active" data-filter="all" onclick="SetSystemDevicesFilter('all')">All Devices</button>
+            <button type="button" class="filter-pill" data-filter="issues" onclick="SetSystemDevicesFilter('issues')">Issues / Warnings</button>
+            <button type="button" class="filter-pill" data-filter="disabled" onclick="SetSystemDevicesFilter('disabled')">Disabled</button>
+            <button type="button" class="filter-pill" data-filter="thirdparty" onclick="SetSystemDevicesFilter('thirdparty')">3rd-Party Drivers</button>
+            <button type="button" class="filter-pill" data-filter="hardware" onclick="SetSystemDevicesFilter('hardware')">PCI / USB / Audio / Net</button>
+        </div>
+        <div id="devicesStatus" class="sharing-status" role="status">Scanning PnP hardware &amp; signed drivers...</div>
+        <div id="systemDevicesContainer" class="device-tree-container">
+            <div class="driver-text-node">Querying Windows PnP hardware tree and driver store...</div>
+        </div>
     </section>
 </body>
 </html>
