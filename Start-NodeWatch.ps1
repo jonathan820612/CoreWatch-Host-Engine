@@ -145,9 +145,19 @@ $null = $PowerShellPool.BeginInvoke()
 # =========================================================================
 # CORE WINDOW FORM CONSTRUCTOR
 # =========================================================================
+$script:MaxWindowWidth  = 1080
+$script:MaxWindowHeight = 1920
+$script:MinWindowWidth  = 640
+$script:MinWindowHeight = 720
+$ScreenWorkArea = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+$InitWidth  = [Math]::Max($script:MinWindowWidth,  [Math]::Min($script:MaxWindowWidth,  $ScreenWorkArea.Width))
+$InitHeight = [Math]::Max($script:MinWindowHeight, [Math]::Min($script:MaxWindowHeight, $ScreenWorkArea.Height))
+
 $MainForm = New-Object System.Windows.Forms.Form
 $MainForm.Text = "CoreWatch Host Engine Dashboard Framework"
-$MainForm.Size = New-Object System.Drawing.Size(1000, 1000)
+$MainForm.MinimumSize = New-Object System.Drawing.Size($script:MinWindowWidth, $script:MinWindowHeight)
+$MainForm.MaximumSize = New-Object System.Drawing.Size($script:MaxWindowWidth, $script:MaxWindowHeight)
+$MainForm.Size = New-Object System.Drawing.Size($InitWidth, $InitHeight)
 $MainForm.StartPosition = "CenterScreen"
 $MainForm.BackColor = [System.Drawing.Color]::FromArgb(26, 32, 44)
 $MainForm.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
@@ -304,8 +314,9 @@ $HandleUiMessageEvent = {
         '^Window-Resize:(.+)' {
             $Dimensions = $Matches[1].Split('|')
             if ($Dimensions.Count -eq 2) {
-                $Width  = [int]$Dimensions[0]; $Height = [int]$Dimensions[1]
-                if ($Width -gt 400 -and $Height -gt 400) { $MainForm.Size = New-Object System.Drawing.Size($Width, $Height) }
+                $Width  = [Math]::Max($script:MinWindowWidth,  [Math]::Min($script:MaxWindowWidth,  [int]$Dimensions[0]))
+                $Height = [Math]::Max($script:MinWindowHeight, [Math]::Min($script:MaxWindowHeight, [int]$Dimensions[1]))
+                $MainForm.Size = New-Object System.Drawing.Size($Width, $Height)
             }
         }
         '^Rename-Drive:(.+)' {

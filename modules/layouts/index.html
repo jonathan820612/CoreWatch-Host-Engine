@@ -184,8 +184,8 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
                 <div class="net-node"><span>📣</span> Discovery: <strong id="lblDiscovery">Off</strong></div>
                 <div class="net-node"><span>📂</span> Sharing: <strong id="lblSharing">Off</strong></div>
                 <div class="net-node multi-driver-row">
-                    <span>🌐</span> Ethernet: <strong id="lblEthernet">Checking...</strong>
-                    <span>📶</span> Wi-Fi: <strong id="lblWifi">Checking...</strong>
+                    <span class="driver-inline-group"><span>🌐</span> Ethernet: <strong id="lblEthernet">Checking...</strong></span>
+                    <span class="driver-inline-group"><span>📶</span> Wi-Fi: <strong id="lblWifi">Checking...</strong></span>
                 </div>
                 <div class="net-node multi-driver-row adapter-status-row">
                     <span>🔌</span> Adapter Status:
@@ -223,7 +223,7 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
         </div>
 
         <!-- LOG CONSOLE NODE -->
-        <div class="dashboard-card wide-sub-console">
+        <div class="dashboard-card wide-sub-console log-console-card">
             <div class="console-header-row">
                 <h2>📑 LOG PROFILE CONSOLE</h2>
                 <button class="console-clear-btn" onclick="ClearConsoleLogView()">Flush Logs</button>
@@ -234,7 +234,7 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
     <!-- =========================================================================
 VIEW 2: NETWORK MANAGER
 ========================================================================= -->
-    <section id="viewNetworkManagerPanel" class="wide-sub-console sharing-panel" style="display: none; margin-top: 10px;" aria-labelledby="netManagerTitle">
+    <section id="viewNetworkManagerPanel" class="tab-view-panel sharing-panel" style="display: none;" aria-labelledby="netManagerTitle">
         <div class="console-header-row">
             <h2 id="netManagerTitle">📡 NETWORK MANAGER</h2>
             <div style="display: flex; gap: 8px;">
@@ -252,7 +252,7 @@ VIEW 2: NETWORK MANAGER
     <!-- =========================================================================
 VIEW 3: STARTUP APPLICATION MANAGER
 ========================================================================= -->
-    <section id="viewStartupPanel" class="wide-sub-console sharing-panel" style="display: none; margin-top: 10px;" aria-labelledby="startupTitle">
+    <section id="viewStartupPanel" class="tab-view-panel sharing-panel" style="display: none;" aria-labelledby="startupTitle">
         <div class="console-header-row">
             <h2 id="startupTitle">🚀 STARTUP APPS</h2>
             <button type="button" class="console-clear-btn" onclick="RequestStartupApps()">Refresh</button>
@@ -279,7 +279,7 @@ VIEW 3: STARTUP APPLICATION MANAGER
     <!-- =========================================================================
 VIEW 4: SHARING CENTER
 ========================================================================= -->
-    <section id="viewSharingPanel" class="wide-sub-console sharing-panel" style="display: none; margin-top: 10px;" aria-labelledby="sharingTitle">
+    <section id="viewSharingPanel" class="tab-view-panel sharing-panel" style="display: none;" aria-labelledby="sharingTitle">
         <div class="console-header-row">
             <h2 id="sharingTitle">📂 SHARING CENTER</h2>
             <button type="button" class="console-clear-btn" onclick="RequestSharingCenter()">Refresh</button>

@@ -1,21 +1,46 @@
-/* Core application and window frame styling */
-html, body {
+/* Core application and window frame styling (1080x1920 HD Portrait Max) */
+html {
+    background-color: #1a202c;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+}
+body {
     background-color: #1a202c;
     color: #f7fafc;
     font-family: 'Consolas', 'Segoe UI', monospace;
+    width: 100%;
     height: 100vh;
-    margin: 0;
+    max-width: 1080px;
+    max-height: 1920px;
+    margin: 0 auto;
     padding: 10px;
     display: flex;
     flex-direction: column;
     box-sizing: border-box;
     user-select: none;
-    overflow-y: auto;
-    resize: both;
-    overflow: auto;
+    overflow: hidden;
 }
 button, input, select {
     font-family: 'Consolas', 'Segoe UI', monospace;
+}
+
+/* Custom dark theme scrollbars */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-track {
+    background: #1a202c;
+}
+::-webkit-scrollbar-thumb {
+    background: #4a5568;
+    border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #63b3ed;
 }
 
 /* Header toolbar structure */
@@ -23,10 +48,13 @@ button, input, select {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
     background-color: #212936;
     border: 1px solid #323c4b;
     padding: 6px 10px;
-    margin-bottom: 10px;
+    margin-bottom: 8px;
+    box-sizing: border-box;
     
     /* FIXED: Command the Chromium engine to treat this container as a native window move grip */
     -webkit-app-region: drag;
@@ -36,25 +64,44 @@ button, input, select {
     /* FIXED: Ensures that interactive elements remain clickable and do not pass drag actions upstream */
     -webkit-app-region: no-drag;
 }
-.modular-tabs { display: flex; gap: 6px; }
+.modular-tabs { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
 
 /* Control buttons and tab handlers */
 .tab-btn {
     background: #2d3748; border: 1px solid #4a5568; color: #a0aec0;
-    font-size: 11px; padding: 4px 10px; cursor: pointer;
+    font-size: 11px; padding: 4px 10px; cursor: pointer; white-space: nowrap;
 }
 .tab-btn.active { background: #3182ce; color: #fff; border-color: #4299e1; }
 .tab-btn.disabled { opacity: 0.4; cursor: not-allowed; }
 
-.sharing-panel { min-height: 500px; }
-.sharing-panel p { color: #a0aec0; font-size: 12px; }
-.sharing-form { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin: 12px 0 18px; }
+/* Full-window information view area for secondary tabs */
+.tab-view-panel {
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 100%;
+    background-color: #212936;
+    border: 1px solid #323c4b;
+    padding: 12px;
+    box-sizing: border-box;
+    display: none; /* Switched to flex by app.js */
+    flex-direction: column;
+    overflow: hidden;
+    text-align: left;
+}
+.sharing-panel p { color: #a0aec0; font-size: 12px; line-height: 1.4; margin: 4px 0 10px; flex: 0 0 auto; }
+.sharing-form { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin: 6px 0 14px; flex: 0 0 auto; }
 .sharing-form label { display: flex; flex-direction: column; gap: 5px; color: #cbd5e0; font-size: 11px; flex: 1 1 180px; }
 .sharing-form input, .sharing-form select { background: #1a202c; border: 1px solid #4a5568; color: #fff; padding: 7px; min-width: 0; }
 .sharing-form button { padding: 7px 12px; }
-.sharing-status { color: #90cdf4; font-size: 12px; margin-bottom: 10px; }
+.sharing-status { color: #90cdf4; font-size: 12px; margin-bottom: 10px; flex: 0 0 auto; }
 .sharing-error { color: #fc8181; }
-.sharing-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 10px; }
+.sharing-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(440px, 1fr));
+    gap: 10px;
+    align-content: start;
+    align-items: start;
+}
 .sharing-card { background: #1a202c; border: 1px solid #4a5568; padding: 12px; min-width: 0; }
 .sharing-card h3 { color: #90cdf4; margin: 0 0 10px; font-size: 14px; }
 .sharing-detail { display: flex; gap: 10px; justify-content: space-between; font-size: 11px; margin: 5px 0; }
@@ -94,15 +141,16 @@ button, input, select {
 }
 .exit-system-btn:hover { background: #c53030; }
 
-/* Dashboard layout grid and cards */
+/* Dashboard layout grid and cards (1080x1920 Portrait Optimized) */
 .dashboard-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    grid-template-rows: 1fr 1fr auto; /* Rows 1 & 2 stretch, Console stays auto */
+    grid-template-rows: auto auto auto minmax(120px, 1fr); /* Telemetry rows fit content; Log Console stretches to bottom */
     grid-gap: 8px;
-    flex-grow: 1; /* This pushes everything to the bottom */
+    flex: 1 1 auto;
     min-height: 0;
-    height: calc(100vh - 65px); /* Matches window height minus header/padding */
+    width: 100%;
+    overflow-y: auto;
     box-sizing: border-box;
 }
 
@@ -114,9 +162,9 @@ button, input, select {
     display: flex;
     flex-direction: column;
     line-height: 1;
-    height: 100%; /* Ensures cards stretch to fill their grid cell */
-    min-height: 0; /* Remove fixed min-height to allow shrinking */
-    overflow: hidden; /* Prevent internal scrollbars on cards */
+    height: 100%;
+    min-width: 0;
+    overflow: visible; /* Never clip telemetry metrics */
 }
 /* File: modules/layouts/style.css - Append to the bottom of your file */
 
@@ -187,6 +235,7 @@ h2 {
     flex-direction: column; 
     gap: 8px;
     overflow-y: auto;
+    max-height: 280px;
     padding-right: 4px;
     flex-grow: 1;
     box-sizing: border-box;
@@ -251,17 +300,23 @@ h2 {
 }
 
 .net-node.multi-driver-row {
-    grid-column: span 4 !important; 
+    grid-column: 1 / -1 !important; 
     color: #a0aec0 !important; 
     font-size: 11px !important; 
     margin-top: 6px !important;
     border-top: none !important; 
     padding-top: 4px !important; 
     display: flex !important; 
-    gap: 8px !important; 
+    flex-wrap: wrap !important;
+    white-space: normal !important;
+    gap: 6px 24px !important; 
     align-items: center !important;
 }
-.net-node.multi-driver-row strong:first-of-type { margin-right: 20px !important; }
+.driver-inline-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
 
 /* Adapter status row under network drivers */
 .net-node.multi-driver-row.adapter-status-row {
@@ -445,19 +500,49 @@ button.adapter-status-badge.status-off:hover {
 .hardware-stat-tag.therm-hot { background-color: rgba(229, 62, 62, 0.2) !important; color: #e53e3e !important; border-color: rgba(229, 62, 62, 0.4) !important; }
 
 /* System interface consoles, startup splash overlays, and audio outputs */
-.console-header-row { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #2d3748; margin-bottom: 6px; padding-bottom: 4px; }
-.console-clear-btn { background: #2d3748; border: 1px solid #4a5568; color: #cbd5e0; font-size: 10px; padding: 1px 6px; cursor: pointer; }
+.console-header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex: 0 0 auto;
+    border-bottom: 1px solid #2d3748;
+    margin-bottom: 6px;
+    padding-bottom: 4px;
+}
+.console-header-row h2 {
+    margin: 0;
+    border-bottom: none;
+    padding-bottom: 0;
+}
+.console-clear-btn { background: #2d3748; border: 1px solid #4a5568; color: #cbd5e0; font-size: 10px; padding: 2px 8px; cursor: pointer; }
+.console-clear-btn:hover { background: #3182ce; border-color: #4299e1; color: #fff; }
+.log-console-card {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 120px;
+    overflow: hidden;
+    text-align: left;
+}
 .console-box {
     font-family: 'Consolas', monospace;
     font-size: 11px;
+    line-height: 1.45;
     color: #a0aec0;
-    height: 45px; /* Fixed small height for console */
-    max-height: 80px;
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto;
+    max-height: none;
     overflow-y: auto;
     white-space: pre-wrap;
-    background: rgba(0,0,0,0.2);
-    padding: 5px;
+    word-break: break-word;
+    text-align: left;
+    background: rgba(0,0,0,0.22);
+    border: 1px solid #2d3748;
+    padding: 8px 10px;
     border-radius: 2px;
+    box-sizing: border-box;
+    user-select: text;
 }
 #appSplashOverlayView {
     position: fixed;
@@ -605,15 +690,36 @@ button.adapter-status-badge.status-off:hover {
     width: 100%;
     box-sizing: border-box;
 }
-#adapterInterfaceContainer, #startupAppsContainer {
-    flex-grow: 1;
+#adapterInterfaceContainer,
+#startupAppsContainer,
+#sharingList {
+    flex: 1 1 auto;
+    min-height: 0;
     overflow-y: auto;
-    padding-right: 5px;
+    padding-right: 4px;
+    align-content: start;
+    align-items: start;
 }
-#viewNetworkManagerPanel, #viewStartupPanel {
-    flex-grow: 1;
-    display: none; /* Controlled by app.js */
-    flex-direction: column;
-    overflow-y: auto;
-    padding-right: 5px;
+
+/* Responsive safeguards when resized narrower than 1080px */
+@media (max-width: 860px) {
+    .network-matrix-grid {
+        grid-template-columns: repeat(2, 1fr) !important;
+    }
+    .app-header-deck {
+        flex-wrap: wrap;
+    }
+    .sharing-list {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 680px) {
+    .dashboard-grid {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto auto auto auto auto minmax(140px, 1fr);
+    }
+    .wide-sub-console {
+        grid-column: 1 / -1 !important;
+    }
 }

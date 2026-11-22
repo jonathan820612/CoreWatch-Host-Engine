@@ -20,18 +20,18 @@ window.SwitchAppLayoutView = function(targetViewId) {
     Object.values(buttons).forEach(b => { if (b) b.classList.remove('active'); });
 
     if (targetViewId === 'netmanager') {
-        if (panels.netmanager) panels.netmanager.style.display = 'block';
+        if (panels.netmanager) panels.netmanager.style.display = 'flex';
         if (buttons.netmanager) buttons.netmanager.classList.add('active');
         RequestNetworkAdapters();
     } 
     else if (targetViewId === 'startup') {
-        if (panels.startup) panels.startup.style.display = 'block';
+        if (panels.startup) panels.startup.style.display = 'flex';
         if (buttons.startup) buttons.startup.classList.add('active');
         RequestStartupApps();
     } 
     else if (targetViewId === 'sharing') {
-        panels.sharing.style.display = 'block';
-        buttons.sharing.classList.add('active');
+        if (panels.sharing) panels.sharing.style.display = 'flex';
+        if (buttons.sharing) buttons.sharing.classList.add('active');
         RequestSharingCenter();
     }
     else {
@@ -624,6 +624,7 @@ function updateDashboardUiMesh(stats) {
         SetDomText('lblIntIPv4',        net.IntIPv4);
         SetDomText('lblSubnetMask',     net.SubnetMask);
         SetDomText('lblGateway',        net.Gateway);
+        if (net.NetAssignment) SetDomText('lblNetAssignment', net.NetAssignment);
         SetDomText('lblNetworkStatus',  net.NetworkStatus);
         SetDomText('lblWlanSsid',       net.WlanSsid);
         SetDomText('lblExtIPv4',        net.ExtIPv4);
@@ -955,10 +956,7 @@ window.ToggleNetworkAdapterState = function(adapterName, currentStatus, event) {
         targetState: targetState
     };
 
-    const consoleBox = document.getElementById('console-box') || document.querySelector('.console-box');
-    if (consoleBox) {
-        consoleBox.textContent = `[NETWORK: HARDWARE PROVISIONING] Requesting ${actionWord.toUpperCase()} for adapter [ ${adapterName} ]...`;
-    }
+    AppendConsoleLogEntry(`[NETWORK: HARDWARE PROVISIONING] Requesting ${actionWord.toUpperCase()} for adapter [ ${adapterName} ]...`);
 
     if (window.chrome && window.chrome.webview) {
         window.chrome.webview.postMessage(JSON.stringify(payload));
@@ -1140,14 +1138,36 @@ function TriggerVolumeRelabel(driveLetter, currentLabel) {
     }
 }
 
-function AppendLiveDiagnosticConsoleLog(stats) {
+const MAX_CONSOLE_LINES = 300;
+window._consoleLogLines = [];
+
+function AppendConsoleLogEntry(message) {
     const consoleBox = document.getElementById('console-box') || document.querySelector('.console-box');
-    if (consoleBox && stats.IdentityFrame && stats.SystemFrame) {
-        consoleBox.textContent = `[PIPELINE: ${stats.PipelineStatus}] Host: ${stats.IdentityFrame.HostName} | CPU Load: ${stats.SystemFrame.CpuLoad}% | RAM: ${stats.SystemFrame.RamUsageText}`;
+    if (!consoleBox || !message) return;
+
+    const now = new Date();
+    const stamp = now.toTimeString().slice(0, 8);
+    const shouldStickBottom = (consoleBox.scrollHeight - consoleBox.scrollTop - consoleBox.clientHeight) < 32;
+
+    window._consoleLogLines.push(`[${stamp}] ${message}`);
+    if (window._consoleLogLines.length > MAX_CONSOLE_LINES) {
+        window._consoleLogLines.splice(0, window._consoleLogLines.length - MAX_CONSOLE_LINES);
+    }
+
+    consoleBox.textContent = window._consoleLogLines.join('\n');
+    if (shouldStickBottom) {
+        consoleBox.scrollTop = consoleBox.scrollHeight;
+    }
+}
+
+function AppendLiveDiagnosticConsoleLog(stats) {
+    if (stats && stats.IdentityFrame && stats.SystemFrame) {
+        AppendConsoleLogEntry(`[PIPELINE: ${stats.PipelineStatus}] Host: ${stats.IdentityFrame.HostName} | CPU Load: ${stats.SystemFrame.CpuLoad}% | RAM: ${stats.SystemFrame.RamUsageText}`);
     }
 }
 
 window.ClearConsoleLogView = function() {
+    window._consoleLogLines = [];
     const consoleBox = document.getElementById('console-box') || document.querySelector('.console-box');
     if (consoleBox) {
         consoleBox.textContent = '[SYSTEM: CONSOLE LOG MESH PIPELINE FLUSHED... READY]';
@@ -1186,10 +1206,7 @@ window.TriggerNetworkSpeedAnalysis = function() {
     if (downElem) downElem.textContent = "...";
     if (upElem) upElem.textContent = "...";
 
-    const consoleBox = document.getElementById('console-box') || document.querySelector('.console-box');
-    if (consoleBox) {
-        consoleBox.textContent = '[SPEED TEST] Initiating Cloudflare speed analysis mesh...';
-    }
+    AppendConsoleLogEntry('[SPEED TEST] Initiating Cloudflare speed analysis mesh...');
 
     if (window.chrome && window.chrome.webview) {
         window.chrome.webview.postMessage("Execute-SpeedTest");
@@ -1224,10 +1241,7 @@ function RenderSpeedTestResults(stats) {
         window._speedTestTimeout = null;
     }
 
-    const consoleBox = document.getElementById('console-box') || document.querySelector('.console-box');
-    if (consoleBox) {
-        consoleBox.textContent = `[SPEED TEST] Complete: ${stats.Latency} ms latency | ${stats.Download} Mbps down | ${stats.Upload} Mbps up`;
-    }
+    AppendConsoleLogEntry(`[SPEED TEST] Complete: ${stats.Latency} ms latency | ${stats.Download} Mbps down | ${stats.Upload} Mbps up`);
 }
 
 window.CommitWatchdogTuningProfile = function() {
@@ -1248,11 +1262,7 @@ window.CommitWatchdogTuningProfile = function() {
 
     if (window.chrome && window.chrome.webview) {
         window.chrome.webview.postMessage(JSON.stringify(configurationPayload));
-        
-        const consoleBox = document.getElementById('console-box');
-        if (consoleBox) {
-            consoleBox.textContent = `[WATCHDOG: TUNING MATRIX SYNCHRONIZED] Filter Cap: ${cpuThreshold}% | Mode: ${reactionMode} | Active Rules Applied`;
-        }
+        AppendConsoleLogEntry(`[WATCHDOG: TUNING MATRIX SYNCHRONIZED] Filter Cap: ${cpuThreshold}% | Mode: ${reactionMode} | Active Rules Applied`);
     }
 };
 
@@ -1295,6 +1305,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
     let isResizing = false;
     const gripThickness = 12;
+    const MAX_WINDOW_WIDTH = 1080;
+    const MAX_WINDOW_HEIGHT = 1920;
+    const MIN_WINDOW_WIDTH = 640;
+    const MIN_WINDOW_HEIGHT = 720;
 
     window.addEventListener('mousedown', (e) => {
         if (window.innerWidth - e.clientX < gripThickness && window.innerHeight - e.clientY < gripThickness) {
@@ -1311,7 +1325,9 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         if (!isResizing || !(window.chrome && window.chrome.webview)) return;
-        window.chrome.webview.postMessage(`Window-Resize:${e.screenX - window.screenX}|${e.screenY - window.screenY}`);
+        const targetW = Math.max(MIN_WINDOW_WIDTH, Math.min(MAX_WINDOW_WIDTH, Math.round(e.screenX - window.screenX)));
+        const targetH = Math.max(MIN_WINDOW_HEIGHT, Math.min(MAX_WINDOW_HEIGHT, Math.round(e.screenY - window.screenY)));
+        window.chrome.webview.postMessage(`Window-Resize:${targetW}|${targetH}`);
     });
 
     window.addEventListener('mouseup', () => {
