@@ -66,6 +66,7 @@ function Get-NetworkMetrics {
 
     # Adapter status & link capacity via single fast Get-NetAdapter call
     $AdapterStatuses = @()
+    $ConnectedWifiIndex = $null
     try {
         $AllAdapters = Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { $_.Status -ne "Not Present" -and -not $_.Virtual }
         if (-not $AllAdapters) {
@@ -76,10 +77,15 @@ function Get-NetworkMetrics {
                 $LinkCap = $Adapter.LinkSpeed
             }
 
-            $isWifi = ($Adapter.Name -like "*Wireless*" -or $Adapter.Name -like "*Wi-Fi*" -or $Adapter.InterfaceDescription -like "*Wireless*" -or $Adapter.InterfaceDescription -like "*Wi-Fi*")
-            $isEth  = ($Adapter.Name -like "*Ethernet*" -or $Adapter.InterfaceDescription -like "*Ethernet*" -or $Adapter.InterfaceDescription -like "*Gigabit*" -or $Adapter.InterfaceDescription -like "*Realtek*")
+            $isWifi = ($Adapter.MediaType -eq "Native 802.11" -or $Adapter.Name -like "*Wireless*" -or $Adapter.Name -like "*Wi-Fi*" -or $Adapter.Name -like "*WiFi*" -or $Adapter.InterfaceDescription -like "*Wireless*" -or $Adapter.InterfaceDescription -like "*Wi-Fi*" -or $Adapter.InterfaceDescription -like "*WiFi*")
+            $isEth  = (-not $isWifi) -and ($Adapter.Name -like "*Ethernet*" -or $Adapter.Name -like "*Wired*" -or $Adapter.InterfaceDescription -like "*Ethernet*" -or $Adapter.InterfaceDescription -like "*Gigabit*" -or $Adapter.InterfaceDescription -like "*Realtek*")
 
-            if ($isWifi) { $WifiDriver = $Adapter.InterfaceDescription }
+            if ($isWifi) {
+                $WifiDriver = $Adapter.InterfaceDescription
+                if ($Adapter.Status -eq "Up" -and $null -eq $ConnectedWifiIndex) {
+                    $ConnectedWifiIndex = $Adapter.InterfaceIndex
+                }
+            }
             elseif ($isEth) { $EthDriver = $Adapter.InterfaceDescription }
 
             $type = if ($isWifi) { "Wi-Fi" } elseif ($isEth) { "Ethernet" } else { "Other" }
@@ -101,24 +107,47 @@ function Get-NetworkMetrics {
         }
     } catch {}
 
-    # Refresh WLAN SSID every 3 seconds (avoids spawning netsh every 1s)
+    # Refresh WLAN SSID every 3 seconds (handles Windows 11 24H2/25H2 Location privacy fallback)
     if (([datetime]::Now - $script:LastWlanCheck).TotalSeconds -ge 3) {
         $WlanSsid = "Disconnected"
+        $netshBlocked = $false
         try {
-            $WlanOutput = netsh wlan show interfaces
+            $WlanOutput = netsh wlan show interfaces 2>&1
             $interfaceIsConnected = $false
             foreach ($line in $WlanOutput) {
-                if ($line -match 'State\s+:\s+connected') { $interfaceIsConnected = $true }
-                if ($interfaceIsConnected -and $line -match '^\s+SSID\s+:\s+(.*)$') {
+                $lineStr = [string]$line
+                if ($lineStr -match '(?i)location permission|error 5|requires elevation') {
+                    $netshBlocked = $true
+                    break
+                }
+                if ($lineStr -match 'State\s+:\s+connected') { $interfaceIsConnected = $true }
+                if ($interfaceIsConnected -and $lineStr -match '^\s+SSID\s+:\s+(.*)$') {
                     $Found = $Matches[1].Trim()
-                    if ($Found -and $line -notmatch "BSSID") {
+                    if ($Found -and $lineStr -notmatch "BSSID") {
                         $WlanSsid = $Found
                         break
                     }
                 }
-                if ($line -match '^Name') { $interfaceIsConnected = $false }
+                if ($lineStr -match '^Name') { $interfaceIsConnected = $false }
             }
         } catch {}
+
+        # Fallback when netsh is blocked by Windows 11 24H2/25H2 Location Privacy (or unprivileged run)
+        if ($WlanSsid -eq "Disconnected" -and $null -ne $ConnectedWifiIndex) {
+            try {
+                $WifiProfile = Get-NetConnectionProfile -InterfaceIndex $ConnectedWifiIndex -ErrorAction SilentlyContinue | Select-Object -First 1
+                if ($WifiProfile -and $WifiProfile.Name) {
+                    $WlanSsid = [string]$WifiProfile.Name
+                } elseif ($netshBlocked) {
+                    $WlanSsid = "Connected (Location Off)"
+                } else {
+                    $WlanSsid = "Connected"
+                }
+            } catch {
+                $WlanSsid = if ($netshBlocked) { "Connected (Location Off)" } else { "Connected" }
+            }
+        }
+
         $script:CachedWlanSsid = $WlanSsid
         $script:LastWlanCheck  = [datetime]::Now
     }
