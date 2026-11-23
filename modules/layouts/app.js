@@ -8,7 +8,9 @@ window.SwitchAppLayoutView = function(targetViewId) {
         startup: document.getElementById('viewStartupPanel'),
         sharing: document.getElementById('viewSharingPanel'),
         apps: document.getElementById('viewInstalledAppsPanel'),
-        devices: document.getElementById('viewSystemDevicesPanel')
+        devices: document.getElementById('viewSystemDevicesPanel'),
+        organizer: document.getElementById('viewFileOrganizerPanel'),
+        diagx: document.getElementById('viewUltimaDiagXPanel')
     };
 
     const buttons = {
@@ -17,7 +19,9 @@ window.SwitchAppLayoutView = function(targetViewId) {
         startup: document.getElementById('tabStartup'),
         sharing: document.getElementById('tabSharing'),
         apps: document.getElementById('tabInstalledApps'),
-        devices: document.getElementById('tabDevices')
+        devices: document.getElementById('tabDevices'),
+        organizer: document.getElementById('tabOrganizer'),
+        diagx: document.getElementById('tabUltimaDiagX')
     };
 
     Object.values(panels).forEach(p => { if (p) p.style.display = 'none'; });
@@ -50,6 +54,20 @@ window.SwitchAppLayoutView = function(targetViewId) {
         if (buttons.devices) buttons.devices.classList.add('active');
         if (!window._systemDevicesLoaded) {
             RequestSystemDevices();
+        }
+    }
+    else if (targetViewId === 'organizer') {
+        if (panels.organizer) panels.organizer.style.display = 'flex';
+        if (buttons.organizer) buttons.organizer.classList.add('active');
+        if (!window._fileOrganizerLoaded) {
+            RequestFileOrganizer();
+        }
+    }
+    else if (targetViewId === 'diagx') {
+        if (panels.diagx) panels.diagx.style.display = 'flex';
+        if (buttons.diagx) buttons.diagx.classList.add('active');
+        if (!window._ultimaDiagXLoaded) {
+            InitUltimaDiagX();
         }
     }
     else {
@@ -161,6 +179,36 @@ const msgType = stats.type || stats.Type;
     }
     else if (msgType === "REFRESH_SYSTEM_DEVICES") {
         RenderSystemDevicesData(stats);
+    }
+    else if (msgType === "FILE_ORGANIZER_STATE") {
+        RenderFileOrganizerState(stats);
+    }
+    else if (msgType === "BROWSE_FOLDER_RESULT") {
+        HandleBrowseFolderResult(stats);
+    }
+    else if (msgType === "FILE_ORGANIZER_PREVIEW") {
+        RenderFileOrganizerPreview(stats);
+    }
+    else if (msgType === "FILE_ORGANIZER_RESULT") {
+        HandleFileOrganizerResult(stats);
+    }
+    else if (msgType === "FILE_ORGANIZER_NOTICE" || msgType === "FILE_ORGANIZER_ERROR") {
+        HandleFileOrganizerNotice(stats);
+    }
+    else if (msgType === "BROWSE_LOGFILE_RESULT") {
+        HandleDiagBrowseLogFiles(stats);
+    }
+    else if (msgType === "ULTIMADIAGX_REPORT") {
+        RenderUltimaDiagXReport(stats);
+    }
+    else if (msgType === "ULTIMADIAGX_CODE_TRANSLATION") {
+        RenderDiagXCodeTranslation(stats);
+    }
+    else if (msgType === "ULTIMADIAGX_DISCOVERED_LOGS") {
+        RenderDiagXDiscoveredLogs(stats);
+    }
+    else if (msgType === "ULTIMADIAGX_NOTICE") {
+        HandleDiagXNotice(stats);
     }
     else if (msgType === "SPEED_TEST_RESULTS") {
         RenderSpeedTestResults(stats);
@@ -506,26 +554,28 @@ function updateFastTelemetryMesh(stats) {
         SetDomText('lblCpuLoad', `${sys.CpuLoad}%`);
         SetDomStyleWidth('barCpuLoad', `${sys.CpuLoad}%`);
         if (sys.CpuClock) SetDomText('lblCpuClock', sys.CpuClock);
-        if (sys.CpuTemp !== undefined) {
-            SetDomText('lblCpuTemp', sys.CpuTemp);
+        if (sys.CpuTemp !== undefined && sys.CpuTemp !== null) {
+            const cpuTempNum = Number(sys.CpuTemp);
+            SetDomText('lblCpuTemp', Number.isFinite(cpuTempNum) ? cpuTempNum : sys.CpuTemp);
             const cpuBadge = document.getElementById('badgeCpuTemp');
             if (cpuBadge) {
-                cpuBadge.classList.toggle('therm-hot', sys.CpuTemp >= 75);
-                cpuBadge.classList.toggle('therm-cool', sys.CpuTemp < 75);
+                cpuBadge.classList.toggle('therm-hot', Number.isFinite(cpuTempNum) && cpuTempNum >= 75);
+                cpuBadge.classList.toggle('therm-cool', !Number.isFinite(cpuTempNum) || cpuTempNum < 75);
             }
         }
 
-        if (sys.GpuLoad !== undefined) {
+        if (sys.GpuLoad !== undefined && sys.GpuLoad !== null) {
             SetDomText('lblGpuLoad', `${sys.GpuLoad}%`);
             SetDomStyleWidth('barGpuLoad', `${sys.GpuLoad}%`);
         }
-        if (sys.GpuPower !== undefined) SetDomText('lblGpuPower', sys.GpuPower);
-        if (sys.GpuTemp !== undefined) {
-            SetDomText('lblGpuTemp', sys.GpuTemp);
+        if (sys.GpuPower !== undefined && sys.GpuPower !== null) SetDomText('lblGpuPower', sys.GpuPower);
+        if (sys.GpuTemp !== undefined && sys.GpuTemp !== null) {
+            const gpuTempNum = Number(sys.GpuTemp);
+            SetDomText('lblGpuTemp', Number.isFinite(gpuTempNum) ? gpuTempNum : sys.GpuTemp);
             const gpuBadge = document.getElementById('badgeGpuTemp');
             if (gpuBadge) {
-                gpuBadge.classList.toggle('therm-hot', sys.GpuTemp >= 75);
-                gpuBadge.classList.toggle('therm-cool', sys.GpuTemp < 75);
+                gpuBadge.classList.toggle('therm-hot', Number.isFinite(gpuTempNum) && gpuTempNum >= 75);
+                gpuBadge.classList.toggle('therm-cool', !Number.isFinite(gpuTempNum) || gpuTempNum < 75);
             }
         }
 
@@ -585,7 +635,7 @@ function updateDashboardUiMesh(stats) {
         SetDomText('lblAudioOutput',    infra.SoundCardIdentity);
         SetDomText('lblAudioInput',     infra.MicrophoneIdentity);
         RenderMonitorDeck(infra.Monitors);
-        const plan = stats.SystemFrame?.PowerPlan || "Unknown";
+        const plan = stats.SystemFrame?.PowerPlan || infra.PowerPlan || "Unknown";
         const powerPlanHtml = `<span style="cursor:pointer; text-decoration:underline dotted;" onclick="TriggerPowerPlanMenu()">${plan}</span>`;
         const planElem = document.getElementById('lblPowerPlan');
         if (planElem) planElem.innerHTML = powerPlanHtml;
@@ -609,16 +659,16 @@ function updateDashboardUiMesh(stats) {
             }
         }
 
-        SetDomText('lblRamUsage',       sys.RamUsageText);
+        SetDomText('lblRamUsage', sys.RamUsageText);
+        SetDomStyleWidth('barRamUsage', `${sys.RamPercent}%`);
+        SetDomText('lblPagefileUsage', sys.PagefileUsageText);
+        SetDomStyleWidth('barPagefileUsage', `${sys.PagefilePercent}%`);
+
+        const cpuTempNum = Number(sys.CpuTemp);
         const cpuBadge = document.getElementById('badgeCpuTemp');
         if (cpuBadge) {
-            if (sys.CpuTemp >= 75) {
-                cpuBadge.classList.add('therm-hot');
-                cpuBadge.classList.remove('therm-cool');
-            } else {
-                cpuBadge.classList.add('therm-cool');
-                cpuBadge.classList.remove('therm-hot');
-            }
+            cpuBadge.classList.toggle('therm-hot', Number.isFinite(cpuTempNum) && cpuTempNum >= 75);
+            cpuBadge.classList.toggle('therm-cool', !Number.isFinite(cpuTempNum) || cpuTempNum < 75);
         }
 
         SetDomText('lblGpuLoad',        `${sys.GpuLoad}%`);
@@ -628,21 +678,12 @@ function updateDashboardUiMesh(stats) {
         SetDomText('lblGpuPower',       sys.GpuPower);
         SetDomText('lblGpuTemp',        sys.GpuTemp);
 
+        const gpuTempNum = Number(sys.GpuTemp);
         const gpuBadge = document.getElementById('badgeGpuTemp');
         if (gpuBadge) {
-            if (sys.GpuTemp >= 75) {
-                gpuBadge.classList.add('therm-hot');
-                gpuBadge.classList.remove('therm-cool');
-            } else {
-                gpuBadge.classList.add('therm-cool');
-                gpuBadge.classList.remove('therm-hot');
-            }
+            gpuBadge.classList.toggle('therm-hot', Number.isFinite(gpuTempNum) && gpuTempNum >= 75);
+            gpuBadge.classList.toggle('therm-cool', !Number.isFinite(gpuTempNum) || gpuTempNum < 75);
         }
-
-        SetDomText('lblRamUsage',       sys.RamUsageText);
-        SetDomStyleWidth('barRamUsage', `${sys.RamPercent}%`);
-        SetDomText('lblPagefileUsage',       sys.PagefileUsageText);
-        SetDomStyleWidth('barPagefileUsage', `${sys.PagefilePercent}%`);
     }
 
     // --- NetworkFrame Mapping inside updateDashboardUiMesh ---
@@ -694,7 +735,7 @@ function updateDashboardUiMesh(stats) {
             });
             
             drives.forEach((drive) => {
-                const usedPercent = (drive.StorageUsedGB / drive.StorageTotalGB) * 100;
+                const usedPercent = drive.StorageTotalGB > 0 ? Math.min(100, Math.max(0, (drive.StorageUsedGB / drive.StorageTotalGB) * 100)) : 0;
                 const isRemovable = drive.DriveType === "Removable";
                 const fillColor = isRemovable ? "#9f7aea" : "#3182ce";
                 const labelColorClass = isRemovable ? "text-removable" : "text-local";
@@ -1307,59 +1348,72 @@ window.TriggerWorkgroupRename = function(oldName) {
     }
 };
 // =========================================================================
-// NATIVE FRAMELESS CHASSIS WINDOW INTEROP EVENTS
+// NATIVE FRAMELESS CHASSIS WINDOW INTEROP EVENTS (ALL-EDGE OS RESIZE & DRAG)
 // =========================================================================
 document.addEventListener("DOMContentLoaded", () => {
-    const headerDeck = document.querySelector('.app-header-deck');
-    if (headerDeck && window.chrome && window.chrome.webview) {
-        let isDragging = false;
-        let startX = 0, startY = 0;
+    const EDGE_THICKNESS = 7;
+    const CORNER_THICKNESS = 14;
 
-        headerDeck.addEventListener('mousedown', (e) => {
-            if (e.target.closest('.tab-btn') || e.target.closest('.exit-system-btn')) return;
-            isDragging = true;
-            startX = e.clientX;
-            startY = e.clientY;
-        });
+    // Maps pointer position to native Win32 HT* resize hit-test codes & CSS cursors
+    function DetectWindowEdgeHit(x, y) {
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+        const onLeft   = x <= EDGE_THICKNESS;
+        const onRight  = x >= (w - EDGE_THICKNESS);
+        const onTop    = y <= EDGE_THICKNESS;
+        const onBottom = y >= (h - EDGE_THICKNESS);
 
-        window.addEventListener('mousemove', (e) => {
-            if (!isDragging) return;
-            window.chrome.webview.postMessage(`Window-Drag:${startX}|${startY}`);
-        });
+        const inLeftCorner   = x <= CORNER_THICKNESS;
+        const inRightCorner  = x >= (w - CORNER_THICKNESS);
+        const inTopCorner    = y <= CORNER_THICKNESS;
+        const inBottomCorner = y >= (h - CORNER_THICKNESS);
 
-        window.addEventListener('mouseup', () => { isDragging = false; });
+        if ((onTop && inLeftCorner) || (onLeft && inTopCorner))       return { hit: 13, cursor: 'nw-resize' }; // HTTOPLEFT
+        if ((onTop && inRightCorner) || (onRight && inTopCorner))     return { hit: 14, cursor: 'ne-resize' }; // HTTOPRIGHT
+        if ((onBottom && inLeftCorner) || (onLeft && inBottomCorner)) return { hit: 16, cursor: 'sw-resize' }; // HTBOTTOMLEFT
+        if ((onBottom && inRightCorner) || (onRight && inBottomCorner)) return { hit: 17, cursor: 'se-resize' }; // HTBOTTOMRIGHT
+        if (onLeft)   return { hit: 10, cursor: 'w-resize' };  // HTLEFT
+        if (onRight)  return { hit: 11, cursor: 'e-resize' };  // HTRIGHT
+        if (onTop)    return { hit: 12, cursor: 'n-resize' };  // HTTOP
+        if (onBottom) return { hit: 15, cursor: 's-resize' };  // HTBOTTOM
+        return null;
     }
 
-    let isResizing = false;
-    const gripThickness = 12;
-    const MAX_WINDOW_WIDTH = 1080;
-    const MAX_WINDOW_HEIGHT = 1920;
-    const MIN_WINDOW_WIDTH = 640;
-    const MIN_WINDOW_HEIGHT = 720;
-
-    window.addEventListener('mousedown', (e) => {
-        if (window.innerWidth - e.clientX < gripThickness && window.innerHeight - e.clientY < gripThickness) {
-            isResizing = true;
+    const headerDeck = document.querySelector('.app-header-deck');
+    if (headerDeck && window.chrome && window.chrome.webview) {
+        headerDeck.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return;
+            if (DetectWindowEdgeHit(e.clientX, e.clientY)) return;
+            if (e.target.closest('.tab-btn') || e.target.closest('.exit-system-btn')) return;
             e.preventDefault();
-        }
-    });
+            window.chrome.webview.postMessage('Window-DragStart');
+        });
+
+        headerDeck.addEventListener('dblclick', (e) => {
+            if (e.target.closest('.tab-btn') || e.target.closest('.exit-system-btn')) return;
+            window.chrome.webview.postMessage('Maximize-App');
+        });
+    }
 
     window.addEventListener('mousemove', (e) => {
-        if (window.innerWidth - e.clientX < gripThickness && window.innerHeight - e.clientY < gripThickness) {
-            document.body.style.cursor = 'se-resize';
-        } else if (!isResizing) {
-            document.body.style.cursor = 'default';
-        }
-
-        if (!isResizing || !(window.chrome && window.chrome.webview)) return;
-        const targetW = Math.max(MIN_WINDOW_WIDTH, Math.min(MAX_WINDOW_WIDTH, Math.round(e.screenX - window.screenX)));
-        const targetH = Math.max(MIN_WINDOW_HEIGHT, Math.min(MAX_WINDOW_HEIGHT, Math.round(e.screenY - window.screenY)));
-        window.chrome.webview.postMessage(`Window-Resize:${targetW}|${targetH}`);
+        const edge = DetectWindowEdgeHit(e.clientX, e.clientY);
+        document.documentElement.style.cursor = edge ? edge.cursor : '';
+        document.body.style.cursor = edge ? edge.cursor : '';
     });
 
-    window.addEventListener('mouseup', () => {
-        isResizing = false;
-        document.body.style.cursor = 'default';
+    window.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        const edge = DetectWindowEdgeHit(e.clientX, e.clientY);
+        if (edge && window.chrome && window.chrome.webview) {
+            e.preventDefault();
+            e.stopPropagation();
+            window.chrome.webview.postMessage(`Window-ResizeHit:${edge.hit}`);
+        }
+    }, true);
+
+    window.addEventListener('mouseleave', () => {
+        document.documentElement.style.cursor = '';
+        document.body.style.cursor = '';
     });
 });
 window.TriggerTelemetryDisable = function() {
@@ -2058,3 +2112,1215 @@ function TriggerDeviceAction(command, dev, extra) {
         window.chrome.webview.postMessage(JSON.stringify(payload));
     }
 }
+
+// =========================================================================
+// VIEW 7: FILE ORGANIZER CONTROLLER
+// =========================================================================
+window._fileOrganizerLoaded = false;
+window._orgFolders = [];
+window._orgDefaultRules = [];
+window._orgMediaRules = [];
+window._orgExtOverrides = [];
+window._orgMode = 'media';
+
+const ORG_STORAGE_KEY = 'corewatch_file_organizer_v1';
+
+function SaveOrganizerConfig() {
+    try {
+        const customFolders = window._orgFolders.filter(f => f.isCustom).map(f => ({
+            id: f.id, label: f.label, icon: f.icon, path: f.path, selected: !!f.selected
+        }));
+        const selectedIds = window._orgFolders.filter(f => f.selected).map(f => f.path);
+        const cfg = {
+            mode: window._orgMode,
+            customFolders: customFolders,
+            selectedPaths: selectedIds,
+            mediaRules: window._orgMediaRules,
+            extOverrides: window._orgExtOverrides,
+            extTemplate: document.getElementById('orgExtTemplateInput')?.value || '{EXT}',
+            extFilter: document.getElementById('orgExtFilterInput')?.value || '',
+            destMode: document.querySelector('input[name="radOrgDestMode"]:checked')?.value || 'inplace',
+            unifiedRoot: document.getElementById('orgUnifiedRootInput')?.value || '',
+            recursive: !!document.getElementById('chkOrgRecursive')?.checked,
+            duplicateMode: document.getElementById('selOrgDuplicateMode')?.value || 'rename'
+        };
+        localStorage.setItem(ORG_STORAGE_KEY, JSON.stringify(cfg));
+    } catch {}
+}
+
+function LoadSavedOrganizerConfig() {
+    try {
+        const raw = localStorage.getItem(ORG_STORAGE_KEY);
+        return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+}
+
+window.RequestFileOrganizer = function() {
+    const status = document.getElementById('organizerStatus');
+    if (status) {
+        status.classList.remove('sharing-error');
+        status.textContent = 'Detecting Windows user folders and loading organizer state...';
+    }
+    if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage('Request-FileOrganizer');
+    }
+};
+
+window.BrowseOrganizerFolder = function(targetKey) {
+    if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage(`Browse-Folder:${targetKey}`);
+    }
+};
+
+function HandleBrowseFolderResult(data) {
+    if (!data || !data.path) return;
+    if (data.target === 'dest') {
+        const inp = document.getElementById('orgUnifiedRootInput');
+        if (inp) {
+            inp.value = data.path;
+            SaveOrganizerConfig();
+        }
+    } else if (data.target === 'diagfolder') {
+        AddDiagXExternalLogPath(data.path);
+    } else {
+        const inp = document.getElementById('orgCustomFolderInput');
+        if (inp) inp.value = data.path;
+        AddCustomOrganizerFolder();
+    }
+}
+
+function RenderFileOrganizerState(data) {
+    window._fileOrganizerLoaded = true;
+    const saved = LoadSavedOrganizerConfig();
+
+    const userFolders = Array.isArray(data.userFolders) ? data.userFolders : (data.userFolders ? [data.userFolders] : []);
+    const defaultRules = Array.isArray(data.defaultRules) ? data.defaultRules : (data.defaultRules ? [data.defaultRules] : []);
+    window._orgDefaultRules = defaultRules.map(r => Object.assign({}, r));
+
+    const savedPaths = saved && Array.isArray(saved.selectedPaths) ? new Set(saved.selectedPaths.map(p => p.toLowerCase())) : null;
+
+    const mergedFolders = userFolders.map(f => ({
+        id: f.id,
+        label: f.label,
+        icon: f.icon || '📁',
+        path: f.path,
+        exists: !!f.exists,
+        fileCount: f.fileCount ?? 0,
+        selected: savedPaths ? savedPaths.has((f.path || '').toLowerCase()) : !!f.defaultSelected,
+        isCustom: false
+    }));
+
+    if (saved && Array.isArray(saved.customFolders)) {
+        saved.customFolders.forEach(cf => {
+            if (cf && cf.path && !mergedFolders.some(x => x.path.toLowerCase() === cf.path.toLowerCase())) {
+                mergedFolders.push({
+                    id: cf.id || `custom_${Date.now()}_${Math.random()}`,
+                    label: cf.label || cf.path.split('\\').filter(Boolean).pop() || cf.path,
+                    icon: '📂',
+                    path: cf.path,
+                    exists: true,
+                    fileCount: null,
+                    selected: cf.selected !== false,
+                    isCustom: true
+                });
+            }
+        });
+    }
+    window._orgFolders = mergedFolders;
+
+    if (saved && Array.isArray(saved.mediaRules) && saved.mediaRules.length) {
+        window._orgMediaRules = saved.mediaRules.map(r => Object.assign({}, r));
+    } else {
+        window._orgMediaRules = defaultRules.map(r => Object.assign({}, r));
+    }
+
+    window._orgExtOverrides = (saved && Array.isArray(saved.extOverrides)) ? saved.extOverrides : [];
+
+    const rootInput = document.getElementById('orgUnifiedRootInput');
+    if (rootInput) {
+        rootInput.value = (saved && saved.unifiedRoot) ? saved.unifiedRoot : (data.defaultRoot || '');
+    }
+    if (saved) {
+        const extTpl = document.getElementById('orgExtTemplateInput');
+        if (extTpl && saved.extTemplate) extTpl.value = saved.extTemplate;
+        const extFlt = document.getElementById('orgExtFilterInput');
+        if (extFlt && saved.extFilter !== undefined) extFlt.value = saved.extFilter;
+        const recChk = document.getElementById('chkOrgRecursive');
+        if (recChk) recChk.checked = !!saved.recursive;
+        const dupSel = document.getElementById('selOrgDuplicateMode');
+        if (dupSel && saved.duplicateMode) dupSel.value = saved.duplicateMode;
+        const destRad = document.querySelector(`input[name="radOrgDestMode"][value="${saved.destMode || 'inplace'}"]`);
+        if (destRad) destRad.checked = true;
+        SetOrganizerMode(saved.mode === 'extension' ? 'extension' : 'media', true);
+    } else {
+        SetOrganizerMode('media', true);
+    }
+
+    OnOrganizerDestModeChange();
+    RenderOrganizerFolders();
+    RenderOrganizerMediaRules();
+    RenderOrganizerExtOverrides();
+    UpdateOrganizerUndoButton(!!data.undoAvailable, data.undoCount || 0);
+
+    const status = document.getElementById('organizerStatus');
+    if (status) {
+        status.classList.toggle('sharing-error', !!data.error);
+        status.textContent = data.error || 'Ready — choose folders and rules, then click Preview Plan (Dry Run).';
+    }
+}
+
+function UpdateOrganizerUndoButton(available, count) {
+    const btn = document.getElementById('btnOrgUndo');
+    if (!btn) return;
+    btn.disabled = !available;
+    btn.textContent = available ? `Undo Last Run (${count})` : 'Undo Last Run';
+}
+
+function RenderOrganizerFolders() {
+    const grid = document.getElementById('organizerFoldersGrid');
+    if (!grid) return;
+    grid.replaceChildren();
+
+    window._orgFolders.forEach((folder, idx) => {
+        const item = document.createElement('div');
+        item.className = `organizer-folder-chip${folder.selected ? ' selected' : ''}${!folder.exists ? ' missing' : ''}`;
+
+        const chk = document.createElement('input');
+        chk.type = 'checkbox';
+        chk.checked = !!folder.selected;
+        chk.disabled = !folder.exists;
+        chk.addEventListener('change', () => {
+            folder.selected = chk.checked;
+            item.classList.toggle('selected', folder.selected);
+            SaveOrganizerConfig();
+        });
+
+        const info = document.createElement('div');
+        info.className = 'org-folder-info';
+        const titleRow = document.createElement('div');
+        titleRow.className = 'org-folder-title';
+        const countBadge = folder.fileCount !== null && folder.fileCount !== undefined
+            ? `<span class="sharing-badge badge-info">${folder.fileCount} files</span>`
+            : '<span class="sharing-badge badge-neutral">Custom</span>';
+        titleRow.innerHTML = `<span>${folder.icon}</span> <strong>${folder.label}</strong> ${countBadge}`;
+
+        const pathRow = document.createElement('div');
+        pathRow.className = 'org-folder-path';
+        pathRow.textContent = folder.path;
+        pathRow.title = folder.path;
+
+        info.append(titleRow, pathRow);
+        info.addEventListener('click', () => {
+            if (!folder.exists) return;
+            chk.checked = !chk.checked;
+            folder.selected = chk.checked;
+            item.classList.toggle('selected', folder.selected);
+            SaveOrganizerConfig();
+        });
+
+        const btnGroup = document.createElement('div');
+        btnGroup.className = 'org-folder-btns';
+        if (folder.exists) {
+            const openBtn = document.createElement('button');
+            openBtn.type = 'button';
+            openBtn.className = 'org-mini-btn';
+            openBtn.title = 'Open folder in Explorer';
+            openBtn.textContent = '↗';
+            openBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                window.chrome?.webview?.postMessage(JSON.stringify({ command: 'OPEN_ORGANIZER_FOLDER', path: folder.path }));
+            });
+            btnGroup.appendChild(openBtn);
+        }
+        if (folder.isCustom) {
+            const rmBtn = document.createElement('button');
+            rmBtn.type = 'button';
+            rmBtn.className = 'org-mini-btn danger';
+            rmBtn.title = 'Remove custom folder';
+            rmBtn.textContent = '✕';
+            rmBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                window._orgFolders.splice(idx, 1);
+                SaveOrganizerConfig();
+                RenderOrganizerFolders();
+            });
+            btnGroup.appendChild(rmBtn);
+        }
+
+        item.append(chk, info, btnGroup);
+        grid.appendChild(item);
+    });
+}
+
+window.ToggleAllOrganizerFolders = function(selectAll) {
+    window._orgFolders.forEach(f => {
+        if (f.exists) f.selected = selectAll;
+    });
+    SaveOrganizerConfig();
+    RenderOrganizerFolders();
+};
+
+window.AddCustomOrganizerFolder = function() {
+    const inp = document.getElementById('orgCustomFolderInput');
+    if (!inp) return;
+    const raw = inp.value.trim().replace(/\\+$/, '');
+    if (!raw) return;
+
+    if (window._orgFolders.some(f => f.path.toLowerCase() === raw.toLowerCase())) {
+        const status = document.getElementById('organizerStatus');
+        if (status) status.textContent = `Folder is already in the list: ${raw}`;
+        inp.value = '';
+        return;
+    }
+
+    const leaf = raw.split('\\').filter(Boolean).pop() || raw;
+    window._orgFolders.push({
+        id: `custom_${Date.now()}`,
+        label: leaf,
+        icon: '📂',
+        path: raw,
+        exists: true,
+        fileCount: null,
+        selected: true,
+        isCustom: true
+    });
+    inp.value = '';
+    SaveOrganizerConfig();
+    RenderOrganizerFolders();
+};
+
+window.OnOrganizerDestModeChange = function() {
+    const mode = document.querySelector('input[name="radOrgDestMode"]:checked')?.value || 'inplace';
+    const row = document.getElementById('orgUnifiedRootRow');
+    if (row) row.style.display = mode === 'unified' ? 'flex' : 'none';
+    SaveOrganizerConfig();
+};
+
+window.SetOrganizerMode = function(mode, skipSave) {
+    window._orgMode = mode === 'extension' ? 'extension' : 'media';
+    document.getElementById('btnModeMedia')?.classList.toggle('active', window._orgMode === 'media');
+    document.getElementById('btnModeExt')?.classList.toggle('active', window._orgMode === 'extension');
+
+    const mediaPanel = document.getElementById('orgMediaRulesPanel');
+    const extPanel = document.getElementById('orgExtensionRulesPanel');
+    if (mediaPanel) mediaPanel.style.display = window._orgMode === 'media' ? 'block' : 'none';
+    if (extPanel) extPanel.style.display = window._orgMode === 'extension' ? 'block' : 'none';
+    if (!skipSave) SaveOrganizerConfig();
+};
+
+function RenderOrganizerMediaRules() {
+    const list = document.getElementById('orgMediaRulesList');
+    if (!list) return;
+    list.replaceChildren();
+
+    window._orgMediaRules.forEach((rule, idx) => {
+        const row = document.createElement('div');
+        row.className = `organizer-rule-row${rule.enabled ? '' : ' disabled'}`;
+
+        const chk = document.createElement('input');
+        chk.type = 'checkbox';
+        chk.checked = !!rule.enabled;
+        chk.addEventListener('change', () => {
+            rule.enabled = chk.checked;
+            row.classList.toggle('disabled', !rule.enabled);
+            SaveOrganizerConfig();
+        });
+
+        const labelEl = document.createElement('span');
+        labelEl.className = 'org-rule-label';
+        labelEl.textContent = rule.label || rule.folderName;
+
+        const folderInp = document.createElement('input');
+        folderInp.type = 'text';
+        folderInp.className = 'org-rule-input';
+        folderInp.value = rule.folderName || '';
+        folderInp.placeholder = 'Target folder name';
+        folderInp.addEventListener('input', () => {
+            rule.folderName = folderInp.value;
+            SaveOrganizerConfig();
+        });
+
+        const extInp = document.createElement('input');
+        extInp.type = 'text';
+        extInp.className = 'org-rule-input';
+        extInp.value = rule.extensions || '';
+        extInp.placeholder = '.ext1, .ext2';
+        extInp.addEventListener('input', () => {
+            rule.extensions = extInp.value;
+            SaveOrganizerConfig();
+        });
+
+        const delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.className = 'org-mini-btn danger';
+        delBtn.title = 'Remove rule';
+        delBtn.textContent = '✕';
+        delBtn.addEventListener('click', () => {
+            window._orgMediaRules.splice(idx, 1);
+            SaveOrganizerConfig();
+            RenderOrganizerMediaRules();
+        });
+
+        row.append(chk, labelEl, folderInp, extInp, delBtn);
+        list.appendChild(row);
+    });
+}
+
+window.AddCustomMediaRule = function() {
+    const labelInp = document.getElementById('orgNewRuleLabel');
+    const folderInp = document.getElementById('orgNewRuleFolder');
+    const extsInp = document.getElementById('orgNewRuleExts');
+    const label = (labelInp?.value || '').trim();
+    const folder = (folderInp?.value || '').trim() || label;
+    const exts = (extsInp?.value || '').trim();
+    if (!folder || !exts) {
+        return alert('Enter a target folder name and at least one file extension (e.g. .stl, .obj).');
+    }
+
+    window._orgMediaRules.push({
+        id: `custom_rule_${Date.now()}`,
+        label: label || folder,
+        folderName: folder,
+        enabled: true,
+        extensions: exts
+    });
+    if (labelInp) labelInp.value = '';
+    if (folderInp) folderInp.value = '';
+    if (extsInp) extsInp.value = '';
+    SaveOrganizerConfig();
+    RenderOrganizerMediaRules();
+};
+
+function RenderOrganizerExtOverrides() {
+    const list = document.getElementById('orgExtOverridesList');
+    if (!list) return;
+    list.replaceChildren();
+
+    if (!window._orgExtOverrides.length) {
+        const hint = document.createElement('div');
+        hint.className = 'driver-text-node';
+        hint.textContent = 'No custom extension overrides — all extensions will use the Folder Name Pattern above (e.g. .pdf → PDF).';
+        list.appendChild(hint);
+        return;
+    }
+
+    window._orgExtOverrides.forEach((ov, idx) => {
+        const chip = document.createElement('div');
+        chip.className = 'org-override-chip';
+        chip.innerHTML = `<code>${ov.extension}</code> <span>→</span> <strong>${ov.folderName}</strong>`;
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'org-mini-btn danger';
+        del.textContent = '✕';
+        del.addEventListener('click', () => {
+            window._orgExtOverrides.splice(idx, 1);
+            SaveOrganizerConfig();
+            RenderOrganizerExtOverrides();
+        });
+        chip.appendChild(del);
+        list.appendChild(chip);
+    });
+}
+
+window.AddExtensionOverride = function() {
+    const extInp = document.getElementById('orgNewOverrideExt');
+    const folderInp = document.getElementById('orgNewOverrideFolder');
+    let ext = (extInp?.value || '').trim().toLowerCase();
+    const folder = (folderInp?.value || '').trim();
+    if (!ext || !folder) return alert('Enter both a file extension (e.g. .pdf) and a target folder name.');
+    if (!ext.startsWith('.')) ext = `.${ext}`;
+
+    const existing = window._orgExtOverrides.find(o => o.extension === ext);
+    if (existing) existing.folderName = folder;
+    else window._orgExtOverrides.push({ extension: ext, folderName: folder });
+
+    if (extInp) extInp.value = '';
+    if (folderInp) folderInp.value = '';
+    SaveOrganizerConfig();
+    RenderOrganizerExtOverrides();
+};
+
+window.ResetOrganizerDefaults = function() {
+    if (!confirm('Reset File Organizer folders, media rules, and folder names back to defaults?')) return;
+    try { localStorage.removeItem(ORG_STORAGE_KEY); } catch {}
+    window._fileOrganizerLoaded = false;
+    RequestFileOrganizer();
+};
+
+function CollectOrganizerPayload(command) {
+    const selectedFolders = window._orgFolders.filter(f => f.selected && f.exists).map(f => f.path);
+    const destMode = document.querySelector('input[name="radOrgDestMode"]:checked')?.value || 'inplace';
+    return {
+        command: command,
+        folders: selectedFolders,
+        mode: window._orgMode,
+        destMode: destMode,
+        unifiedRoot: document.getElementById('orgUnifiedRootInput')?.value.trim() || '',
+        includeSubfolders: !!document.getElementById('chkOrgRecursive')?.checked,
+        duplicateMode: document.getElementById('selOrgDuplicateMode')?.value || 'rename',
+        mediaRules: window._orgMediaRules,
+        extFolderTemplate: document.getElementById('orgExtTemplateInput')?.value.trim() || '{EXT}',
+        extFilter: document.getElementById('orgExtFilterInput')?.value.trim() || '',
+        extOverrides: window._orgExtOverrides
+    };
+}
+
+window.TriggerOrganizePreview = function() {
+    SaveOrganizerConfig();
+    const payload = CollectOrganizerPayload('PREVIEW_ORGANIZE');
+    if (!payload.folders.length) {
+        return alert('Please select at least one folder to organize.');
+    }
+    const status = document.getElementById('organizerStatus');
+    if (status) {
+        status.classList.remove('sharing-error');
+        status.textContent = `Scanning ${payload.folders.length} folder(s) for dry-run preview...`;
+    }
+    window.chrome?.webview?.postMessage(JSON.stringify(payload));
+};
+
+window.TriggerOrganizeExecute = function() {
+    SaveOrganizerConfig();
+    const payload = CollectOrganizerPayload('EXECUTE_ORGANIZE');
+    if (!payload.folders.length) {
+        return alert('Please select at least one folder to organize.');
+    }
+    const destDesc = payload.destMode === 'unified'
+        ? `Unified Root: ${payload.unifiedRoot}`
+        : 'Subfolders inside each selected folder';
+    if (!confirm(`Organize files across ${payload.folders.length} folder(s)?\n\nMode: ${payload.mode === 'media' ? 'By Media Type' : 'By File Extension'}\nDestination: ${destDesc}\n\n(You can use Undo Last Run afterward if needed.)`)) {
+        return;
+    }
+    const status = document.getElementById('organizerStatus');
+    if (status) {
+        status.classList.remove('sharing-error');
+        status.textContent = 'Organizing files... Please wait.';
+    }
+    AppendConsoleLogEntry(`[ORGANIZER] Running organization (${payload.mode}) across ${payload.folders.length} folder(s)...`);
+    window.chrome?.webview?.postMessage(JSON.stringify(payload));
+};
+
+window.TriggerUndoOrganize = function() {
+    if (!confirm('Undo the last File Organizer run and move files back to their original folders?')) return;
+    const status = document.getElementById('organizerStatus');
+    if (status) {
+        status.classList.remove('sharing-error');
+        status.textContent = 'Restoring files from last run...';
+    }
+    AppendConsoleLogEntry('[ORGANIZER] Undoing last file organization run...');
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'UNDO_ORGANIZE' }));
+};
+
+function FormatBytesCompact(bytes) {
+    const n = Number(bytes || 0);
+    if (n >= 1073741824) return `${(n / 1073741824).toFixed(2)} GB`;
+    if (n >= 1048576) return `${(n / 1048576).toFixed(1)} MB`;
+    if (n >= 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${n} B`;
+}
+
+function RenderFileOrganizerPreview(data) {
+    const status = document.getElementById('organizerStatus');
+    const summaryEl = document.getElementById('organizerPreviewSummary');
+    const breakdownEl = document.getElementById('organizerBreakdownStrip');
+    const listEl = document.getElementById('organizerPreviewContainer');
+
+    if (status) {
+        status.classList.toggle('sharing-error', !!data.error);
+        status.textContent = data.error || data.message || 'Preview ready.';
+    }
+    if (summaryEl) summaryEl.style.display = 'flex';
+    SetDomText('sumOrgMatched', data.matchedCount ?? 0);
+    SetDomText('sumOrgSize', `${data.totalMB ?? 0} MB`);
+    const breakdown = Array.isArray(data.targetBreakdown) ? data.targetBreakdown : (data.targetBreakdown ? [data.targetBreakdown] : []);
+    SetDomText('sumOrgTargets', breakdown.length);
+    SetDomText('sumOrgSkipped', data.skippedCount ?? 0);
+
+    if (breakdownEl) {
+        breakdownEl.replaceChildren();
+        if (breakdown.length) {
+            breakdownEl.style.display = 'flex';
+            breakdown.forEach(b => {
+                const pill = document.createElement('span');
+                pill.className = 'org-breakdown-pill';
+                pill.textContent = `${b.destDir} (${b.count})`;
+                pill.title = b.destDir;
+                breakdownEl.appendChild(pill);
+            });
+        } else {
+            breakdownEl.style.display = 'none';
+        }
+    }
+
+    if (!listEl) return;
+    listEl.replaceChildren();
+
+    const items = Array.isArray(data.items) ? data.items : (data.items ? [data.items] : []);
+    if (!items.length) {
+        const empty = document.createElement('div');
+        empty.className = 'driver-text-node';
+        empty.textContent = 'No files matched your active rules (everything is already organized or no matching extensions found).';
+        listEl.appendChild(empty);
+        return;
+    }
+
+    const frag = document.createDocumentFragment();
+    items.forEach(item => {
+        const row = document.createElement('div');
+        row.className = 'org-preview-row';
+
+        const top = document.createElement('div');
+        top.className = 'org-preview-top';
+        const fileEl = document.createElement('strong');
+        fileEl.textContent = item.fileName;
+        const metaEl = document.createElement('span');
+        metaEl.className = 'org-preview-meta';
+        metaEl.innerHTML = `<span class="sharing-badge badge-info">${item.ruleLabel}</span> <span class="org-size-text">${FormatBytesCompact(item.sizeBytes)}</span>${item.renamed ? ' <span class="sharing-badge badge-purple">Renamed</span>' : ''}`;
+        top.append(fileEl, metaEl);
+
+        const movePath = document.createElement('div');
+        movePath.className = 'org-preview-paths';
+        movePath.textContent = `${item.sourceDir}  →  ${item.destPath}`;
+        movePath.title = `${item.sourcePath} -> ${item.destPath}`;
+
+        row.append(top, movePath);
+        frag.appendChild(row);
+    });
+
+    if (data.truncated) {
+        const note = document.createElement('div');
+        note.className = 'driver-text-node';
+        note.style.padding = '6px';
+        note.textContent = `Showing first ${items.length} of ${data.matchedCount} matched files.`;
+        frag.appendChild(note);
+    }
+
+    listEl.appendChild(frag);
+}
+
+function HandleFileOrganizerResult(data) {
+    const status = document.getElementById('organizerStatus');
+    if (status) {
+        status.classList.toggle('sharing-error', !!data.error);
+        status.textContent = data.error || data.message || 'Organization complete.';
+    }
+    if (data.message) AppendConsoleLogEntry(`[ORGANIZER] ${data.message}`);
+    if (data.error) AppendConsoleLogEntry(`[ORGANIZER ERROR] ${data.error}`);
+
+    UpdateOrganizerUndoButton(!!data.undoAvailable, data.undoCount || 0);
+
+    // Refresh live folder file counts if returned
+    if (Array.isArray(data.userFolders)) {
+        data.userFolders.forEach(fresh => {
+            const match = window._orgFolders.find(f => f.path.toLowerCase() === (fresh.path || '').toLowerCase());
+            if (match) match.fileCount = fresh.fileCount;
+        });
+        RenderOrganizerFolders();
+    }
+
+    const listEl = document.getElementById('organizerPreviewContainer');
+    const summaryEl = document.getElementById('organizerPreviewSummary');
+    const breakdownEl = document.getElementById('organizerBreakdownStrip');
+    if (summaryEl) summaryEl.style.display = 'none';
+    if (breakdownEl) breakdownEl.style.display = 'none';
+    if (listEl) {
+        listEl.replaceChildren();
+        const card = document.createElement('div');
+        card.className = 'org-result-banner';
+        card.textContent = data.message || 'Completed.';
+        listEl.appendChild(card);
+
+        const errs = Array.isArray(data.errors) ? data.errors : [];
+        if (errs.length) {
+            const errBox = document.createElement('div');
+            errBox.className = 'sharing-error';
+            errBox.style.fontSize = '11px';
+            errBox.style.marginTop = '6px';
+            errBox.textContent = 'Errors: ' + errs.join(' | ');
+            listEl.appendChild(errBox);
+        }
+    }
+}
+
+function HandleFileOrganizerNotice(data) {
+    const status = document.getElementById('organizerStatus');
+    if (status) {
+        status.classList.toggle('sharing-error', !!data.error);
+        status.textContent = data.error || data.message || '';
+    }
+    if (data.error) AppendConsoleLogEntry(`[ORGANIZER ERROR] ${data.error}`);
+}
+
+// =========================================================================
+// VIEW 8: ULTIMADIAGX - THE ULTIMATE DIAGNOSTIC LOGGING TOOL CONTROLLER
+// =========================================================================
+window._ultimaDiagXLoaded = false;
+window._diagXReport = null;
+window._diagXEventsCache = [];
+window._diagXSeverityFilter = 'all';
+window._diagXSubsystemFilter = 'all';
+window._diagXExternalLogs = [];
+window._diagXLiveTimer = null;
+window._diagXLastTopEpoch = 0;
+
+const DIAGX_STORAGE_KEY = 'corewatch_ultimadiagx_extlogs_v1';
+
+function LoadDiagXExternalLogs() {
+    try {
+        const raw = localStorage.getItem(DIAGX_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? parsed : [];
+    } catch { return []; }
+}
+
+function SaveDiagXExternalLogs() {
+    try {
+        localStorage.setItem(DIAGX_STORAGE_KEY, JSON.stringify(window._diagXExternalLogs));
+    } catch {}
+}
+
+window.InitUltimaDiagX = function() {
+    window._diagXExternalLogs = LoadDiagXExternalLogs();
+    RenderDiagXExternalLogChips();
+    RunUltimaDiagXScan();
+};
+
+window.RunUltimaDiagXScan = function(isLivePoll) {
+    const hoursBack = parseInt(document.getElementById('selDiagHoursBack')?.value || '24', 10);
+    const includeWarnings = !!document.getElementById('chkDiagIncludeWarnings')?.checked;
+    const status = document.getElementById('diagXStatus');
+    if (status && !isLivePoll) {
+        status.classList.remove('sharing-error');
+        status.textContent = `Scanning native Windows event channels + ${window._diagXExternalLogs.length} external log source(s) (last ${hoursBack}h)...`;
+    }
+    window.chrome?.webview?.postMessage(JSON.stringify({
+        command: 'RUN_DIAGNOSTIC',
+        hoursBack: hoursBack,
+        includeWarnings: includeWarnings,
+        externalLogs: window._diagXExternalLogs
+    }));
+};
+
+window.ToggleDiagXLiveWatch = function() {
+    const btn = document.getElementById('btnDiagLiveWatch');
+    if (window._diagXLiveTimer) {
+        clearInterval(window._diagXLiveTimer);
+        window._diagXLiveTimer = null;
+        if (btn) {
+            btn.textContent = 'Live Watch: OFF';
+            btn.classList.remove('diagx-live-active');
+        }
+        AppendConsoleLogEntry('[ULTIMADIAGX] Live Watch paused.');
+    } else {
+        window._diagXLiveTimer = setInterval(() => {
+            RunUltimaDiagXScan(true);
+        }, 12000);
+        if (btn) {
+            btn.textContent = 'Live Watch: ON (12s)';
+            btn.classList.add('diagx-live-active');
+        }
+        AppendConsoleLogEntry('[ULTIMADIAGX] Live Watch active — polling diagnostic channels every 12s.');
+        RunUltimaDiagXScan(true);
+    }
+};
+
+window.ExportDiagXReport = function() {
+    const hoursBack = parseInt(document.getElementById('selDiagHoursBack')?.value || '24', 10);
+    const includeWarnings = !!document.getElementById('chkDiagIncludeWarnings')?.checked;
+    const status = document.getElementById('diagXStatus');
+    if (status) status.textContent = 'Generating consolidated UltimaDiagX Markdown report on Desktop...';
+    window.chrome?.webview?.postMessage(JSON.stringify({
+        command: 'EXPORT_DIAG_REPORT',
+        hoursBack: hoursBack,
+        includeWarnings: includeWarnings,
+        externalLogs: window._diagXExternalLogs
+    }));
+};
+
+window.OpenNativeEventViewer = function() {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'OPEN_EVENT_VIEWER' }));
+};
+
+window.OpenNativeReliabilityMonitor = function() {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'OPEN_RELIABILITY_MONITOR' }));
+};
+
+window.BrowseDiagLogFile = function() {
+    window.chrome?.webview?.postMessage('Browse-LogFile');
+};
+
+window.DiscoverCommonDiagLogs = function() {
+    const box = document.getElementById('diagXDiscoveredLogsBox');
+    if (box) {
+        box.style.display = 'block';
+        box.textContent = 'Scanning PC for common Windows & third-party log files...';
+    }
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'DISCOVER_APP_LOGS' }));
+};
+
+function HandleDiagBrowseLogFiles(data) {
+    const paths = Array.isArray(data?.paths) ? data.paths : (data?.paths ? [data.paths] : []);
+    let added = 0;
+    paths.forEach(p => {
+        if (AddDiagXExternalLogPath(p, true)) added++;
+    });
+    if (added > 0) {
+        SaveDiagXExternalLogs();
+        RenderDiagXExternalLogChips();
+        RunUltimaDiagXScan();
+    }
+}
+
+window.AddDiagXExternalLogFromInput = function() {
+    const inp = document.getElementById('diagXExternalLogInput');
+    if (!inp) return;
+    const val = inp.value.trim();
+    if (!val) return;
+    if (AddDiagXExternalLogPath(val)) {
+        inp.value = '';
+    }
+};
+
+function AddDiagXExternalLogPath(pathStr, skipRefresh) {
+    const cleaned = (pathStr || '').trim().replace(/^"|"$/g, '');
+    if (!cleaned) return false;
+    if (window._diagXExternalLogs.some(p => p.toLowerCase() === cleaned.toLowerCase())) {
+        return false;
+    }
+    window._diagXExternalLogs.push(cleaned);
+    if (!skipRefresh) {
+        SaveDiagXExternalLogs();
+        RenderDiagXExternalLogChips();
+        RunUltimaDiagXScan();
+    }
+    return true;
+}
+
+function RenderDiagXExternalLogChips() {
+    const container = document.getElementById('diagXExternalLogChips');
+    if (!container) return;
+    container.replaceChildren();
+
+    if (!window._diagXExternalLogs.length) {
+        const empty = document.createElement('div');
+        empty.className = 'driver-text-node';
+        empty.textContent = 'No external program logs attached yet. Click Auto-Discover Logs or Browse File/Folder to merge app logs.';
+        container.appendChild(empty);
+        return;
+    }
+
+    const scannedMap = new Map();
+    const extSources = window._diagXReport?.externalSources || [];
+    (Array.isArray(extSources) ? extSources : [extSources]).forEach(s => {
+        if (s && s.path) scannedMap.set(s.path.toLowerCase(), s);
+    });
+
+    window._diagXExternalLogs.forEach((p, idx) => {
+        const chip = document.createElement('div');
+        chip.className = 'org-override-chip';
+        const info = scannedMap.get(p.toLowerCase());
+        const badgeHtml = info
+            ? (info.status === 'Missing'
+                ? '<span class="sharing-badge badge-danger">Missing</span>'
+                : `<span class="sharing-badge badge-info">${info.matched} hits</span>`)
+            : '';
+        const shortName = p.split('\\').filter(Boolean).slice(-2).join('\\') || p;
+        chip.innerHTML = `<strong title="${p}">${shortName}</strong> ${badgeHtml}`;
+
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'org-mini-btn danger';
+        del.textContent = '✕';
+        del.addEventListener('click', () => {
+            window._diagXExternalLogs.splice(idx, 1);
+            SaveDiagXExternalLogs();
+            RenderDiagXExternalLogChips();
+            RunUltimaDiagXScan();
+        });
+        chip.appendChild(del);
+        container.appendChild(chip);
+    });
+}
+
+function RenderDiagXDiscoveredLogs(data) {
+    const box = document.getElementById('diagXDiscoveredLogsBox');
+    if (!box) return;
+    box.style.display = 'block';
+    box.replaceChildren();
+
+    const logs = Array.isArray(data.logs) ? data.logs : (data.logs ? [data.logs] : []);
+    if (!logs.length) {
+        box.textContent = 'No standard external log files were detected in default paths.';
+        return;
+    }
+
+    const title = document.createElement('div');
+    title.className = 'organizer-sub-heading';
+    title.textContent = `Discovered System & Program Logs (${logs.length}) — click to attach:`;
+    box.appendChild(title);
+
+    const wrap = document.createElement('div');
+    wrap.className = 'organizer-overrides-list';
+    logs.forEach(item => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'filter-pill';
+        btn.textContent = `+ ${item.label}`;
+        btn.title = item.path;
+        btn.addEventListener('click', () => {
+            AddDiagXExternalLogPath(item.path);
+            btn.disabled = true;
+            btn.textContent = `✓ ${item.label}`;
+        });
+        wrap.appendChild(btn);
+    });
+    box.appendChild(wrap);
+}
+
+function RenderUltimaDiagXReport(data) {
+    window._ultimaDiagXLoaded = true;
+    const status = document.getElementById('diagXStatus');
+
+    if (data.error) {
+        if (status) {
+            status.classList.add('sharing-error');
+            status.textContent = `Diagnostic scan error: ${data.error}`;
+        }
+        return;
+    }
+
+    window._diagXReport = data;
+    const events = Array.isArray(data.events) ? data.events : (data.events ? [data.events] : []);
+
+    // Detect brand new critical/error events during Live Watch
+    if (window._diagXLastTopEpoch > 0 && events.length > 0) {
+        const newAlerts = events.filter(e => e.epochMs > window._diagXLastTopEpoch && (e.severity === 'Critical' || e.severity === 'Error') && !e.isBenign);
+        newAlerts.forEach(ev => {
+            ev._isLiveNew = true;
+            AppendConsoleLogEntry(`[ULTIMADIAGX LIVE ALERT] [${ev.severity}] ${ev.provider} (ID ${ev.eventId}): ${ev.translation || ev.message}`);
+        });
+    }
+    if (events.length > 0) {
+        window._diagXLastTopEpoch = Math.max(window._diagXLastTopEpoch, events[0].epochMs || 0);
+    }
+
+    window._diagXEventsCache = events;
+
+    // Score & Grade Banner
+    SetDomText('lblDiagScore', data.healthScore ?? '--');
+    SetDomText('lblDiagGrade', data.healthGrade || 'UNKNOWN');
+    SetDomText('lblDiagSynopsisText', data.executiveSummary || '');
+    SetDomText('lblDiagReliability', data.reliabilityIndex !== null && data.reliabilityIndex !== undefined ? `Windows Reliability Index: ${data.reliabilityIndex} / 10` : 'Reliability Index: N/A');
+    SetDomText('diagXLastScanStamp', `Last scan: ${data.generatedAt || 'now'}`);
+
+    const scoreBox = document.getElementById('diagXScoreBox');
+    if (scoreBox) {
+        scoreBox.className = 'diagx-score-box';
+        const g = (data.healthGrade || '').toLowerCase();
+        if (g === 'healthy') scoreBox.classList.add('grade-healthy');
+        else if (g === 'advisory') scoreBox.classList.add('grade-advisory');
+        else if (g === 'degraded') scoreBox.classList.add('grade-degraded');
+        else scoreBox.classList.add('grade-critical');
+    }
+
+    const c = data.counts || {};
+    SetDomText('sumDiagTotal',    c.total ?? events.length);
+    SetDomText('sumDiagCritical', c.critical ?? 0);
+    SetDomText('sumDiagErrors',   c.errors ?? 0);
+    SetDomText('sumDiagWarnings', c.warnings ?? 0);
+    SetDomText('sumDiagExternal', c.external ?? 0);
+    SetDomText('sumDiagWer',      data.werRecent7d ?? 0);
+
+    // Subsystem Health Matrix (clickable to filter timeline!)
+    const subGrid = document.getElementById('diagXSubsystemsGrid');
+    if (subGrid) {
+        subGrid.replaceChildren();
+        const subs = Array.isArray(data.subsystems) ? data.subsystems : [];
+        subs.forEach(s => {
+            const tile = document.createElement('button');
+            tile.type = 'button';
+            const stClass = s.status === 'CRITICAL' ? 'sub-crit' : (s.status === 'WARN' ? 'sub-warn' : 'sub-ok');
+            tile.className = `diagx-sub-tile ${stClass}${window._diagXSubsystemFilter === s.name ? ' active' : ''}`;
+            tile.innerHTML = `
+                <div class="diagx-sub-top">
+                    <span>${s.icon} ${s.name}</span>
+                    <span class="sharing-badge ${s.status === 'CRITICAL' ? 'badge-danger' : (s.status === 'WARN' ? 'badge-purple' : 'badge-success')}">${s.status}</span>
+                </div>
+                <div class="diagx-sub-counts">Crit: <strong>${s.critical}</strong> · Err: <strong>${s.errors}</strong> · Warn: <strong>${s.warnings}</strong></div>
+            `;
+            tile.addEventListener('click', () => {
+                window._diagXSubsystemFilter = (window._diagXSubsystemFilter === s.name) ? 'all' : s.name;
+                RenderUltimaDiagXReportSubHighlight();
+                ApplyDiagXEventFilter();
+            });
+            subGrid.appendChild(tile);
+        });
+    }
+
+    // Detected Findings & Actionable Recommendations
+    const findSec = document.getElementById('diagXFindingsSection');
+    const findList = document.getElementById('diagXFindingsList');
+    const findings = Array.isArray(data.findings) ? data.findings : (data.findings ? [data.findings] : []);
+    if (findSec && findList) {
+        findList.replaceChildren();
+        if (findings.length) {
+            findSec.style.display = 'block';
+            findings.forEach(f => {
+                const card = document.createElement('div');
+                card.className = `diagx-finding-card ${f.severity === 'CRITICAL' ? 'find-crit' : 'find-warn'}`;
+                card.innerHTML = `
+                    <div class="diagx-finding-head">
+                        <strong>${f.title}</strong>
+                        <span class="sharing-badge ${f.severity === 'CRITICAL' ? 'badge-danger' : 'badge-purple'}">${f.severity} · ${f.count}x</span>
+                    </div>
+                    <div class="diagx-finding-desc">${f.explanation}</div>
+                    <div class="diagx-finding-fix">💡 <strong>Action:</strong> ${f.recommendation}</div>
+                `;
+                findList.appendChild(card);
+            });
+        } else {
+            findSec.style.display = 'none';
+        }
+    }
+
+    // Crash Dumps
+    const dumpList = document.getElementById('diagXDumpsList');
+    if (dumpList) {
+        dumpList.replaceChildren();
+        const dumps = Array.isArray(data.crashDumps) ? data.crashDumps : (data.crashDumps ? [data.crashDumps] : []);
+        if (!dumps.length) {
+            dumpList.innerHTML = '<div class="driver-text-node" style="color:#48bb78;">✓ No BSOD minidumps or app crash dumps found.</div>';
+        } else {
+            dumps.forEach(d => {
+                const row = document.createElement('div');
+                row.className = 'diagx-mini-row';
+                const left = document.createElement('div');
+                left.innerHTML = `<strong>${d.name}</strong> <span class="sharing-badge badge-danger">${d.sizeMB} MB</span><div class="org-folder-path">${d.kind} · ${d.timestamp}</div>`;
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'org-mini-btn';
+                btn.textContent = 'Locate';
+                btn.addEventListener('click', () => {
+                    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'OPEN_DUMP_LOCATION', path: d.path }));
+                });
+                row.append(left, btn);
+                dumpList.appendChild(row);
+            });
+        }
+    }
+
+    // Top Recurring Fault Signatures
+    const recList = document.getElementById('diagXRecurringList');
+    if (recList) {
+        recList.replaceChildren();
+        const recs = Array.isArray(data.topRecurring) ? data.topRecurring : (data.topRecurring ? [data.topRecurring] : []);
+        if (!recs.length) {
+            recList.innerHTML = '<div class="driver-text-node" style="color:#48bb78;">✓ No recurring fault patterns detected.</div>';
+        } else {
+            recs.forEach(r => {
+                const row = document.createElement('div');
+                row.className = 'diagx-mini-row';
+                row.innerHTML = `
+                    <div style="min-width:0; flex:1;">
+                        <strong>${r.provider}</strong> <span class="sharing-badge badge-info">ID ${r.eventId}</span> <span class="sharing-badge ${r.severity === 'Critical' ? 'badge-danger' : 'badge-purple'}">${r.count}x</span>
+                        <div class="org-folder-path" title="${r.summary}">${r.summary}</div>
+                    </div>
+                `;
+                recList.appendChild(row);
+            });
+        }
+    }
+
+    RenderDiagXExternalLogChips();
+
+    if (status) {
+        status.classList.remove('sharing-error');
+        status.textContent = `Scan complete: ${c.total ?? events.length} events across ${c.channels ?? 0} Windows channels (Health: ${data.healthScore}/100 ${data.healthGrade}).`;
+    }
+
+    ApplyDiagXEventFilter();
+}
+
+function RenderUltimaDiagXReportSubHighlight() {
+    document.querySelectorAll('#diagXSubsystemsGrid .diagx-sub-tile').forEach(btn => {
+        const label = btn.querySelector('.diagx-sub-top span')?.textContent || '';
+        const isActive = window._diagXSubsystemFilter !== 'all' && label.includes(window._diagXSubsystemFilter);
+        btn.classList.toggle('active', isActive);
+    });
+}
+
+window.SetDiagXSeverityFilter = function(sev) {
+    window._diagXSeverityFilter = sev;
+    document.querySelectorAll('#diagXSeverityPills .filter-pill').forEach(b => {
+        b.classList.toggle('active', b.dataset.sev === sev);
+    });
+    ApplyDiagXEventFilter();
+};
+
+window.ApplyDiagXEventFilter = function() {
+    const container = document.getElementById('diagXEventsContainer');
+    if (!container) return;
+
+    const query = (document.getElementById('diagXSearchInput')?.value || '').trim().toLowerCase();
+    const hideBenign = !!document.getElementById('chkDiagHideBenign')?.checked;
+    const sevFilter = window._diagXSeverityFilter || 'all';
+    const subFilter = window._diagXSubsystemFilter || 'all';
+
+    const filtered = window._diagXEventsCache.filter(ev => {
+        if (hideBenign && ev.isBenign) return false;
+        if (subFilter !== 'all' && ev.subsystem !== subFilter) return false;
+        if (sevFilter === 'Critical' && ev.severity !== 'Critical') return false;
+        if (sevFilter === 'Error' && ev.severity !== 'Error') return false;
+        if (sevFilter === 'Warning' && ev.severity !== 'Warning') return false;
+        if (sevFilter === 'External' && ev.sourceType !== 'External') return false;
+        if (sevFilter === 'Translated' && !ev.translation && !(ev.extractedCodes && ev.extractedCodes.length)) return false;
+
+        if (query) {
+            const hay = [
+                ev.message, ev.provider, ev.channel, ev.subsystem,
+                String(ev.eventId || ''), ev.translation, ev.recommendedFix
+            ].filter(Boolean).join(' ').toLowerCase();
+            if (!hay.includes(query)) return false;
+        }
+        return true;
+    });
+
+    const subTag = subFilter !== 'all' ? ` · Subsystem: ${subFilter}` : '';
+    SetDomText('diagXEventCountLabel', `Showing ${filtered.length} of ${window._diagXEventsCache.length} events${subTag}`);
+
+    container.replaceChildren();
+    if (!filtered.length) {
+        const empty = document.createElement('div');
+        empty.className = 'driver-text-node';
+        empty.textContent = 'No diagnostic events match the current filters.';
+        container.appendChild(empty);
+        return;
+    }
+
+    const frag = document.createDocumentFragment();
+    filtered.forEach(ev => {
+        const card = document.createElement('article');
+        const sevClass = ev.severity === 'Critical' ? 'ev-crit' : (ev.severity === 'Error' ? 'ev-err' : 'ev-warn');
+        card.className = `diagx-event-card ${sevClass}${ev._isLiveNew ? ' ev-live-new' : ''}`;
+
+        const head = document.createElement('div');
+        head.className = 'diagx-event-head';
+        const sevBadgeClass = ev.severity === 'Critical' || ev.severity === 'Error' ? 'badge-danger' : 'badge-purple';
+        const idBadge = ev.eventId > 0
+            ? `<button type="button" class="diagx-code-btn" onclick="QuickTranslateCode('${ev.eventId}')" title="Translate Event ID ${ev.eventId}">ID ${ev.eventId}</button>`
+            : '<span class="sharing-badge badge-info">EXT LOG</span>';
+        const newTag = ev._isLiveNew ? '<span class="sharing-badge badge-success">NEW</span>' : '';
+        const benignTag = ev.isBenign ? '<span class="sharing-badge badge-neutral">Benign</span>' : '';
+
+        head.innerHTML = `
+            <span class="diagx-ev-left">
+                <span class="sharing-badge ${sevBadgeClass}">${ev.severity}</span>
+                ${newTag}
+                <strong>${ev.provider}</strong>
+                ${idBadge}
+                <span class="diagx-ev-channel">${ev.channel}</span>
+                ${benignTag}
+            </span>
+            <span class="diagx-ev-time">${ev.timestamp}</span>
+        `;
+        card.appendChild(head);
+
+        const msgEl = document.createElement('div');
+        msgEl.className = 'diagx-ev-msg';
+        msgEl.textContent = ev.message;
+        card.appendChild(msgEl);
+
+        if (ev.translation) {
+            const trEl = document.createElement('div');
+            trEl.className = 'diagx-ev-translation';
+            trEl.innerHTML = `<strong>Translation:</strong> `;
+            trEl.appendChild(document.createTextNode(ev.translation));
+            card.appendChild(trEl);
+        }
+        if (ev.recommendedFix) {
+            const fixEl = document.createElement('div');
+            fixEl.className = 'diagx-ev-fix';
+            fixEl.innerHTML = `💡 <strong>Suggested Fix:</strong> `;
+            fixEl.appendChild(document.createTextNode(ev.recommendedFix));
+            card.appendChild(fixEl);
+        }
+
+        const codes = Array.isArray(ev.extractedCodes) ? ev.extractedCodes : [];
+        if (codes.length) {
+            const codeRow = document.createElement('div');
+            codeRow.className = 'diagx-code-pills';
+            codes.forEach(c => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'diagx-code-btn';
+                btn.textContent = `${c.code} · ${c.name}`;
+                btn.addEventListener('click', () => QuickTranslateCode(c.code));
+                codeRow.appendChild(btn);
+            });
+            card.appendChild(codeRow);
+        }
+
+        frag.appendChild(card);
+    });
+    container.appendChild(frag);
+};
+
+window.QuickTranslateCode = function(codeStr) {
+    const inp = document.getElementById('diagXCodeInput');
+    if (inp) inp.value = String(codeStr);
+    TriggerCodeTranslation(String(codeStr));
+    document.getElementById('diagXTranslateForm')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+
+function TriggerCodeTranslation(codeStr) {
+    const trimmed = (codeStr || '').trim();
+    if (!trimmed) return;
+    const box = document.getElementById('diagXTranslationResult');
+    if (box) {
+        box.style.display = 'block';
+        box.textContent = `Translating code '${trimmed}' against Windows error tables...`;
+    }
+    window.chrome?.webview?.postMessage(JSON.stringify({
+        command: 'TRANSLATE_CODE',
+        code: trimmed
+    }));
+}
+
+function RenderDiagXCodeTranslation(data) {
+    const box = document.getElementById('diagXTranslationResult');
+    if (!box) return;
+    box.style.display = 'block';
+    const t = data?.translation;
+    if (!t) {
+        box.textContent = data?.error || 'Could not translate code.';
+        return;
+    }
+
+    box.innerHTML = `
+        <div class="diagx-trans-head">
+            <span><strong>${t.code}</strong> — <span style="color:#90cdf4;">${t.name}</span></span>
+            <span class="sharing-badge badge-info">${t.category}</span>
+        </div>
+        <div class="diagx-trans-body">${t.explanation}</div>
+        <div class="diagx-ev-fix" style="margin-top:4px;">💡 <strong>Recommendation:</strong> ${t.fix}</div>
+        <div class="diagx-trans-src">Source: ${t.source}${t.decimal ? ` · Decimal: ${t.decimal}` : ''}</div>
+    `;
+}
+
+function HandleDiagXNotice(data) {
+    const status = document.getElementById('diagXStatus');
+    if (status) {
+        status.classList.toggle('sharing-error', !!data.error);
+        status.textContent = data.error || data.message || '';
+    }
+    if (data.message) AppendConsoleLogEntry(`[ULTIMADIAGX] ${data.message}`);
+    if (data.error) AppendConsoleLogEntry(`[ULTIMADIAGX ERROR] ${data.error}`);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('diagXTranslateForm')?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const code = document.getElementById('diagXCodeInput')?.value || '';
+        TriggerCodeTranslation(code);
+    });
+});

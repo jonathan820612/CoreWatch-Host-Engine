@@ -32,12 +32,14 @@ APP HEADER NAVIGATION DECK
         </div>
         
         <div class="modular-tabs">
-            <button id="tabDashboard" class="tab-btn active" onclick="SwitchAppLayoutView('dashboard')">📟 Dashboard</button>
-            <button id="tabNetManager" class="tab-btn" onclick="SwitchAppLayoutView('netmanager')">📡 Network Manager</button>
-            <button id="tabStartup" class="tab-btn" onclick="SwitchAppLayoutView('startup')">🚀 Startup Apps</button>
-            <button id="tabSharing" class="tab-btn" onclick="SwitchAppLayoutView('sharing')">📂 Sharing Center</button>
-            <button id="tabInstalledApps" class="tab-btn" onclick="SwitchAppLayoutView('apps')">📦 Installed Apps</button>
-            <button id="tabDevices" class="tab-btn" onclick="SwitchAppLayoutView('devices')">🧩 System Devices</button>
+            <button id="tabDashboard" class="tab-btn active" onclick="SwitchAppLayoutView('dashboard')" title="System Overview Dashboard">📟 Dashboard</button>
+            <button id="tabNetManager" class="tab-btn" onclick="SwitchAppLayoutView('netmanager')" title="Network Adapter Manager">📡 Network</button>
+            <button id="tabStartup" class="tab-btn" onclick="SwitchAppLayoutView('startup')" title="Startup Applications Manager">🚀 Startup</button>
+            <button id="tabSharing" class="tab-btn" onclick="SwitchAppLayoutView('sharing')" title="SMB Sharing Center">📂 Sharing</button>
+            <button id="tabInstalledApps" class="tab-btn" onclick="SwitchAppLayoutView('apps')" title="Installed Applications Manager">📦 Apps</button>
+            <button id="tabDevices" class="tab-btn" onclick="SwitchAppLayoutView('devices')" title="System Devices & Drivers Overview">🧩 Devices</button>
+            <button id="tabOrganizer" class="tab-btn" onclick="SwitchAppLayoutView('organizer')" title="File Organizer">🗂️ Organizer</button>
+            <button id="tabUltimaDiagX" class="tab-btn" onclick="SwitchAppLayoutView('diagx')" title="UltimaDiagX - The Ultimate Diagnostic Logging Tool">🩺 UltimaDiagX</button>
         </div>
         <button class="exit-system-btn" onclick="window.chrome.webview.postMessage('Exit-App')">TERMINATE ENGINE</button>
     </div>
@@ -401,6 +403,289 @@ VIEW 6: SYSTEM DEVICES & DRIVERS OVERVIEW
         <div id="devicesStatus" class="sharing-status" role="status">Scanning PnP hardware &amp; signed drivers...</div>
         <div id="systemDevicesContainer" class="device-tree-container">
             <div class="driver-text-node">Querying Windows PnP hardware tree and driver store...</div>
+        </div>
+    </section>
+
+    <!-- =========================================================================
+VIEW 7: FILE ORGANIZER
+========================================================================= -->
+    <section id="viewFileOrganizerPanel" class="tab-view-panel sharing-panel" style="display: none;" aria-labelledby="fileOrganizerTitle">
+        <div class="console-header-row">
+            <h2 id="fileOrganizerTitle">🗂️ FILE ORGANIZER</h2>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                <button type="button" id="btnOrgUndo" class="console-clear-btn" onclick="TriggerUndoOrganize()" disabled>Undo Last Run</button>
+                <button type="button" class="console-clear-btn" onclick="ResetOrganizerDefaults()">Reset Defaults</button>
+                <button type="button" class="console-clear-btn" onclick="RequestFileOrganizer()">Refresh</button>
+            </div>
+        </div>
+        <p>Automatically sort files from your default Windows user folders or any custom folder into named subfolders by <strong>Media Type</strong> or <strong>File Extension</strong>. Always run a Dry-Run Preview first to inspect every move.</p>
+
+        <div id="organizerScrollArea" class="organizer-scroll-area">
+            <!-- STEP 1: SOURCE FOLDERS -->
+            <div class="organizer-section">
+                <div class="organizer-section-header">
+                    <h3>1. Source Folders to Organize</h3>
+                    <div class="organizer-inline-actions">
+                        <button type="button" class="console-clear-btn" onclick="ToggleAllOrganizerFolders(true)">Select All</button>
+                        <button type="button" class="console-clear-btn" onclick="ToggleAllOrganizerFolders(false)">Clear All</button>
+                    </div>
+                </div>
+                <div id="organizerFoldersGrid" class="organizer-folders-grid">
+                    <div class="driver-text-node">Detecting default Windows user folders...</div>
+                </div>
+                <div class="organizer-add-row">
+                    <input type="text" id="orgCustomFolderInput" class="tab-search-input" placeholder="Add any other folder path (e.g. D:\Scratch or E:\Incoming)...">
+                    <button type="button" class="console-clear-btn" onclick="BrowseOrganizerFolder('source')">Browse...</button>
+                    <button type="button" class="console-clear-btn btn-accent-action" onclick="AddCustomOrganizerFolder()">+ Add Folder</button>
+                </div>
+                <div class="organizer-options-row">
+                    <label class="org-checkbox-label">
+                        <input type="checkbox" id="chkOrgRecursive"> Include subfolders (recursive scan)
+                    </label>
+                    <label class="org-select-label">
+                        Duplicates:
+                        <select id="selOrgDuplicateMode" class="tab-sort-select">
+                            <option value="rename">Auto-rename (file (1).ext)</option>
+                            <option value="skip">Skip existing files</option>
+                        </select>
+                    </label>
+                </div>
+            </div>
+
+            <!-- STEP 2: DESTINATION MODE -->
+            <div class="organizer-section">
+                <div class="organizer-section-header">
+                    <h3>2. Destination Location</h3>
+                </div>
+                <div class="organizer-dest-row">
+                    <label class="org-radio-card">
+                        <input type="radio" name="radOrgDestMode" value="inplace" checked onchange="OnOrganizerDestModeChange()">
+                        <span><strong>Inside Each Source Folder</strong><small>Creates target folders inside each selected folder (e.g. Downloads\Pictures)</small></span>
+                    </label>
+                    <label class="org-radio-card">
+                        <input type="radio" name="radOrgDestMode" value="unified" onchange="OnOrganizerDestModeChange()">
+                        <span><strong>Single Target Root Folder</strong><small>Consolidates all organized folders under one chosen base directory</small></span>
+                    </label>
+                </div>
+                <div id="orgUnifiedRootRow" class="organizer-add-row" style="display: none; margin-top: 8px;">
+                    <input type="text" id="orgUnifiedRootInput" class="tab-search-input" placeholder="Target root folder (e.g. D:\Organized)">
+                    <button type="button" class="console-clear-btn" onclick="BrowseOrganizerFolder('dest')">Browse...</button>
+                </div>
+            </div>
+
+            <!-- STEP 3: FILE TYPE RULES (MEDIA TYPE OR FILE EXTENSION) -->
+            <div class="organizer-section">
+                <div class="organizer-section-header">
+                    <h3>3. Organization Rules &amp; Target Folder Names</h3>
+                    <div class="tab-filter-pills" style="margin-bottom: 0;">
+                        <button type="button" id="btnModeMedia" class="filter-pill active" onclick="SetOrganizerMode('media')">By Media Type</button>
+                        <button type="button" id="btnModeExt" class="filter-pill" onclick="SetOrganizerMode('extension')">By File Extension</button>
+                    </div>
+                </div>
+
+                <!-- MODE A: MEDIA TYPE RULES -->
+                <div id="orgMediaRulesPanel">
+                    <div class="organizer-rules-header">
+                        <span>Use</span>
+                        <span>Category</span>
+                        <span>Target Folder Name</span>
+                        <span>File Extensions</span>
+                        <span></span>
+                    </div>
+                    <div id="orgMediaRulesList" class="organizer-rules-list"></div>
+                    <div class="organizer-add-row" style="margin-top: 8px;">
+                        <input type="text" id="orgNewRuleLabel" class="tab-search-input" placeholder="Category name (e.g. 3D Prints)" style="flex: 1 1 130px;">
+                        <input type="text" id="orgNewRuleFolder" class="tab-search-input" placeholder="Folder name (e.g. 3D Models)" style="flex: 1 1 130px;">
+                        <input type="text" id="orgNewRuleExts" class="tab-search-input" placeholder="Extensions (e.g. .stl, .obj, .3mf)" style="flex: 2 1 200px;">
+                        <button type="button" class="console-clear-btn btn-accent-action" onclick="AddCustomMediaRule()">+ Add Rule</button>
+                    </div>
+                </div>
+
+                <!-- MODE B: EXTENSION RULES -->
+                <div id="orgExtensionRulesPanel" style="display: none;">
+                    <div class="organizer-ext-config-grid">
+                        <label>
+                            <span>Folder Name Pattern <small>(use {EXT} for uppercase or {ext} for lowercase)</small></span>
+                            <input type="text" id="orgExtTemplateInput" class="tab-search-input" value="{EXT}" placeholder="{EXT} or {EXT}_Files">
+                        </label>
+                        <label>
+                            <span>Only Include Extensions <small>(optional — leave blank for all extensions)</small></span>
+                            <input type="text" id="orgExtFilterInput" class="tab-search-input" placeholder="e.g. .pdf, .jpg, .mp4, .zip (or blank for all)">
+                        </label>
+                    </div>
+                    <div class="organizer-sub-heading">Custom Extension → Folder Name Overrides (optional)</div>
+                    <div id="orgExtOverridesList" class="organizer-overrides-list"></div>
+                    <div class="organizer-add-row" style="margin-top: 6px;">
+                        <input type="text" id="orgNewOverrideExt" class="tab-search-input" placeholder="Extension (e.g. .pdf)" style="flex: 0 1 150px;">
+                        <input type="text" id="orgNewOverrideFolder" class="tab-search-input" placeholder="Custom folder name (e.g. PDF Documents)" style="flex: 1 1 240px;">
+                        <button type="button" class="console-clear-btn btn-accent-action" onclick="AddExtensionOverride()">+ Add Override</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ACTION BAR + PREVIEW RESULTS -->
+            <div class="organizer-action-bar">
+                <button type="button" class="org-btn-preview" onclick="TriggerOrganizePreview()">🔍 Preview Plan (Dry Run)</button>
+                <button type="button" class="org-btn-execute" onclick="TriggerOrganizeExecute()">⚡ Organize Files Now</button>
+            </div>
+
+            <div id="organizerStatus" class="sharing-status" role="status">Select folders and click Preview Plan (Dry Run) to inspect planned moves.</div>
+
+            <div id="organizerPreviewSummary" class="tab-summary-strip" style="display: none;">
+                <span class="summary-chip chip-accent">Files Matched: <strong id="sumOrgMatched">0</strong></span>
+                <span class="summary-chip">Total Size: <strong id="sumOrgSize">0 MB</strong></span>
+                <span class="summary-chip">Target Folders: <strong id="sumOrgTargets">0</strong></span>
+                <span class="summary-chip">Skipped / Already Sorted: <strong id="sumOrgSkipped">0</strong></span>
+            </div>
+
+            <div id="organizerBreakdownStrip" class="organizer-breakdown-strip" style="display: none;"></div>
+            <div id="organizerPreviewContainer" class="organizer-preview-list"></div>
+        </div>
+    </section>
+
+    <!-- =========================================================================
+VIEW 8: ULTIMADIAGX - THE ULTIMATE DIAGNOSTIC LOGGING TOOL
+========================================================================= -->
+    <section id="viewUltimaDiagXPanel" class="tab-view-panel sharing-panel" style="display: none;" aria-labelledby="ultimaDiagXTitle">
+        <div class="console-header-row">
+            <h2 id="ultimaDiagXTitle">🩺 ULTIMADIAGX — THE ULTIMATE DIAGNOSTIC LOGGING TOOL</h2>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                <button type="button" id="btnDiagLiveWatch" class="console-clear-btn" onclick="ToggleDiagXLiveWatch()">Live Watch: OFF</button>
+                <button type="button" class="console-clear-btn" onclick="ExportDiagXReport()">Export Report</button>
+                <button type="button" class="console-clear-btn" onclick="OpenNativeReliabilityMonitor()">Reliability Mon</button>
+                <button type="button" class="console-clear-btn" onclick="OpenNativeEventViewer()">Event Viewer</button>
+                <button type="button" class="console-clear-btn btn-accent-action" onclick="RunUltimaDiagXScan()">Run Scan</button>
+            </div>
+        </div>
+        <p>Consolidated multi-channel Windows diagnostic engine with automated system synopsis, BSOD/WER crash detection, native Windows error &amp; event code translation, and external program log ingestion.</p>
+
+        <div class="diagx-scroll-area">
+            <!-- CONTROL STRIP: TIME WINDOW + SEVERITY -->
+            <div class="diagx-controls-bar">
+                <label class="org-select-label">
+                    Window:
+                    <select id="selDiagHoursBack" class="tab-sort-select" onchange="RunUltimaDiagXScan()">
+                        <option value="1">Last 1 Hour</option>
+                        <option value="24" selected>Last 24 Hours</option>
+                        <option value="168">Last 7 Days</option>
+                        <option value="720">Last 30 Days</option>
+                    </select>
+                </label>
+                <label class="org-checkbox-label">
+                    <input type="checkbox" id="chkDiagIncludeWarnings" checked onchange="RunUltimaDiagXScan()"> Include Warnings
+                </label>
+                <label class="org-checkbox-label">
+                    <input type="checkbox" id="chkDiagHideBenign" onchange="ApplyDiagXEventFilter()"> Hide Known Benign Noise (e.g. DCOM 10016)
+                </label>
+                <span id="diagXLastScanStamp" class="diagx-stamp-text">Not scanned yet</span>
+            </div>
+
+            <!-- SYSTEM SYNOPSIS HERO BANNER -->
+            <div class="diagx-synopsis-card">
+                <div class="diagx-score-box" id="diagXScoreBox">
+                    <div class="diagx-score-num" id="lblDiagScore">--</div>
+                    <div class="diagx-score-grade" id="lblDiagGrade">SCANNING</div>
+                </div>
+                <div class="diagx-synopsis-body">
+                    <div class="diagx-synopsis-header">
+                        <strong>AUTOMATED SYSTEM DIAGNOSTIC SYNOPSIS</strong>
+                        <span class="diagx-rel-pill" id="lblDiagReliability">Reliability Index: --</span>
+                    </div>
+                    <div id="lblDiagSynopsisText" class="diagx-synopsis-text">Initializing consolidated Windows event channels, hardware WHEA sensors, crash dumps, and external logs...</div>
+                    <div class="tab-summary-strip" style="margin-top: 8px; margin-bottom: 0;">
+                        <span class="summary-chip">Events: <strong id="sumDiagTotal">--</strong></span>
+                        <span class="summary-chip chip-warn">Critical: <strong id="sumDiagCritical">--</strong></span>
+                        <span class="summary-chip chip-warn">Errors: <strong id="sumDiagErrors">--</strong></span>
+                        <span class="summary-chip">Warnings: <strong id="sumDiagWarnings">--</strong></span>
+                        <span class="summary-chip chip-accent">External Logs: <strong id="sumDiagExternal">--</strong></span>
+                        <span class="summary-chip">WER (7d): <strong id="sumDiagWer">--</strong></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SUBSYSTEM HEALTH MATRIX -->
+            <div id="diagXSubsystemsGrid" class="diagx-subsystems-grid"></div>
+
+            <!-- DETECTED ROOT-CAUSE FINDINGS -->
+            <div id="diagXFindingsSection" class="organizer-section" style="display: none;">
+                <div class="organizer-section-header">
+                    <h3>🔎 Detected Issues &amp; Actionable Recommendations</h3>
+                </div>
+                <div id="diagXFindingsList" class="diagx-findings-list"></div>
+            </div>
+
+            <!-- NATIVE WINDOWS ERROR / EVENT / BSOD CODE TRANSLATOR -->
+            <div class="organizer-section">
+                <div class="organizer-section-header">
+                    <h3>🔤 Native Windows Error, Event ID &amp; BugCheck Code Translator</h3>
+                </div>
+                <form id="diagXTranslateForm" class="organizer-add-row">
+                    <input type="text" id="diagXCodeInput" class="tab-search-input" placeholder="Enter any Windows code (e.g. 0x80070005, 0xC0000005, 0x00000116, 0x124, 4101, 41, 1603)...">
+                    <button type="submit" class="console-clear-btn btn-accent-action">Translate Code</button>
+                </form>
+                <div id="diagXTranslationResult" class="diagx-translation-box" style="display: none;"></div>
+            </div>
+
+            <!-- EXTERNAL PROGRAM LOGS INGESTION -->
+            <div class="organizer-section">
+                <div class="organizer-section-header">
+                    <h3>📎 External Program Logs (Merge into Diagnostic Timeline)</h3>
+                    <div class="organizer-inline-actions">
+                        <button type="button" class="console-clear-btn" onclick="DiscoverCommonDiagLogs()">Auto-Discover Logs</button>
+                        <button type="button" class="console-clear-btn" onclick="BrowseDiagLogFile()">+ Browse File...</button>
+                        <button type="button" class="console-clear-btn" onclick="BrowseOrganizerFolder('diagfolder')">+ Browse Folder...</button>
+                    </div>
+                </div>
+                <div class="organizer-add-row">
+                    <input type="text" id="diagXExternalLogInput" class="tab-search-input" placeholder="Paste any program .log, .txt, .evtx file or log folder path...">
+                    <button type="button" class="console-clear-btn btn-accent-action" onclick="AddDiagXExternalLogFromInput()">+ Attach Log</button>
+                </div>
+                <div id="diagXExternalLogChips" class="organizer-overrides-list" style="margin-top: 8px;"></div>
+                <div id="diagXDiscoveredLogsBox" class="diagx-discovered-box" style="display: none;"></div>
+            </div>
+
+            <!-- CRASH DUMPS & TOP RECURRING SIGNATURES -->
+            <div class="diagx-two-col-row">
+                <div class="organizer-section">
+                    <div class="organizer-section-header">
+                        <h3>💥 BSOD &amp; Application Crash Dumps</h3>
+                    </div>
+                    <div id="diagXDumpsList" class="diagx-mini-list">
+                        <div class="driver-text-node">No crash dumps scanned yet.</div>
+                    </div>
+                </div>
+                <div class="organizer-section">
+                    <div class="organizer-section-header">
+                        <h3>📈 Top Recurring Fault Signatures</h3>
+                    </div>
+                    <div id="diagXRecurringList" class="diagx-mini-list">
+                        <div class="driver-text-node">No recurring faults detected.</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CONSOLIDATED EVENT TIMELINE -->
+            <div class="organizer-section">
+                <div class="organizer-section-header">
+                    <h3>📜 Consolidated Diagnostic Timeline</h3>
+                    <span id="diagXEventCountLabel" class="diagx-stamp-text">0 events</span>
+                </div>
+                <div class="tab-filter-toolbar">
+                    <input type="text" id="diagXSearchInput" class="tab-search-input" placeholder="Filter events by message, provider, Event ID, channel, hex code, or translation..." oninput="ApplyDiagXEventFilter()">
+                </div>
+                <div class="tab-filter-pills" id="diagXSeverityPills">
+                    <button type="button" class="filter-pill active" data-sev="all" onclick="SetDiagXSeverityFilter('all')">All</button>
+                    <button type="button" class="filter-pill" data-sev="Critical" onclick="SetDiagXSeverityFilter('Critical')">Critical</button>
+                    <button type="button" class="filter-pill" data-sev="Error" onclick="SetDiagXSeverityFilter('Error')">Errors</button>
+                    <button type="button" class="filter-pill" data-sev="Warning" onclick="SetDiagXSeverityFilter('Warning')">Warnings</button>
+                    <button type="button" class="filter-pill" data-sev="Translated" onclick="SetDiagXSeverityFilter('Translated')">Translated Codes</button>
+                    <button type="button" class="filter-pill" data-sev="External" onclick="SetDiagXSeverityFilter('External')">External Logs</button>
+                </div>
+                <div id="diagXStatus" class="sharing-status" role="status">Ready to run UltimaDiagX diagnostic scan.</div>
+                <div id="diagXEventsContainer" class="diagx-events-list">
+                    <div class="driver-text-node">Scanning Windows Event Logs and hardware diagnostic channels...</div>
+                </div>
+            </div>
         </div>
     </section>
 </body>

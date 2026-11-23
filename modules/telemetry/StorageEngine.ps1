@@ -1,7 +1,7 @@
 # File: modules/telemetry/StorageEngine.ps1
 
 function Get-StorageMetrics {
-    $AllDrives = Get-CimInstance -ClassName Win32_LogicalDisk -ErrorAction Stop
+    $AllDrives = Get-CimInstance -ClassName Win32_LogicalDisk -ErrorAction SilentlyContinue
 
     $StorageArray = foreach ($Drive in $AllDrives) {
         if ([double]$Drive.Size -le 0) { continue }

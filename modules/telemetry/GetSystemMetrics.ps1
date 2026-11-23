@@ -35,8 +35,16 @@ namespace CoreWatch {
 "@ -ErrorAction SilentlyContinue
 }
 
-$script:StaticSystemCache = $null
-$script:CpuPerfCounter    = $null
+$script:StaticSystemCache  = $null
+$script:CpuPerfCounter     = $null
+$script:CpuFreqPctCounter  = $null
+$script:NvidiaSmiPath      = $null
+$script:NvidiaSmiChecked   = $false
+$script:LastSensorSample   = [datetime]::MinValue
+$script:CachedGpuLoad      = 0
+$script:CachedGpuPower     = "-- W"
+$script:CachedGpuTemp      = "--"
+$script:CachedCpuTemp      = "--"
 $script:LastPowerPlanCheck = [datetime]::MinValue
 $script:CachedPowerPlan    = "Balanced"
 $script:CachedTelemetry    = "Off"
@@ -44,7 +52,11 @@ $script:CachedTelemetry    = "Off"
 function Initialize-StaticSystemCache {
     if ($null -ne $script:StaticSystemCache) { return }
 
-    $GpuCim  = Get-CimInstance -ClassName Win32_VideoController -ErrorAction SilentlyContinue | Select-Object -First 1
+    # Prefer discrete GPU (NVIDIA/AMD/Arc) over virtual display drivers or integrated adapters
+    $AllGpus = @(Get-CimInstance -ClassName Win32_VideoController -ErrorAction SilentlyContinue | Where-Object { $_.Name })
+    $GpuCim  = $AllGpus | Where-Object { $_.Name -match '(?i)(NVIDIA|GeForce|RTX|GTX|Radeon|AMD|Intel\(R\) Arc)' -and $_.Name -notmatch '(?i)(Basic Display|Virtual|Parsec|Remote)' } | Select-Object -First 1
+    if (-not $GpuCim) { $GpuCim = $AllGpus | Select-Object -First 1 }
+
     $CpuProc = Get-CimInstance -ClassName Win32_Processor -ErrorAction SilentlyContinue | Select-Object -First 1
     $Caches  = Get-CimInstance -ClassName Win32_CacheMemory -ErrorAction SilentlyContinue
 
@@ -64,9 +76,23 @@ function Initialize-StaticSystemCache {
         else { "${kb}KB" }
     }
 
-    $clockGHz = if ($CpuProc -and $CpuProc.CurrentClockSpeed) {
-        [string]([math]::Round($CpuProc.CurrentClockSpeed / 1000, 2))
-    } else { "0.00" }
+    $baseClockMHz = if ($CpuProc -and $CpuProc.MaxClockSpeed) {
+        [double]$CpuProc.MaxClockSpeed
+    } elseif ($CpuProc -and $CpuProc.CurrentClockSpeed) {
+        [double]$CpuProc.CurrentClockSpeed
+    } else { 0.0 }
+
+    $clockGHz = if ($baseClockMHz -gt 0) { "{0:N2}" -f ($baseClockMHz / 1000.0) } else { "0.00" }
+
+    if (-not $script:NvidiaSmiChecked) {
+        $script:NvidiaSmiChecked = $true
+        $smiCmd = Get-Command "nvidia-smi.exe" -ErrorAction SilentlyContinue
+        if ($smiCmd) {
+            $script:NvidiaSmiPath = $smiCmd.Source
+        } elseif (Test-Path "$env:SystemRoot\System32\nvidia-smi.exe") {
+            $script:NvidiaSmiPath = "$env:SystemRoot\System32\nvidia-smi.exe"
+        }
+    }
 
     $script:StaticSystemCache = @{
         CacheMatrix      = @{
@@ -77,22 +103,119 @@ function Initialize-StaticSystemCache {
         }
         GpuModel         = if ($GpuCim) { [string]$GpuCim.Name } else { "Display Adapter" }
         GpuDriverVersion = if ($GpuCim) { [string]$GpuCim.DriverVersion } else { "Unknown" }
+        BaseClockMHz     = $baseClockMHz
         CpuClockGHz      = $clockGHz
     }
 }
 
+function Update-LiveThermalAndGpuSensors {
+    # Throttled to every 2 seconds so the 0.5s fast loop stays sub-millisecond
+    if (([datetime]::Now - $script:LastSensorSample).TotalSeconds -lt 2) { return }
+    $script:LastSensorSample = [datetime]::Now
+
+    # 1. Live NVIDIA GPU telemetry via nvidia-smi (exact load %, temp C, power W)
+    if ($script:NvidiaSmiPath) {
+        try {
+            $psi = New-Object System.Diagnostics.ProcessStartInfo
+            $psi.FileName = $script:NvidiaSmiPath
+            $psi.Arguments = "--query-gpu=utilization.gpu,temperature.gpu,power.draw --format=csv,noheader,nounits"
+            $psi.RedirectStandardOutput = $true
+            $psi.UseShellExecute = $false
+            $psi.CreateNoWindow = $true
+            $proc = [System.Diagnostics.Process]::Start($psi)
+            if ($proc -and $proc.WaitForExit(750)) {
+                $line = $proc.StandardOutput.ReadLine()
+                if ($line) {
+                    $parts = $line -split ','
+                    if ($parts.Count -ge 3) {
+                        $loadVal = 0; $tempVal = 0; $pwrVal = 0.0
+                        if ([int]::TryParse($parts[0].Trim(), [ref]$loadVal)) {
+                            $script:CachedGpuLoad = [math]::Max(0, [math]::Min(100, $loadVal))
+                        }
+                        if ([int]::TryParse($parts[1].Trim(), [ref]$tempVal)) {
+                            $script:CachedGpuTemp = $tempVal
+                        }
+                        if ([double]::TryParse($parts[2].Trim(), [System.Globalization.CultureInfo]::InvariantCulture, [ref]$pwrVal)) {
+                            $script:CachedGpuPower = "$([int][math]::Round($pwrVal)) W"
+                        }
+                    }
+                }
+            }
+            if ($proc) { $proc.Dispose() }
+        } catch {}
+    } else {
+        # Fallback GPU Load via Windows GPU Engine performance counter (AMD / Intel / non-NVIDIA)
+        try {
+            $gpuSamples = (Get-Counter '\GPU Engine(*engtype_3D)\Utilization Percentage' -ErrorAction SilentlyContinue).CounterSamples
+            if ($gpuSamples) {
+                $sumLoad = ($gpuSamples | Measure-Object -Property CookedValue -Sum).Sum
+                $script:CachedGpuLoad = [int][math]::Min(100, [math]::Max(0, [math]::Round($sumLoad)))
+            }
+        } catch {}
+    }
+
+    # 2. Live CPU / ACPI Thermal Zone sensor (filters out common static ACPI dummy values <23C)
+    $resolvedCpuTemp = $null
+    try {
+        $tz = Get-CimInstance -Namespace "root\WMI" -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($tz -and $tz.CurrentTemperature -gt 2732) {
+            $c = [int][math]::Round(($tz.CurrentTemperature / 10.0) - 273.15)
+            if ($c -ge 23 -and $c -le 115) { $resolvedCpuTemp = $c }
+        }
+    } catch {}
+
+    if ($null -eq $resolvedCpuTemp) {
+        try {
+            $tzPerf = Get-CimInstance -ClassName Win32_PerfFormattedData_Counters_ThermalZoneInformation -ErrorAction SilentlyContinue |
+                      Where-Object { $_.HighPrecisionTemperature -gt 2732 -or $_.Temperature -gt 273 } | Select-Object -First 1
+            if ($tzPerf) {
+                $c = if ($tzPerf.HighPrecisionTemperature -gt 2732) {
+                    [int][math]::Round(($tzPerf.HighPrecisionTemperature / 10.0) - 273.15)
+                } else {
+                    [int]($tzPerf.Temperature - 273)
+                }
+                if ($c -ge 23 -and $c -le 115) { $resolvedCpuTemp = $c }
+            }
+        } catch {}
+    }
+
+    if ($null -ne $resolvedCpuTemp) {
+        $script:CachedCpuTemp = $resolvedCpuTemp
+    }
+}
+
 function Get-FastHardwareMetrics {
-    # Ultra-fast 0.5s hardware sampler using .NET PerformanceCounter + Win32 GlobalMemoryStatusEx (< 1ms)
+    Initialize-StaticSystemCache
+
+    # Ultra-fast 0.5s hardware sampler using .NET PerformanceCounter + Win32 GlobalMemoryStatusEx
     if ($null -eq $script:CpuPerfCounter) {
         try {
             $script:CpuPerfCounter = New-Object System.Diagnostics.PerformanceCounter("Processor", "% Processor Time", "_Total")
-            $null = $script:CpuPerfCounter.NextValue() # Prime counter
+            $null = $script:CpuPerfCounter.NextValue()
+        } catch {}
+    }
+    if ($null -eq $script:CpuFreqPctCounter) {
+        try {
+            $script:CpuFreqPctCounter = New-Object System.Diagnostics.PerformanceCounter("Processor Information", "% Processor Performance", "_Total")
+            $null = $script:CpuFreqPctCounter.NextValue()
         } catch {}
     }
 
     $cpuLoad = 0
     if ($null -ne $script:CpuPerfCounter) {
-        try { $cpuLoad = [int][math]::Round($script:CpuPerfCounter.NextValue()) } catch {}
+        try { $cpuLoad = [int][math]::Min(100, [math]::Max(0, [math]::Round($script:CpuPerfCounter.NextValue()))) } catch {}
+    }
+
+    # Dynamic live CPU clock (Base MHz * % Processor Performance)
+    $clockStr = if ($script:StaticSystemCache) { "$($script:StaticSystemCache.CpuClockGHz) GHz" } else { "0.00 GHz" }
+    if ($null -ne $script:CpuFreqPctCounter -and $script:StaticSystemCache -and $script:StaticSystemCache.BaseClockMHz -gt 0) {
+        try {
+            $perfPct = [double]$script:CpuFreqPctCounter.NextValue()
+            if ($perfPct -gt 5) {
+                $liveGHz = ($script:StaticSystemCache.BaseClockMHz * ($perfPct / 100.0)) / 1000.0
+                $clockStr = "{0:N2} GHz" -f $liveGHz
+            }
+        } catch {}
     }
 
     $ramPct = 0
@@ -103,37 +226,37 @@ function Get-FastHardwareMetrics {
     try {
         $mem = [CoreWatch.NativeMemory]::Query()
         if ($mem.ullTotalPhys -gt 0) {
-            $totalRamGB = [math]::Round($mem.ullTotalPhys / 1GB, 2)
-            $usedRamGB  = [math]::Round(($mem.ullTotalPhys - $mem.ullAvailPhys) / 1GB, 2)
+            $totalRamGB = $mem.ullTotalPhys / 1GB
+            $usedRamGB  = ($mem.ullTotalPhys - $mem.ullAvailPhys) / 1GB
             $ramPct     = [int]$mem.dwMemoryLoad
-            $ramUsageText = "$usedRamGB / $totalRamGB GB"
+            $ramUsageText = "{0:N2} / {1:N2} GB" -f $usedRamGB, $totalRamGB
 
             # Pagefile / Commit delta above physical RAM
-            $pageTotalBytes = [math]::Max([double]0, ([double]$mem.ullTotalPageFile - [double]$mem.ullTotalPhys))
+            $pageTotalBytes  = [math]::Max([double]0, ([double]$mem.ullTotalPageFile - [double]$mem.ullTotalPhys))
             $commitUsedBytes = [double]$mem.ullTotalPageFile - [double]$mem.ullAvailPageFile
             $physUsedBytes   = [double]$mem.ullTotalPhys - [double]$mem.ullAvailPhys
             $pageUsedBytes   = [math]::Max([double]0, $commitUsedBytes - $physUsedBytes)
 
-            $pageTotalGB = [math]::Round($pageTotalBytes / 1GB, 2)
-            $pageUsedGB  = [math]::Round($pageUsedBytes / 1GB, 2)
+            $pageTotalGB = $pageTotalBytes / 1GB
+            $pageUsedGB  = $pageUsedBytes / 1GB
             $pagePct     = if ($pageTotalGB -gt 0) { [int][math]::Min(100, ($pageUsedGB / $pageTotalGB) * 100) } else { 0 }
-            $pageUsageText = "$pageUsedGB / $pageTotalGB GB"
+            $pageUsageText = "{0:N2} / {1:N2} GB" -f $pageUsedGB, $pageTotalGB
         }
     } catch {}
 
-    $clockStr = if ($script:StaticSystemCache) { "$($script:StaticSystemCache.CpuClockGHz) GHz" } else { "0.00 GHz" }
+    Update-LiveThermalAndGpuSensors
 
     return [PSCustomObject]@{
         CpuLoad           = $cpuLoad
         CpuClock          = $clockStr
-        CpuTemp           = 42
+        CpuTemp           = $script:CachedCpuTemp
         RamPercent        = $ramPct
         RamUsageText      = $ramUsageText
         PagefilePercent   = $pagePct
         PagefileUsageText = $pageUsageText
-        GpuLoad           = 0
-        GpuPower          = "22 W"
-        GpuTemp           = 38
+        GpuLoad           = $script:CachedGpuLoad
+        GpuPower          = $script:CachedGpuPower
+        GpuTemp           = $script:CachedGpuTemp
     }
 }
 

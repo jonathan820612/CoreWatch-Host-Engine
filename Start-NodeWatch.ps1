@@ -16,6 +16,29 @@ if ((Test-Path $CoreDll) -and (Test-Path $FormDll)) {
 }
 
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+
+if (-not ("CoreWatch.Win32" -as [type])) {
+    Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+
+namespace CoreWatch {
+    public static class Win32 {
+        public const int WM_NCLBUTTONDOWN = 0x00A1;
+
+        [DllImport("user32.dll")]
+        public static extern bool ReleaseCapture();
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr SendMessage(IntPtr hWnd, int Msg, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool DestroyIcon(IntPtr hIcon);
+    }
+}
+"@ -ErrorAction SilentlyContinue
+}
 $UserDataFolder = [System.IO.Path]::GetFullPath((Join-Path $BinPath "WebView2UserData"))
 if (-not (Test-Path $UserDataFolder)) { $null = New-Item -ItemType Directory -Path $UserDataFolder -Force }
 $env:WEBVIEW2_USER_DATA_FOLDER = $UserDataFolder
@@ -332,6 +355,37 @@ $HandleUiMessageEvent = {
                 return ($data | ConvertTo-Json -Compress -Depth 6)
             }
         }
+        '^Request-FileOrganizer$' {
+            Start-AsyncTabTask -FallbackType "FILE_ORGANIZER_STATE" -Arguments @($Global:NodeWatchRoot) -ScriptBlock {
+                param($RootPath)
+                . (Join-Path $RootPath "modules\tabs\FileOrganizer.ps1")
+                $data = Get-FileOrganizerState -RootPath $RootPath
+                return ($data | ConvertTo-Json -Compress -Depth 6)
+            }
+        }
+        '^Browse-Folder:(.+)$' {
+            $targetKey = $Matches[1]
+            $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+            $dialog.Description = if ($targetKey -eq "dest") { "Select destination root folder for organized files" } elseif ($targetKey -eq "diagfolder") { "Select external program log folder for UltimaDiagX" } else { "Select folder to include in File Organizer" }
+            $dialog.UseDescriptionForTitle = $true
+            $dialog.ShowNewFolderButton = $true
+            if ($dialog.ShowDialog($MainForm) -eq [System.Windows.Forms.DialogResult]::OK -and $dialog.SelectedPath) {
+                $resp = @{ type = "BROWSE_FOLDER_RESULT"; target = $targetKey; path = [string]$dialog.SelectedPath } | ConvertTo-Json -Compress
+                $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($resp)))
+            }
+            $dialog.Dispose()
+        }
+        '^Browse-LogFile$' {
+            $fd = New-Object System.Windows.Forms.OpenFileDialog
+            $fd.Title = "Select External Program Log File for UltimaDiagX"
+            $fd.Filter = "Log & Event Files (*.log;*.txt;*.evtx;*.err;*.out)|*.log;*.txt;*.evtx;*.err;*.out|All Files (*.*)|*.*"
+            $fd.Multiselect = $true
+            if ($fd.ShowDialog($MainForm) -eq [System.Windows.Forms.DialogResult]::OK -and $fd.FileNames) {
+                $resp = @{ type = "BROWSE_LOGFILE_RESULT"; paths = @($fd.FileNames) } | ConvertTo-Json -Compress
+                $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($resp)))
+            }
+            $fd.Dispose()
+        }
         '^Execute-SpeedTest$' {
             if ($global:SpeedTestRunning) { return }
             $global:SpeedTestRunning = $true
@@ -373,6 +427,18 @@ $HandleUiMessageEvent = {
                 }
             })
             $global:SpeedTestTimer.Start()
+        }
+        '^Window-DragStart$' {
+            $null = [CoreWatch.Win32]::ReleaseCapture()
+            $null = [CoreWatch.Win32]::SendMessage($MainForm.Handle, [CoreWatch.Win32]::WM_NCLBUTTONDOWN, [IntPtr]2, [IntPtr]::Zero)
+        }
+        '^Window-ResizeHit:(\d+)$' {
+            $hitCode = [int]$Matches[1]
+            # Native Win32 HTLEFT(10)..HTBOTTOMRIGHT(17)
+            if ($hitCode -ge 10 -and $hitCode -le 17) {
+                $null = [CoreWatch.Win32]::ReleaseCapture()
+                $null = [CoreWatch.Win32]::SendMessage($MainForm.Handle, [CoreWatch.Win32]::WM_NCLBUTTONDOWN, [IntPtr]$hitCode, [IntPtr]::Zero)
+            }
         }
         '^Window-Drag:(.+)' {
             $Delta = $Matches[1].Split('|')
@@ -453,6 +519,26 @@ $HandleUiMessageEvent = {
                             . (Join-Path $RootPath "modules\tabs\DeviceManager.ps1")
                             $data = Invoke-DeviceManagerAction -Payload $RawJson
                             return ($data | ConvertTo-Json -Compress -Depth 6)
+                        }
+                        return
+                    }
+
+                    if ($Payload.command -in @('PREVIEW_ORGANIZE', 'EXECUTE_ORGANIZE', 'UNDO_ORGANIZE', 'OPEN_ORGANIZER_FOLDER')) {
+                        Start-AsyncTabTask -FallbackType "FILE_ORGANIZER_ERROR" -Arguments @($Global:NodeWatchRoot, $RawMessage) -ScriptBlock {
+                            param($RootPath, $RawJson)
+                            . (Join-Path $RootPath "modules\tabs\FileOrganizer.ps1")
+                            $data = Invoke-FileOrganizerAction -Payload $RawJson -RootPath $RootPath
+                            return ($data | ConvertTo-Json -Compress -Depth 6)
+                        }
+                        return
+                    }
+
+                    if ($Payload.command -in @('RUN_DIAGNOSTIC', 'TRANSLATE_CODE', 'DISCOVER_APP_LOGS', 'EXPORT_DIAG_REPORT', 'OPEN_EVENT_VIEWER', 'OPEN_RELIABILITY_MONITOR', 'OPEN_DUMP_LOCATION')) {
+                        Start-AsyncTabTask -FallbackType "ULTIMADIAGX_NOTICE" -Arguments @($Global:NodeWatchRoot, $RawMessage) -ScriptBlock {
+                            param($RootPath, $RawJson)
+                            . (Join-Path $RootPath "modules\tabs\UltimaDiagX.ps1")
+                            $data = Invoke-UltimaDiagXAction -Payload $RawJson -RootPath $RootPath
+                            return ($data | ConvertTo-Json -Compress -Depth 7)
                         }
                         return
                     }

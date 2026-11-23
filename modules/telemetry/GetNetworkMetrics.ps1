@@ -9,10 +9,30 @@ $script:CachedSharing     = "Off"
 $script:LastWlanCheck     = [datetime]::MinValue
 $script:CachedWlanSsid    = "Disconnected"
 
+function Convert-PrefixLengthToMask {
+    param([int]$PrefixLength)
+    if ($PrefixLength -le 0) { return "0.0.0.0" }
+    if ($PrefixLength -ge 32) { return "255.255.255.255" }
+    [uint32]$maskInt = [uint32](4294967296.0 - [math]::Pow(2, (32 - $PrefixLength)))
+    $bytes = [BitConverter]::GetBytes($maskInt)
+    [Array]::Reverse($bytes)
+    return ($bytes -join ".")
+}
+
 function Get-NetworkMetrics {
-    $IPConfig = Get-NetIPInterface -AddressFamily IPv4 -ConnectionState Connected -ErrorAction SilentlyContinue | 
-                Where-Object { $_.InterfaceAlias -notlike "*Loopback*" -and $_.InterfaceAlias -notlike "*vEthernet*" } | 
-                Select-Object -First 1
+    # Prefer the interface owning the lowest-metric IPv4 default gateway (active internet uplink)
+    $PrimaryRoute = Get-NetRoute -DestinationPrefix "0.0.0.0/0" -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+                    Sort-Object RouteMetric, InterfaceMetric | Select-Object -First 1
+
+    $IPConfig = $null
+    if ($PrimaryRoute) {
+        $IPConfig = Get-NetIPInterface -InterfaceIndex $PrimaryRoute.InterfaceIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue | Select-Object -First 1
+    }
+    if (-not $IPConfig) {
+        $IPConfig = Get-NetIPInterface -AddressFamily IPv4 -ConnectionState Connected -ErrorAction SilentlyContinue |
+                    Where-Object { $_.InterfaceAlias -notlike "*Loopback*" -and $_.InterfaceAlias -notlike "*vEthernet*" } |
+                    Sort-Object InterfaceMetric | Select-Object -First 1
+    }
     
     $IntIPv4       = "0.0.0.0"
     $SubMask       = "0.0.0.0"
@@ -29,14 +49,13 @@ function Get-NetworkMetrics {
         $IPAddr = Get-NetIPAddress -InterfaceIndex $IPConfig.InterfaceIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($IPAddr) { 
             $IntIPv4 = $IPAddr.IPAddress 
-            $SubMask = switch ($IPAddr.PrefixLength) {
-                24      { "255.255.255.0" }
-                16      { "255.255.0.0" }
-                8       { "255.0.0.0" }
-                default { "255.255.255.0" }
-            }
+            $SubMask = Convert-PrefixLengthToMask -PrefixLength ([int]$IPAddr.PrefixLength)
         }
-        $Route = Get-NetRoute -InterfaceIndex $IPConfig.InterfaceIndex -DestinationPrefix "0.0.0.0/0" -ErrorAction SilentlyContinue | Select-Object -First 1
+        $Route = if ($PrimaryRoute -and $PrimaryRoute.InterfaceIndex -eq $IPConfig.InterfaceIndex) {
+            $PrimaryRoute
+        } else {
+            Get-NetRoute -InterfaceIndex $IPConfig.InterfaceIndex -DestinationPrefix "0.0.0.0/0" -ErrorAction SilentlyContinue | Select-Object -First 1
+        }
         if ($Route) { $Gateway = $Route.NextHop }
 
         if ($IPConfig.LinkSpeed -gt 0) {
@@ -109,12 +128,14 @@ function Get-NetworkMetrics {
 
     # Refresh slow external IP, Firewall, Defender, Discovery & Sharing rules every 30 seconds
     if (([datetime]::Now - $script:LastSlowNetCheck).TotalSeconds -ge 30) {
+        $WebClient = $null
         try {
             $WebClient = New-Object System.Net.WebClient
             $WebClient.Headers.Add("user-agent", "curl/7.81.0")
             $DownloadTask = $WebClient.DownloadStringTaskAsync("https://api.ipify.org")
-            if ($DownloadTask.Wait(350)) { $script:CachedExtIPv4 = $DownloadTask.Result.Trim() } else { $script:CachedExtIPv4 = "Gateway Latency" }
+            if ($DownloadTask.Wait(1500)) { $script:CachedExtIPv4 = $DownloadTask.Result.Trim() } else { $script:CachedExtIPv4 = "Gateway Latency" }
         } catch { $script:CachedExtIPv4 = "Offline / Secure Mesh" }
+        finally { if ($WebClient) { $WebClient.Dispose() } }
 
         $FirewallStatus = "Off"
         $FirewallProvider = "Windows Firewall"
