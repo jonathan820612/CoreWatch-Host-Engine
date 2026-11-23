@@ -108,6 +108,13 @@ $RunspaceScript = {
                 IntIPv4         = [string]($StaticNet.IntIPv4 ?? "0.0.0.0")
                 SubnetMask      = [string]($StaticNet.SubnetMask ?? "0.0.0.0")
                 Gateway         = [string]($StaticNet.Gateway ?? "N/A")
+                # [DIAGNOSTIC ADDITION] Forward DNS Servers, DNS Resolution & Gateway ARP state
+                DnsServers      = [string]($StaticNet.DnsServers ?? "Auto / None")
+                DnsStatus       = [string]($StaticNet.DnsStatus ?? "Checking")
+                DnsStatusText   = [string]($StaticNet.DnsStatusText ?? "Checking...")
+                ArpStatus       = [string]($StaticNet.ArpStatus ?? "Unresolved")
+                GatewayMac      = [string]($StaticNet.GatewayMac ?? "N/A")
+                ArpDetail       = [string]($StaticNet.ArpDetail ?? "")
                 NetworkStatus   = [string]($StaticNet.NetworkStatus ?? "Offline")
                 WlanSsid        = [string]($StaticNet.WlanSsid ?? "None")
                 ExtIPv4         = [string]($StaticNet.ExtIPv4 ?? "Resolving...")

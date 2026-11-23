@@ -2,13 +2,92 @@
 
 . (Join-Path $PSScriptRoot "GetDisplayMetrics.ps1")
 
-$script:StaticInfraCache = $null
-$script:LastDynamicInfra = [datetime]::MinValue
-$script:LastDisplayCheck = [datetime]::MinValue
+$script:StaticInfraCache     = $null
+$script:LastDynamicInfra     = [datetime]::MinValue
+$script:LastDisplayCheck     = [datetime]::MinValue
+$script:LastStabilityCheck   = [datetime]::MinValue
 $script:CachedPowerPlanInfra = "Balanced"
-$script:CachedAudioOut   = "Speakers / Default Output"
-$script:CachedAudioIn    = "No Active Input Device"
-$script:CachedMonitors   = @()
+$script:CachedAudioOut       = "Speakers / Default Output"
+$script:CachedAudioIn        = "No Active Input Device"
+$script:CachedMonitors       = @()
+
+# =========================================================================
+# [DIAGNOSTIC ADDITION] PENDING REBOOT & UNEXPECTED SHUTDOWN/BSOD CACHES
+# =========================================================================
+$script:CachedPendingReboot       = "No"
+$script:CachedPendingRebootDetail = "No pending reboot flags detected"
+$script:CachedLastCrashText       = "None Recorded"
+$script:CachedLastCrashDetail     = "No Kernel-Power (41) or BugCheck (1001) events found"
+$script:CachedHasRecentCrash      = $false
+
+# =========================================================================
+# [DIAGNOSTIC ADDITION] PENDING REBOOT REGISTRY INSPECTOR
+# Insert Point: Checks CBS, Windows Update, Session Manager & Pending Rename
+# =========================================================================
+function Get-PendingRebootState {
+    $reasons = [System.Collections.Generic.List[string]]::new()
+    try {
+        if (Test-Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending" -ErrorAction SilentlyContinue) {
+            $reasons.Add("Component Based Servicing")
+        }
+    } catch {}
+    try {
+        if (Test-Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired" -ErrorAction SilentlyContinue) {
+            $reasons.Add("Windows Update")
+        }
+    } catch {}
+    try {
+        $activeName  = (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\ComputerName\ActiveComputerName" -Name "ComputerName" -ErrorAction SilentlyContinue).ComputerName
+        $pendingName = (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\ComputerName\ComputerName" -Name "ComputerName" -ErrorAction SilentlyContinue).ComputerName
+        if ($activeName -and $pendingName -and $activeName -ne $pendingName) {
+            $reasons.Add("Pending Computer Rename ($activeName -> $pendingName)")
+        }
+    } catch {}
+
+    if ($reasons.Count -gt 0) {
+        return @{
+            Status = "Yes"
+            Detail = "Reboot required: $($reasons -join ', ')"
+        }
+    }
+    return @{
+        Status = "No"
+        Detail = "No pending reboot registry flags detected"
+    }
+}
+
+# =========================================================================
+# [DIAGNOSTIC ADDITION] LAST UNEXPECTED SHUTDOWN / BSOD EVENT INSPECTOR
+# Insert Point: Queries System Log for Kernel-Power (41) & BugCheck (1001)
+# =========================================================================
+function Get-LastUnexpectedShutdown {
+    try {
+        $events = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; Id = 41, 1001 } -MaxEvents 15 -ErrorAction SilentlyContinue | Where-Object {
+            ($_.Id -eq 41 -and $_.ProviderName -eq 'Microsoft-Windows-Kernel-Power') -or
+            ($_.Id -eq 1001 -and $_.ProviderName -match 'BugCheck|WER-SystemErrorReporting')
+        })
+        if ($events.Count -gt 0) {
+            $ev = $events[0]
+            $tag = if ($ev.Id -eq 1001) { "BSOD 1001" } else { "KP-41" }
+            $tsStr = $ev.TimeCreated.ToString("yyyy-MM-dd HH:mm")
+            $firstLine = if ($ev.Message) { ($ev.Message -split "`r?`n")[0].Trim() } else { "Unexpected shutdown event" }
+            if ($firstLine.Length -gt 160) { $firstLine = $firstLine.Substring(0, 157) + "..." }
+            $isRecent = (([datetime]::Now - $ev.TimeCreated).TotalDays -le 14)
+
+            return @{
+                Text     = "$tsStr ($tag)"
+                Detail   = "Event ID $($ev.Id) [$($ev.ProviderName)] @ $($ev.TimeCreated.ToString('g')): $firstLine"
+                IsRecent = $isRecent
+            }
+        }
+    } catch {}
+
+    return @{
+        Text     = "None Recorded"
+        Detail   = "No Kernel-Power (41) or BugCheck (1001) events in System log"
+        IsRecent = $false
+    }
+}
 
 function Get-InfraMetrics {
     if ($null -eq $script:StaticInfraCache) {
@@ -96,6 +175,20 @@ function Get-InfraMetrics {
         $script:LastDynamicInfra = [datetime]::Now
     }
 
+    # [DIAGNOSTIC ADDITION] Refresh Pending Reboot & Last Crash/BSOD every 45 seconds
+    if (([datetime]::Now - $script:LastStabilityCheck).TotalSeconds -ge 45) {
+        $rebootState = Get-PendingRebootState
+        $script:CachedPendingReboot       = $rebootState.Status
+        $script:CachedPendingRebootDetail = $rebootState.Detail
+
+        $crashInfo = Get-LastUnexpectedShutdown
+        $script:CachedLastCrashText  = $crashInfo.Text
+        $script:CachedLastCrashDetail = $crashInfo.Detail
+        $script:CachedHasRecentCrash = $crashInfo.IsRecent
+
+        $script:LastStabilityCheck = [datetime]::Now
+    }
+
     # Refresh display / video metrics every 5 seconds
     if (([datetime]::Now - $script:LastDisplayCheck).TotalSeconds -ge 5) {
         try {
@@ -105,21 +198,26 @@ function Get-InfraMetrics {
     }
 
     return [PSCustomObject]@{
-        OsEdition          = $script:StaticInfraCache.OsEdition
-        WindowsBuild       = $script:StaticInfraCache.WindowsBuild
-        BiosVersion        = $script:StaticInfraCache.BiosVersion
-        PsVersion          = $script:StaticInfraCache.PsVersion
-        CpuDriverVersion   = "Standard Driver"
-        Virtualization     = $script:StaticInfraCache.Virtualization
-        SecureBoot         = $script:StaticInfraCache.SecureBoot
-        ChassisType        = "Custom PC"
-        WindowsUpdateLevel = $script:StaticInfraCache.WindowsUpdateLevel
-        UptimeText         = [string]$UptimeStr
-        Motherboard        = $script:StaticInfraCache.Motherboard
-        DirectX            = "DirectX 12"
-        PowerPlan          = [string]$script:CachedPowerPlanInfra
-        SoundCardIdentity  = [string]$script:CachedAudioOut
-        MicrophoneIdentity = [string]$script:CachedAudioIn
-        Monitors           = @($script:CachedMonitors)
+        OsEdition           = $script:StaticInfraCache.OsEdition
+        WindowsBuild        = $script:StaticInfraCache.WindowsBuild
+        BiosVersion         = $script:StaticInfraCache.BiosVersion
+        PsVersion           = $script:StaticInfraCache.PsVersion
+        CpuDriverVersion    = "Standard Driver"
+        Virtualization      = $script:StaticInfraCache.Virtualization
+        SecureBoot          = $script:StaticInfraCache.SecureBoot
+        ChassisType         = "Custom PC"
+        WindowsUpdateLevel  = $script:StaticInfraCache.WindowsUpdateLevel
+        PendingReboot       = [string]$script:CachedPendingReboot
+        PendingRebootDetail = [string]$script:CachedPendingRebootDetail
+        LastCrashText       = [string]$script:CachedLastCrashText
+        LastCrashDetail     = [string]$script:CachedLastCrashDetail
+        HasRecentCrash      = [bool]$script:CachedHasRecentCrash
+        UptimeText          = [string]$UptimeStr
+        Motherboard         = $script:StaticInfraCache.Motherboard
+        DirectX             = "DirectX 12"
+        PowerPlan           = [string]$script:CachedPowerPlanInfra
+        SoundCardIdentity   = [string]$script:CachedAudioOut
+        MicrophoneIdentity  = [string]$script:CachedAudioIn
+        Monitors            = @($script:CachedMonitors)
     }
 }

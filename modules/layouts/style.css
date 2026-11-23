@@ -216,8 +216,8 @@ h2 {
 .data-field strong, .data-field-split strong {
     color: #edf2f7; font-weight: 600;
 }
-.data-field span:first-child {
-    font-size: 12px; display: inline-block; width: 16px; text-align: center;
+.data-field > span:first-child {
+    font-size: 12px; display: inline-block; width: 16px; flex-shrink: 0; text-align: center;
 }
 .data-field-split { justify-content: space-between; }
 .net-node strong { color: #edf2f7; font-weight: 600; }
@@ -498,6 +498,147 @@ button.adapter-status-badge.status-off:hover {
 /* Core heat thresholds and active temperature color modifications */
 .hardware-stat-tag.therm-cool { background-color: rgba(49, 151, 149, 0.15); color: #319795; border-color: rgba(49, 151, 149, 0.35); }
 .hardware-stat-tag.therm-hot { background-color: rgba(229, 62, 62, 0.2) !important; color: #e53e3e !important; border-color: rgba(229, 62, 62, 0.4) !important; }
+
+/* =========================================================================
+   [DIAGNOSTIC ADDITION] COMPACT DIAGNOSTIC BADGES, VRAM BAR & STATUS PILLS
+   ========================================================================= */
+.diag-pill,
+.hardware-stat-tag.diag-ok,
+.hardware-stat-tag.diag-warn,
+.hardware-stat-tag.diag-crit,
+.hardware-stat-tag.diag-info,
+.hardware-stat-tag.diag-neutral {
+    display: inline-block;
+    font-family: 'Consolas', monospace;
+    font-size: 9.5px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 2px;
+    line-height: 1.25;
+    white-space: nowrap;
+    border: 1px solid #3a4659;
+}
+.diag-ok, .hardware-stat-tag.diag-ok {
+    background-color: rgba(72, 187, 120, 0.14);
+    color: #48bb78;
+    border-color: rgba(72, 187, 120, 0.38);
+}
+.diag-info, .hardware-stat-tag.diag-info {
+    background-color: rgba(66, 153, 225, 0.14);
+    color: #63b3ed;
+    border-color: rgba(66, 153, 225, 0.4);
+}
+.diag-warn, .hardware-stat-tag.diag-warn {
+    background-color: rgba(236, 201, 75, 0.15);
+    color: #ecc94b;
+    border-color: rgba(236, 201, 75, 0.42);
+}
+.diag-crit, .hardware-stat-tag.diag-crit {
+    background-color: rgba(245, 101, 101, 0.18);
+    color: #fc8181;
+    border-color: rgba(245, 101, 101, 0.45);
+}
+.diag-neutral, .hardware-stat-tag.diag-neutral {
+    background-color: rgba(160, 174, 192, 0.12);
+    color: #a0aec0;
+    border-color: rgba(160, 174, 192, 0.3);
+}
+
+/* GPU VRAM compact sub-bar inside Hardware Metrics card */
+.vram-sub-row {
+    margin-top: 2px;
+    padding: 4px 6px;
+    background: rgba(26, 32, 44, 0.55);
+    border: 1px solid #2d3748;
+    border-radius: 2px;
+}
+.vram-sub-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 10.5px;
+    color: #cbd5e0;
+    margin-bottom: 3px;
+}
+.track-bg-thin { height: 4px; }
+.track-fill.vram-fill { background-color: #9f7aea; }
+
+/* Single-line Top Process diagnostic strip at bottom of Hardware Metrics card */
+.top-process-strip {
+    margin-top: auto;
+    padding-top: 6px;
+    border-top: 1px dashed #2d3748;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 11px;
+    line-height: 1.3;
+    min-width: 0;
+}
+.top-proc-label {
+    color: #a0aec0;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.top-proc-value {
+    color: #90cdf4;
+    font-weight: 600;
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+/* System Identity diagnostic stability group (Elevation, Pending Reboot, Crash/BSOD) */
+.identity-diag-group {
+    margin-top: 5px;
+    padding-top: 5px;
+    border-top: 1px dashed #2d3748;
+    display: flex;
+    flex-direction: column;
+}
+.diag-crash-val {
+    color: #a0aec0;
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.diag-crash-val.crash-recent { color: #fc8181 !important; }
+.diag-crash-val.crash-older  { color: #ecc94b !important; }
+.diag-crash-val.crash-clean  { color: #68d391 !important; }
+
+/* Storage SMART Health / Wear & I/O Latency footer row */
+.storage-diag-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+    margin-top: 3px;
+    flex-wrap: wrap;
+}
+.storage-diag-badges {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+/* Network DNS / ARP 2-column DNS Servers span & Speedtest warning highlights */
+.net-node.net-node-span2 {
+    grid-column: span 2;
+    overflow: hidden;
+}
+.net-node.net-node-span2 strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.speed-metrics-panel { display: flex; flex-wrap: wrap; gap: 12px; }
+.speed-data-node strong.speed-warn { color: #ecc94b; }
+.speed-data-node strong.speed-crit { color: #fc8181; }
 
 /* System interface consoles, startup splash overlays, and audio outputs */
 .console-header-row {

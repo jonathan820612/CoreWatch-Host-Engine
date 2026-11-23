@@ -64,6 +64,8 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
                 <div class="hardware-metric-footer-row" style="margin-top: 4px;">
                     <div class="driver-tag tight-tag">Standard Driver</div>
                     <div class="cache-badge-deck" style="gap: 4px;">
+                        <!-- [DIAGNOSTIC ADDITION] Thermal / Power Throttling Flag Badge -->
+                        <span class="hardware-stat-tag diag-ok" id="badgeThrottleState" title="No CPU/GPU thermal or power throttling detected">Throttle: None</span>
                         <span class="hardware-stat-tag text-speed" id="lblCpuClock">0.00 GHz</span>
                         <span class="hardware-stat-tag therm-cool" id="badgeCpuTemp"><span id="lblCpuTemp">00</span> °C</span>
                     </div>
@@ -71,7 +73,7 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
             </div>
 
             <!-- GPU Row Group -->
-            <div class="metric-row" style="margin-top: 12px;">
+            <div class="metric-row" style="margin-top: 10px;">
                 <div class="metric-metadata">
                     <span id="lblGpuModel">Display Adapter</span>
                     <span id="lblGpuLoad">0%</span>
@@ -86,10 +88,20 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
                         <span class="hardware-stat-tag therm-cool" id="badgeGpuTemp"><span id="lblGpuTemp">00</span> °C</span>
                     </div>
                 </div>
+                <!-- [DIAGNOSTIC ADDITION] GPU VRAM Allocation Sub-Bar -->
+                <div class="vram-sub-row">
+                    <div class="vram-sub-meta">
+                        <span>🎞️ VRAM Allocation</span>
+                        <span id="lblGpuVram">-- / -- GB</span>
+                    </div>
+                    <div class="track-bg track-bg-thin">
+                        <div id="barGpuVram" class="track-fill vram-fill"></div>
+                    </div>
+                </div>
             </div>
 
             <!-- RAM Memory Allocation Row Group -->
-            <div class="metric-row" style="margin-top: 12px;">
+            <div class="metric-row" style="margin-top: 10px;">
                 <div class="metric-metadata">
                     <span>📟 RAM Memory Allocation</span>
                     <span id="lblRamUsage">0.00 / 0.00 GB</span>
@@ -108,7 +120,7 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
             </div>
 
             <!-- Pagefile Commitment Row Group -->
-            <div class="metric-row" style="margin-top: 10px;">
+            <div class="metric-row" style="margin-top: 8px; margin-bottom: 4px;">
                 <div class="metric-metadata">
                     <span>💾 Pagefile Commitment</span>
                     <span id="lblPagefileUsage">0.00 / 0.00 GB</span>
@@ -116,6 +128,12 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
                 <div class="track-bg">
                     <div id="barPagefileUsage" class="track-fill"></div>
                 </div>
+            </div>
+
+            <!-- [DIAGNOSTIC ADDITION] Top Active Resource Consumer Callout -->
+            <div class="top-process-strip" id="topProcessStrip" title="Top active process by CPU spike or RAM footprint">
+                <span class="top-proc-label">🔥 Top Process:</span>
+                <strong id="lblTopProcess" class="top-proc-value">Sampling...</strong>
             </div>
         </div>
 
@@ -131,6 +149,12 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
             <div class="data-field"><span>🔲</span> Virtualization: <strong id="lblVirtualization">Loading...</strong></div>
             <div class="data-field"><span>❯_</span> Powershell: <strong id="lblPsVersion">Loading...</strong></div>
             <div class="data-field"><span>📡</span> Telemetry: <strong id="lblTelemetry">Loading...</strong></div>
+            <!-- [DIAGNOSTIC ADDITION] Elevation Context, Pending Reboot & Last Unexpected Shutdown/BSOD -->
+            <div class="identity-diag-group">
+                <div class="data-field"><span>🛡️</span> Privilege: <span id="lblElevation" class="diag-pill diag-neutral">Checking...</span></div>
+                <div class="data-field"><span>🔄</span> Pending Reboot: <span id="lblPendingReboot" class="diag-pill diag-ok" title="No pending reboot registry flags detected">No</span></div>
+                <div class="data-field"><span>💥</span> Last Crash/BSOD: <strong id="lblLastCrash" class="diag-crash-val" title="Kernel-Power (41) / BugCheck (1001)">None Recorded</strong></div>
+            </div>
         </div>
 
         <!-- HARDWARE STORAGE LAYOUT ENGINE -->
@@ -187,6 +211,10 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
                 <div class="net-node"><span>👁️</span> Realtime Protection: <strong id="lblRealtime">Unknown</strong></div>
                 <div class="net-node"><span>📣</span> Discovery: <strong id="lblDiscovery">Off</strong></div>
                 <div class="net-node"><span>📂</span> Sharing: <strong id="lblSharing">Off</strong></div>
+                <!-- [DIAGNOSTIC ADDITION] Active DNS Servers, DNS Resolution Check & Gateway ARP Status -->
+                <div class="net-node net-node-span2"><span>🔎</span> DNS Servers: <strong id="lblDnsServers">Resolving...</strong></div>
+                <div class="net-node"><span>🌐</span> DNS Check: <span id="lblDnsStatus" class="diag-pill diag-neutral">Checking...</span></div>
+                <div class="net-node"><span>🔗</span> ARP GW: <span id="lblArpStatus" class="diag-pill diag-neutral" title="Default Gateway ARP Status">Checking...</span></div>
                 <div class="net-node multi-driver-row">
                     <span class="driver-inline-group"><span>🌐</span> Ethernet: <strong id="lblEthernet">Checking...</strong></span>
                     <span class="driver-inline-group"><span>📶</span> Wi-Fi: <strong id="lblWifi">Checking...</strong></span>
@@ -202,6 +230,9 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
             <div class="speedtest-wrapper-deck">
                 <div class="speed-metrics-panel">
                     <div class="speed-data-node">Latency: <strong id="lblNetLatency">--</strong> ms</div>
+                    <!-- [DIAGNOSTIC ADDITION] Jitter & Packet Loss Readouts -->
+                    <div class="speed-data-node">Jitter: <strong id="lblNetJitter">--</strong> ms</div>
+                    <div class="speed-data-node">Loss: <strong id="lblNetLoss">--</strong> %</div>
                     <div class="speed-data-node">Download: <strong id="lblNetDownload">--</strong> Mbps</div>
                     <div class="speed-data-node">Upload: <strong id="lblNetUpload">--</strong> Mbps</div>
                 </div>

@@ -546,6 +546,46 @@ function RenderAdapterStatusDeck(adapterStatuses) {
     }).join('');
 }
 
+// =========================================================================
+// [DIAGNOSTIC ADDITION] HELPER TO APPLY THROTTLE, VRAM & TOP PROCESS UI
+// =========================================================================
+function ApplyHardwareDiagnosticsUi(sys) {
+    if (!sys) return;
+
+    // 1. Thermal / Power Throttling Flag Badge
+    const thBadge = document.getElementById('badgeThrottleState');
+    if (thBadge && sys.ThrottleState) {
+        const st = String(sys.ThrottleState);
+        thBadge.textContent = `Throttle: ${st}`;
+        thBadge.title = sys.ThrottleDetail || 'Thermal and power throttling monitor';
+        thBadge.classList.remove('diag-ok', 'diag-warn', 'diag-crit');
+        if (st === 'None') {
+            thBadge.classList.add('diag-ok');
+        } else if (st === 'Power') {
+            thBadge.classList.add('diag-warn');
+        } else {
+            thBadge.classList.add('diag-crit');
+        }
+    }
+
+    // 2. GPU VRAM Allocation Sub-Bar
+    if (sys.GpuVramText !== undefined && sys.GpuVramText !== null) {
+        SetDomText('lblGpuVram', sys.GpuVramText);
+    }
+    if (sys.GpuVramPercent !== undefined && sys.GpuVramPercent !== null) {
+        SetDomStyleWidth('barGpuVram', `${sys.GpuVramPercent}%`);
+    }
+
+    // 3. Top Resource Consumer Single-Line Callout
+    if (sys.TopProcessText) {
+        SetDomText('lblTopProcess', sys.TopProcessText);
+        const strip = document.getElementById('topProcessStrip');
+        if (strip && sys.TopProcessDetail) {
+            strip.title = sys.TopProcessDetail;
+        }
+    }
+}
+
 function updateFastTelemetryMesh(stats) {
     if (!stats) return;
 
@@ -578,6 +618,8 @@ function updateFastTelemetryMesh(stats) {
                 gpuBadge.classList.toggle('therm-cool', !Number.isFinite(gpuTempNum) || gpuTempNum < 75);
             }
         }
+
+        ApplyHardwareDiagnosticsUi(sys);
 
         if (sys.RamUsageText) SetDomText('lblRamUsage', sys.RamUsageText);
         if (sys.RamPercent !== undefined) SetDomStyleWidth('barRamUsage', `${sys.RamPercent}%`);
@@ -617,6 +659,20 @@ function updateDashboardUiMesh(stats) {
             workElem.innerHTML = `<span style="cursor:pointer; text-decoration:underline dotted;" onclick="TriggerWorkgroupRename('${id.Workgroup}')">${id.Workgroup}</span>`;
         }
         SetDomText('lblCpuModel', id.CpuModel);
+
+        // [DIAGNOSTIC ADDITION] Admin / Elevation Context Pill
+        const elevElem = document.getElementById('lblElevation');
+        if (elevElem && id.ElevationStatus) {
+            elevElem.textContent = id.ElevationStatus;
+            elevElem.classList.remove('diag-ok', 'diag-info', 'diag-warn', 'diag-neutral');
+            if (id.IsAdmin) {
+                elevElem.classList.add('diag-info');
+                elevElem.title = 'Running elevated as Administrator (full WMI/SMART/registry access)';
+            } else {
+                elevElem.classList.add('diag-warn');
+                elevElem.title = 'Running as Standard User — some SMART, Event Log, or system control queries may require Administrator privileges';
+            }
+        }
     }
 
     // --- InfraFrame Mapping ---
@@ -639,6 +695,30 @@ function updateDashboardUiMesh(stats) {
         const powerPlanHtml = `<span style="cursor:pointer; text-decoration:underline dotted;" onclick="TriggerPowerPlanMenu()">${plan}</span>`;
         const planElem = document.getElementById('lblPowerPlan');
         if (planElem) planElem.innerHTML = powerPlanHtml;
+
+        // [DIAGNOSTIC ADDITION] Pending Reboot Flag Pill
+        const rebootElem = document.getElementById('lblPendingReboot');
+        if (rebootElem && infra.PendingReboot) {
+            rebootElem.textContent = infra.PendingReboot;
+            rebootElem.title = infra.PendingRebootDetail || '';
+            rebootElem.classList.remove('diag-ok', 'diag-warn', 'diag-crit', 'diag-neutral');
+            rebootElem.classList.add(infra.PendingReboot === 'Yes' ? 'diag-warn' : 'diag-ok');
+        }
+
+        // [DIAGNOSTIC ADDITION] Last Unexpected Shutdown / BSOD Timestamp
+        const crashElem = document.getElementById('lblLastCrash');
+        if (crashElem && infra.LastCrashText) {
+            crashElem.textContent = infra.LastCrashText;
+            crashElem.title = infra.LastCrashDetail || '';
+            crashElem.classList.remove('crash-recent', 'crash-older', 'crash-clean');
+            if (infra.LastCrashText === 'None Recorded') {
+                crashElem.classList.add('crash-clean');
+            } else if (infra.HasRecentCrash) {
+                crashElem.classList.add('crash-recent');
+            } else {
+                crashElem.classList.add('crash-older');
+            }
+        }
     }
     // --- SystemFrame Mapping ---
     const sys = stats.SystemFrame;
@@ -684,6 +764,8 @@ function updateDashboardUiMesh(stats) {
             gpuBadge.classList.toggle('therm-hot', Number.isFinite(gpuTempNum) && gpuTempNum >= 75);
             gpuBadge.classList.toggle('therm-cool', !Number.isFinite(gpuTempNum) || gpuTempNum < 75);
         }
+
+        ApplyHardwareDiagnosticsUi(sys);
     }
 
     // --- NetworkFrame Mapping inside updateDashboardUiMesh ---
@@ -703,6 +785,29 @@ function updateDashboardUiMesh(stats) {
         SetDomText('lblSharing',        net.Sharing);
         SetDomText('lblEthernet',       net.lblEthDriver);
         SetDomText('lblWifi',           net.lblWifiDriver);
+
+        // [DIAGNOSTIC ADDITION] Active DNS Servers, DNS Resolution Check & Gateway ARP Pill
+        if (net.DnsServers) SetDomText('lblDnsServers', net.DnsServers);
+        const dnsElem = document.getElementById('lblDnsStatus');
+        if (dnsElem && net.DnsStatusText) {
+            dnsElem.textContent = net.DnsStatusText;
+            dnsElem.title = `DNS resolution probe via configured resolvers (${net.DnsServers || 'Auto'})`;
+            dnsElem.classList.remove('diag-ok', 'diag-warn', 'diag-crit', 'diag-neutral');
+            if (net.DnsStatus === 'OK') dnsElem.classList.add('diag-ok');
+            else if (net.DnsStatus === 'FAIL') dnsElem.classList.add('diag-crit');
+            else dnsElem.classList.add('diag-neutral');
+        }
+        const arpElem = document.getElementById('lblArpStatus');
+        if (arpElem && net.ArpStatus) {
+            arpElem.textContent = net.ArpStatus;
+            arpElem.title = net.ArpDetail || `Gateway MAC: ${net.GatewayMac || 'N/A'}`;
+            arpElem.classList.remove('diag-ok', 'diag-warn', 'diag-crit', 'diag-neutral');
+            const arpLower = String(net.ArpStatus).toLowerCase();
+            if (arpLower === 'reachable' || arpLower === 'permanent') arpElem.classList.add('diag-ok');
+            else if (arpLower === 'stale' || arpLower === 'delay' || arpLower === 'probe') arpElem.classList.add('diag-warn');
+            else arpElem.classList.add('diag-crit');
+        }
+
         RenderAdapterStatusDeck(net.AdapterStatuses);
         
         const rxValue = net.RxText || "0.00 KB/s";
@@ -741,6 +846,34 @@ function updateDashboardUiMesh(stats) {
                 const labelColorClass = isRemovable ? "text-removable" : "text-local";
                 const tagIconStyle = isRemovable ? "style='filter: hue-rotate(50deg) saturate(1.5);'" : "";
 
+                // [DIAGNOSTIC ADDITION] SMART Health / Wear & Live I/O Latency Badges
+                const health = drive.HealthStatus || "N/A";
+                const hasWear = drive.WearPercent !== null && drive.WearPercent !== undefined && Number.isFinite(Number(drive.WearPercent));
+                const wearNum = hasWear ? Number(drive.WearPercent) : null;
+                let smartClass = "diag-neutral";
+                if (health === "Healthy") {
+                    if (wearNum !== null && wearNum >= 90) smartClass = "diag-crit";
+                    else if (wearNum !== null && wearNum >= 70) smartClass = "diag-warn";
+                    else smartClass = "diag-ok";
+                } else if (health === "Warning") {
+                    smartClass = "diag-warn";
+                } else if (health === "Unhealthy") {
+                    smartClass = "diag-crit";
+                }
+                const smartLabel = health === "N/A"
+                    ? "SMART N/A"
+                    : (hasWear ? `${health} · ${wearNum}% Wear` : health);
+
+                const activePct = Number.isFinite(Number(drive.DiskActivePct)) ? Number(drive.DiskActivePct) : 0;
+                const latMs = Number.isFinite(Number(drive.DiskLatencyMs)) ? Number(drive.DiskLatencyMs) : 0;
+                const queueLen = Number.isFinite(Number(drive.DiskQueueLen)) ? Number(drive.DiskQueueLen) : 0;
+                const ioClass = (activePct >= 90 || latMs >= 35)
+                    ? "diag-crit"
+                    : ((activePct >= 70 || latMs >= 15) ? "diag-warn" : "diag-neutral");
+                const mediaSuffix = drive.MediaType ? ` · ${drive.MediaType}` : "";
+                const safeSmartTip = String(drive.SmartSummary || "SMART reliability status").replace(/"/g, '&quot;');
+                const ioTip = `Disk Active Time: ${activePct}% | Avg I/O Latency: ${latMs.toFixed(1)} ms | Queue Length: ${queueLen}`;
+
                 const metricRowHtml = `
                     <div class="metric-row storage-tight-row">
                         <div class="metric-metadata">
@@ -755,7 +888,13 @@ function updateDashboardUiMesh(stats) {
                         <div class="track-bg">
                             <div class="track-fill" style="width: ${usedPercent}%; background-color: ${fillColor};"></div>
                         </div>
-                        <div class="driver-tag tight-tag">${drive.DriveType} Storage Node</div>
+                        <div class="storage-diag-footer">
+                            <div class="driver-tag tight-tag">${drive.DriveType}${mediaSuffix}</div>
+                            <div class="storage-diag-badges">
+                                <span class="diag-pill ${smartClass}" title="${safeSmartTip}">${smartLabel}</span>
+                                <span class="diag-pill ${ioClass}" title="${ioTip}">IO: ${activePct}% · ${latMs.toFixed(1)}ms</span>
+                            </div>
+                        </div>
                     </div>
                 `;
                 container.insertAdjacentHTML('beforeend', metricRowHtml);
@@ -1268,13 +1407,17 @@ window.TriggerNetworkSpeedAnalysis = function() {
     }
     
     const latElem = document.getElementById('lblNetLatency');
+    const jitElem = document.getElementById('lblNetJitter');
+    const lossElem = document.getElementById('lblNetLoss');
     const downElem = document.getElementById('lblNetDownload');
     const upElem = document.getElementById('lblNetUpload');
     if (latElem) latElem.textContent = "...";
+    if (jitElem) { jitElem.textContent = "..."; jitElem.classList.remove('speed-warn', 'speed-crit'); }
+    if (lossElem) { lossElem.textContent = "..."; lossElem.classList.remove('speed-warn', 'speed-crit'); }
     if (downElem) downElem.textContent = "...";
     if (upElem) upElem.textContent = "...";
 
-    AppendConsoleLogEntry('[SPEED TEST] Initiating Cloudflare speed analysis mesh...');
+    AppendConsoleLogEntry('[SPEED TEST] Initiating Cloudflare speed, jitter & packet loss analysis...');
 
     if (window.chrome && window.chrome.webview) {
         window.chrome.webview.postMessage("Execute-SpeedTest");
@@ -1291,10 +1434,26 @@ window.TriggerNetworkSpeedAnalysis = function() {
 
 function RenderSpeedTestResults(stats) {
     const latElem = document.getElementById('lblNetLatency');
+    const jitElem = document.getElementById('lblNetJitter');
+    const lossElem = document.getElementById('lblNetLoss');
     const downElem = document.getElementById('lblNetDownload');
     const upElem = document.getElementById('lblNetUpload');
 
     if (latElem) latElem.textContent = (stats.Latency !== undefined && stats.Latency !== null) ? stats.Latency : '--';
+    if (jitElem) {
+        jitElem.textContent = (stats.Jitter !== undefined && stats.Jitter !== null) ? stats.Jitter : '--';
+        jitElem.classList.remove('speed-warn', 'speed-crit');
+        const jitNum = Number(stats.Jitter);
+        if (Number.isFinite(jitNum) && jitNum >= 30) jitElem.classList.add('speed-crit');
+        else if (Number.isFinite(jitNum) && jitNum >= 15) jitElem.classList.add('speed-warn');
+    }
+    if (lossElem) {
+        lossElem.textContent = (stats.PacketLoss !== undefined && stats.PacketLoss !== null) ? stats.PacketLoss : '--';
+        lossElem.classList.remove('speed-warn', 'speed-crit');
+        const lossNum = Number(stats.PacketLoss);
+        if (Number.isFinite(lossNum) && lossNum >= 10) lossElem.classList.add('speed-crit');
+        else if (Number.isFinite(lossNum) && lossNum > 0) lossElem.classList.add('speed-warn');
+    }
     if (downElem) downElem.textContent = (stats.Download !== undefined && stats.Download !== null) ? stats.Download : '--';
     if (upElem) upElem.textContent = (stats.Upload !== undefined && stats.Upload !== null) ? stats.Upload : '--';
 
@@ -1309,7 +1468,7 @@ function RenderSpeedTestResults(stats) {
         window._speedTestTimeout = null;
     }
 
-    AppendConsoleLogEntry(`[SPEED TEST] Complete: ${stats.Latency} ms latency | ${stats.Download} Mbps down | ${stats.Upload} Mbps up`);
+    AppendConsoleLogEntry(`[SPEED TEST] Complete: ${stats.Latency} ms latency | ${stats.Jitter ?? '--'} ms jitter | ${stats.PacketLoss ?? '--'}% loss | ${stats.Download} Mbps down | ${stats.Upload} Mbps up`);
 }
 
 window.CommitWatchdogTuningProfile = function() {

@@ -9,6 +9,13 @@ $script:CachedSharing     = "Off"
 $script:LastWlanCheck     = [datetime]::MinValue
 $script:CachedWlanSsid    = "Disconnected"
 
+# =========================================================================
+# [DIAGNOSTIC ADDITION] DNS RESOLUTION HEALTH CHECK CACHE (15s CADENCE)
+# =========================================================================
+$script:LastDnsCheck      = [datetime]::MinValue
+$script:CachedDnsStatus   = "Checking"
+$script:CachedDnsText     = "Checking..."
+
 function Convert-PrefixLengthToMask {
     param([int]$PrefixLength)
     if ($PrefixLength -le 0) { return "0.0.0.0" }
@@ -41,6 +48,10 @@ function Get-NetworkMetrics {
     $LinkCap       = "0 Mbps"
     $EthDriver     = "Not Present / Inactive"
     $WifiDriver    = "Not Present / Inactive"
+    $DnsServersStr = "Auto / None"
+    $ArpStatus     = "Unresolved"
+    $GatewayMac    = "N/A"
+    $ArpDetail     = "No active gateway ARP entry"
 
     if ($null -ne $IPConfig) {
         $NetProf = Get-NetConnectionProfile -InterfaceIndex $IPConfig.InterfaceIndex -ErrorAction SilentlyContinue
@@ -62,6 +73,59 @@ function Get-NetworkMetrics {
             $SpeedGbps = [math]::Round(($IPConfig.LinkSpeed / 1GB), 1)
             $LinkCap = if ($SpeedGbps -ge 1) { "$SpeedGbps Gbps" } else { "$([int]($IPConfig.LinkSpeed / 1MB)) Mbps" }
         }
+
+        # =========================================================================
+        # [DIAGNOSTIC ADDITION] ACTIVE DNS SERVERS (Primary / Secondary IPv4)
+        # Insert Point: Uses Get-DnsClientServerAddress on active uplink interface
+        # =========================================================================
+        try {
+            $dnsObj = Get-DnsClientServerAddress -InterfaceIndex $IPConfig.InterfaceIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($dnsObj -and $dnsObj.ServerAddresses -and $dnsObj.ServerAddresses.Count -gt 0) {
+                $DnsServersStr = (@($dnsObj.ServerAddresses | Select-Object -First 2)) -join ", "
+            }
+        } catch {}
+
+        # =========================================================================
+        # [DIAGNOSTIC ADDITION] GATEWAY ARP NEIGHBOR STATUS (Get-NetNeighbor)
+        # Insert Point: Confirms L2 MAC resolution to default gateway
+        # =========================================================================
+        if ($Gateway -and $Gateway -ne "0.0.0.0") {
+            try {
+                $gwNeighbor = Get-NetNeighbor -InterfaceIndex $IPConfig.InterfaceIndex -IPAddress $Gateway -AddressFamily IPv4 -ErrorAction SilentlyContinue | Select-Object -First 1
+                if ($gwNeighbor) {
+                    $ArpStatus  = [string]$gwNeighbor.State
+                    $GatewayMac = if ($gwNeighbor.LinkLayerAddress) { [string]$gwNeighbor.LinkLayerAddress } else { "N/A" }
+                    $ArpDetail  = "Gateway $Gateway | MAC: $GatewayMac | State: $ArpStatus"
+                } else {
+                    $ArpStatus = "No Entry"
+                    $ArpDetail = "Gateway $Gateway not found in local ARP cache"
+                }
+            } catch {}
+        }
+    }
+
+    # =========================================================================
+    # [DIAGNOSTIC ADDITION] LIVE DNS RESOLUTION CHECK (CACHED EVERY 15s)
+    # Insert Point: Verifies DNS can actually resolve hostnames, with ms timing
+    # =========================================================================
+    if (([datetime]::Now - $script:LastDnsCheck).TotalSeconds -ge 15) {
+        try {
+            $dnsSw = [System.Diagnostics.Stopwatch]::StartNew()
+            $dnsTask = [System.Net.Dns]::GetHostAddressesAsync("cloudflare.com")
+            if ($dnsTask.Wait(1500) -and $dnsTask.Result -and $dnsTask.Result.Length -gt 0) {
+                $dnsSw.Stop()
+                $ms = [int][math]::Max(1, [math]::Round($dnsSw.Elapsed.TotalMilliseconds))
+                $script:CachedDnsStatus = "OK"
+                $script:CachedDnsText   = "OK (${ms}ms)"
+            } else {
+                $script:CachedDnsStatus = "FAIL"
+                $script:CachedDnsText   = "Timeout"
+            }
+        } catch {
+            $script:CachedDnsStatus = "FAIL"
+            $script:CachedDnsText   = "Unresolved"
+        }
+        $script:LastDnsCheck = [datetime]::Now
     }
 
     # Adapter status & link capacity via single fast Get-NetAdapter call
@@ -209,6 +273,12 @@ function Get-NetworkMetrics {
         IntIPv4         = [string]$IntIPv4
         SubnetMask      = [string]$SubMask
         Gateway         = [string]$Gateway
+        DnsServers      = [string]$DnsServersStr
+        DnsStatus       = [string]$script:CachedDnsStatus
+        DnsStatusText   = [string]$script:CachedDnsText
+        ArpStatus       = [string]$ArpStatus
+        GatewayMac      = [string]$GatewayMac
+        ArpDetail       = [string]$ArpDetail
         NetworkStatus   = [string]$NetProfileStr
         WlanSsid        = [string]$script:CachedWlanSsid
         ExtIPv4         = [string]$script:CachedExtIPv4
