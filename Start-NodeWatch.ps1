@@ -270,10 +270,10 @@ function Start-AsyncTabTask {
 
     $timer.Tag = $taskObj
     $timer.Add_Tick({
-        param($sender, $e)
-        $t = $sender.Tag
+        param($timerSender, $e)
+        $t = $timerSender.Tag
         if ($null -ne $t -and $null -ne $t.Handle -and $t.Handle.IsCompleted) {
-            $sender.Stop()
+            $timerSender.Stop()
             try {
                 $output = $t.PS.EndInvoke($t.Handle)
                 $json = [string]($output | Select-Object -Last 1)
