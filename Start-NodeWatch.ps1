@@ -21,6 +21,13 @@ if ((Test-Path $CoreDll) -and (Test-Path $FormDll)) {
 
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 
+# Enable Per-Monitor V2 DPI awareness on the pwsh.exe host process before any
+# Screen/Form/WebView2 calls so WinForms, WebView2, and DEVMODE/CCD APIs share
+# a single physical-pixel coordinate space across mixed-DPI monitors.
+try {
+    $null = [System.Windows.Forms.Application]::SetHighDpiMode([System.Windows.Forms.HighDpiMode]::PerMonitorV2)
+} catch {}
+
 if (-not ("CoreWatch.Win32" -as [type])) {
     Add-Type -TypeDefinition @"
 using System;
@@ -29,12 +36,25 @@ using System.Runtime.InteropServices;
 namespace CoreWatch {
     public static class Win32 {
         public const int WM_NCLBUTTONDOWN = 0x00A1;
+        public const uint SWP_NOACTIVATE  = 0x0010;
+        public const uint SWP_SHOWWINDOW  = 0x0040;
+        public static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
 
         [DllImport("user32.dll")]
         public static extern bool ReleaseCapture();
 
         [DllImport("user32.dll")]
         public static extern IntPtr SendMessage(IntPtr hWnd, int Msg, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+        [DllImport("user32.dll")]
+        public static extern uint GetDpiForSystem();
+
+        [DllImport("user32.dll")]
+        public static extern uint GetDpiForWindow(IntPtr hwnd);
 
         [DllImport("user32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
@@ -49,6 +69,37 @@ namespace CoreWatch {
                 GC.Collect(1, GCCollectionMode.Optimized, false);
                 SetProcessWorkingSetSize(System.Diagnostics.Process.GetCurrentProcess().Handle, (IntPtr)(-1), (IntPtr)(-1));
             } catch { }
+        }
+    }
+}
+"@ -ErrorAction SilentlyContinue
+}
+
+if (-not ("CoreWatch.IdentifyOverlayForm" -as [type])) {
+    $overlayRefs = @(
+        [System.Windows.Forms.Form].Assembly.Location,
+        [System.Drawing.Point].Assembly.Location,
+        [System.ComponentModel.Component].Assembly.Location
+    ) | Where-Object { $_ } | Select-Object -Unique
+    Add-Type -ReferencedAssemblies $overlayRefs -TypeDefinition @"
+using System.Windows.Forms;
+
+namespace CoreWatch {
+    public class IdentifyOverlayForm : Form {
+        private const int WS_EX_TRANSPARENT = 0x00000020;
+        private const int WS_EX_TOOLWINDOW  = 0x00000080;
+        private const int WS_EX_NOACTIVATE  = 0x08000000;
+
+        protected override bool ShowWithoutActivation {
+            get { return true; }
+        }
+
+        protected override CreateParams CreateParams {
+            get {
+                CreateParams cp = base.CreateParams;
+                cp.ExStyle |= WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE;
+                return cp;
+            }
         }
     }
 }
@@ -219,15 +270,29 @@ $null = $PowerShellPool.AddScript($RunspaceScript).AddArgument($Global:NodeWatch
 $null = $PowerShellPool.BeginInvoke()
 
 # =========================================================================
-# CORE WINDOW FORM CONSTRUCTOR
+# CORE WINDOW FORM CONSTRUCTOR (PER-MONITOR V2 DPI-AWARE SIZING)
 # =========================================================================
-$script:MaxWindowWidth  = 2160
-$script:MaxWindowHeight = 3840
-$script:MinWindowWidth  = 640
-$script:MinWindowHeight = 720
+$script:BaseMaxWindowWidth  = 2160
+$script:BaseMaxWindowHeight = 3840
+$script:BaseMinWindowWidth  = 640
+$script:BaseMinWindowHeight = 720
+$script:BaseInitWidth       = 1080
+$script:BaseInitHeight      = 1920
+
+$primaryDpi = 96.0
+try {
+    $sysDpi = [CoreWatch.Win32]::GetDpiForSystem()
+    if ($sysDpi -ge 96) { $primaryDpi = [double]$sysDpi }
+} catch {}
+$primaryScale = [Math]::Max(1.0, $primaryDpi / 96.0)
+
 $ScreenWorkArea = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
-$InitWidth  = [Math]::Max($script:MinWindowWidth,  [Math]::Min(1080, $ScreenWorkArea.Width))
-$InitHeight = [Math]::Max($script:MinWindowHeight, [Math]::Min(1920, $ScreenWorkArea.Height))
+$script:MinWindowWidth  = [Math]::Min([int][Math]::Round($script:BaseMinWindowWidth  * $primaryScale), $ScreenWorkArea.Width)
+$script:MinWindowHeight = [Math]::Min([int][Math]::Round($script:BaseMinWindowHeight * $primaryScale), $ScreenWorkArea.Height)
+$script:MaxWindowWidth  = [Math]::Max([int][Math]::Round($script:BaseMaxWindowWidth  * $primaryScale), $ScreenWorkArea.Width)
+$script:MaxWindowHeight = [Math]::Max([int][Math]::Round($script:BaseMaxWindowHeight * $primaryScale), $ScreenWorkArea.Height)
+$InitWidth  = [Math]::Max($script:MinWindowWidth,  [Math]::Min([int][Math]::Round($script:BaseInitWidth  * $primaryScale), $ScreenWorkArea.Width))
+$InitHeight = [Math]::Max($script:MinWindowHeight, [Math]::Min([int][Math]::Round($script:BaseInitHeight * $primaryScale), $ScreenWorkArea.Height))
 
 $MainForm = New-Object System.Windows.Forms.Form
 $MainForm.Text = "CoreWatch Host Engine Dashboard Framework"
@@ -237,6 +302,27 @@ $MainForm.Size = New-Object System.Drawing.Size($InitWidth, $InitHeight)
 $MainForm.StartPosition = "CenterScreen"
 $MainForm.BackColor = [System.Drawing.Color]::FromArgb(26, 32, 44)
 $MainForm.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
+
+$MainForm.Add_DpiChanged({
+    param($evtSource, $evtArgs)
+    try {
+        $newScale = [Math]::Max(1.0, ([double]$evtArgs.DeviceDpiNew / 96.0))
+        $curWork  = [System.Windows.Forms.Screen]::FromControl($MainForm).WorkingArea
+        $script:MinWindowWidth  = [Math]::Min([int][Math]::Round($script:BaseMinWindowWidth  * $newScale), $curWork.Width)
+        $script:MinWindowHeight = [Math]::Min([int][Math]::Round($script:BaseMinWindowHeight * $newScale), $curWork.Height)
+        $script:MaxWindowWidth  = [Math]::Max([int][Math]::Round($script:BaseMaxWindowWidth  * $newScale), $curWork.Width)
+        $script:MaxWindowHeight = [Math]::Max([int][Math]::Round($script:BaseMaxWindowHeight * $newScale), $curWork.Height)
+        $MainForm.MinimumSize = New-Object System.Drawing.Size($script:MinWindowWidth, $script:MinWindowHeight)
+        $MainForm.MaximumSize = New-Object System.Drawing.Size($script:MaxWindowWidth, $script:MaxWindowHeight)
+        if ($MainForm.WindowState -eq [System.Windows.Forms.FormWindowState]::Normal) {
+            $clampedW = [Math]::Min($MainForm.Width,  $curWork.Width)
+            $clampedH = [Math]::Min($MainForm.Height, $curWork.Height)
+            if ($clampedW -ne $MainForm.Width -or $clampedH -ne $MainForm.Height) {
+                $MainForm.Size = New-Object System.Drawing.Size($clampedW, $clampedH)
+            }
+        }
+    } catch {}
+})
 
 $IconPath = Join-Path $Global:NodeWatchRoot "Images\Icon.png"
 if (Test-Path $IconPath) {
@@ -520,50 +606,89 @@ $HandleUiMessageEvent = {
                 }
                 $global:IdentifyOverlayForms = New-Object System.Collections.ArrayList
 
+                $allScreens = [System.Windows.Forms.Screen]::AllScreens
+
                 foreach ($m in $mons) {
-                    $badge = New-Object System.Windows.Forms.Form
+                    $matchedScreen = $allScreens | Where-Object { $_.DeviceName -eq $m.Id } | Select-Object -First 1
+                    $workX = if ($matchedScreen) { $matchedScreen.WorkingArea.X }      else { [int]$m.BoundsX }
+                    $workY = if ($matchedScreen) { $matchedScreen.WorkingArea.Y }      else { [int]$m.BoundsY }
+                    $workW = if ($matchedScreen) { $matchedScreen.WorkingArea.Width }  else { [int]$m.BoundsWidth }
+                    $workH = if ($matchedScreen) { $matchedScreen.WorkingArea.Height } else { [int]$m.BoundsHeight }
+
+                    $scale = if ($m.ScalePct -and [int]$m.ScalePct -ge 100) { [double]$m.ScalePct / 100.0 } else { 1.0 }
+                    $badgeW    = [Math]::Min([int][Math]::Round(220 * $scale), [Math]::Max(120, $workW - 16))
+                    $badgeH    = [Math]::Min([int][Math]::Round(140 * $scale), [Math]::Max(80,  $workH - 16))
+                    $marginX   = [int][Math]::Round(36 * $scale)
+                    $marginY   = [int][Math]::Round(36 * $scale)
+                    $borderPad = [Math]::Max(2, [int][Math]::Round(2 * $scale))
+                    $nameH     = [Math]::Max(20, [int][Math]::Round(24 * $scale))
+                    $minPadTop = [int][Math]::Round(16 * $scale)
+
+                    $posX = $workX + $marginX
+                    $posY = $workY + $workH - $badgeH - $marginY
+                    if (($posX + $badgeW) -gt ($workX + $workW)) {
+                        $posX = $workX + [Math]::Max(0, $workW - $badgeW)
+                    }
+                    if ($posY -lt ($workY + $minPadTop)) {
+                        $posY = $workY + [Math]::Max(0, [Math]::Min($minPadTop, $workH - $badgeH))
+                    }
+
+                    $badge = if ("CoreWatch.IdentifyOverlayForm" -as [type]) {
+                        New-Object CoreWatch.IdentifyOverlayForm
+                    } else {
+                        New-Object System.Windows.Forms.Form
+                    }
+                    $badge.AutoScaleMode   = [System.Windows.Forms.AutoScaleMode]::None
                     $badge.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
                     $badge.StartPosition   = [System.Windows.Forms.FormStartPosition]::Manual
                     $badge.ShowInTaskbar   = $false
                     $badge.TopMost         = $true
                     $badge.BackColor       = [System.Drawing.Color]::FromArgb(26, 32, 44)
-                    $badge.Size            = New-Object System.Drawing.Size(220, 140)
                     $badge.Opacity         = 0.94
-
-                    $posX = [int]$m.BoundsX + 36
-                    $posY = [int]$m.BoundsY + [int]$m.BoundsHeight - 185
-                    if ($posY -lt [int]$m.BoundsY + 20) { $posY = [int]$m.BoundsY + 20 }
-                    $badge.Location = New-Object System.Drawing.Point($posX, $posY)
+                    $badge.Bounds          = New-Object System.Drawing.Rectangle($posX, $posY, $badgeW, $badgeH)
 
                     $borderPanel = New-Object System.Windows.Forms.Panel
                     $borderPanel.Dock = "Fill"
                     $borderPanel.BackColor = [System.Drawing.Color]::FromArgb(66, 153, 225)
-                    $borderPanel.Padding = New-Object System.Windows.Forms.Padding(2)
+                    $borderPanel.Padding = New-Object System.Windows.Forms.Padding($borderPad)
 
                     $innerPanel = New-Object System.Windows.Forms.Panel
                     $innerPanel.Dock = "Fill"
                     $innerPanel.BackColor = [System.Drawing.Color]::FromArgb(26, 32, 44)
 
+                    # Use GraphicsUnit::Pixel scaled by the target monitor's exact DPI scale so
+                    # typography stays crisp and identically proportioned without double-scaling
+                    # or WM_DPICHANGED timing glitches across mixed-DPI displays.
+                    $numFontPx  = [float]([Math]::Round(69.33 * $scale, 1))
+                    $nameFontPx = [float]([Math]::Round(11.33 * $scale, 1))
+
                     $numLbl = New-Object System.Windows.Forms.Label
                     $numLbl.Text      = [string]$m.DisplayNumber
                     $numLbl.ForeColor = [System.Drawing.Color]::White
-                    $numLbl.Font      = New-Object System.Drawing.Font("Segoe UI", 52, [System.Drawing.FontStyle]::Bold)
+                    $numLbl.Font      = New-Object System.Drawing.Font("Segoe UI", $numFontPx, [System.Drawing.FontStyle]::Bold, [System.Drawing.GraphicsUnit]::Pixel)
                     $numLbl.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
                     $numLbl.Dock      = "Fill"
 
                     $nameLbl = New-Object System.Windows.Forms.Label
-                    $nameLbl.Text      = if ($m.IsPrimary) { "$($m.FriendlyName) (Primary)" } else { [string]$m.FriendlyName }
-                    $nameLbl.ForeColor = [System.Drawing.Color]::FromArgb(144, 205, 244)
-                    $nameLbl.Font      = New-Object System.Drawing.Font("Consolas", 8.5, [System.Drawing.FontStyle]::Bold)
-                    $nameLbl.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
-                    $nameLbl.Dock      = "Bottom"
-                    $nameLbl.Height    = 24
+                    $nameLbl.Text         = if ($m.IsPrimary) { "$($m.FriendlyName) (Primary)" } else { [string]$m.FriendlyName }
+                    $nameLbl.ForeColor    = [System.Drawing.Color]::FromArgb(144, 205, 244)
+                    $nameLbl.Font         = New-Object System.Drawing.Font("Consolas", $nameFontPx, [System.Drawing.FontStyle]::Bold, [System.Drawing.GraphicsUnit]::Pixel)
+                    $nameLbl.TextAlign    = [System.Drawing.ContentAlignment]::MiddleCenter
+                    $nameLbl.AutoEllipsis = $true
+                    $nameLbl.Dock         = "Bottom"
+                    $nameLbl.Height       = $nameH
 
                     $innerPanel.Controls.Add($numLbl)
                     $innerPanel.Controls.Add($nameLbl)
                     $borderPanel.Controls.Add($innerPanel)
                     $badge.Controls.Add($borderPanel)
                     $badge.Show()
+                    $null = [CoreWatch.Win32]::SetWindowPos(
+                        $badge.Handle,
+                        [CoreWatch.Win32]::HWND_TOPMOST,
+                        $posX, $posY, $badgeW, $badgeH,
+                        [CoreWatch.Win32]::SWP_NOACTIVATE
+                    )
                     $null = $global:IdentifyOverlayForms.Add($badge)
                 }
 
