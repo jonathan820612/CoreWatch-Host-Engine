@@ -16,3 +16,4 @@
 | v0.9.0-beta.9 | 0.9.0.9 | main | `18a4953`* | 2026-11-24T08:32:38Z | asInvoker | Yes |
 | v0.9.1-beta (#10) | 0.9.1.0 | main | `18a4953`* | 2026-11-24T09:15:03Z | requireAdministrator | Yes |
 | v0.9.1-beta.1 (#11) | 0.9.1.1 | main | `723d107`* | 2026-11-24T09:29:23Z | requireAdministrator | Yes |
+| v0.9.1-beta.2 (#12) | 0.9.1.2 | main | `3cb4161`* | 2026-11-24T09:43:08Z | requireAdministrator | Yes |
