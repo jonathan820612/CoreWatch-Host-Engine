@@ -373,6 +373,12 @@ const msgType = stats.type || stats.Type;
     else if (msgType === "SUPPORT_BUNDLE_PATH_RESULT") {
         if (stats.path) ExecuteSupportBundleExport(stats.path);
     }
+    else if (msgType === "UI_SETTINGS_STATE") {
+        ApplyHostUiSettingsState(stats);
+    }
+    else if (msgType === "UI_WINDOW_STATE") {
+        SyncWindowPinAndOpacityUi(stats.alwaysOnTop, stats.opacity);
+    }
     else {
         // Dashboard Full Telemetry (1s cadence)
         AppendLiveDiagnosticConsoleLog(stats);
@@ -3838,8 +3844,182 @@ window._diagXSubsystemFilter = 'all';
 window._diagXExternalLogs = [];
 window._diagXLiveTimer = null;
 window._diagXLastTopEpoch = 0;
+window._diagXDismissed = { findings: {}, signatures: {}, events: {} };
 
 const DIAGX_STORAGE_KEY = 'corewatch_ultimadiagx_extlogs_v1';
+const DIAGX_DISMISSED_STORAGE_KEY = 'corewatch_diagx_dismissed_v1';
+
+function NormalizeDiagXDismissed(raw) {
+    const out = { findings: {}, signatures: {}, events: {} };
+    if (!raw || typeof raw !== 'object') return out;
+    ['findings', 'signatures', 'events'].forEach(bucket => {
+        const src = raw[bucket];
+        if (src && typeof src === 'object' && !Array.isArray(src)) {
+            Object.entries(src).forEach(([k, v]) => {
+                if (v && typeof v === 'object') {
+                    out[bucket][String(k)] = {
+                        label: String(v.label || k),
+                        dismissedAt: Number(v.dismissedAt || 0),
+                        kind: String(v.kind || bucket.slice(0, -1))
+                    };
+                }
+            });
+        }
+    });
+    return out;
+}
+
+function LoadLocalDiagXDismissed() {
+    try {
+        const raw = localStorage.getItem(DIAGX_DISMISSED_STORAGE_KEY);
+        if (raw) return NormalizeDiagXDismissed(JSON.parse(raw));
+    } catch {}
+    return { findings: {}, signatures: {}, events: {} };
+}
+
+function PersistDiagXDismissed(pushToHost = true) {
+    try {
+        localStorage.setItem(DIAGX_DISMISSED_STORAGE_KEY, JSON.stringify(window._diagXDismissed));
+    } catch {}
+    if (pushToHost && window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage(JSON.stringify({
+            command: 'SAVE_DIAGX_DISMISSED',
+            dismissed: window._diagXDismissed
+        }));
+    }
+}
+
+function GetDiagXEventKey(ev) {
+    return `${ev.channel || ''}|${ev.provider || ''}|${ev.eventId ?? 0}|${ev.epochMs ?? 0}`;
+}
+
+function GetDiagXSignatureKey(provider, eventId) {
+    return `${provider || ''}|${eventId ?? 0}`;
+}
+
+function DoesEventMatchDiagXFinding(ev, findingId) {
+    const id = Number(ev.eventId || 0);
+    const prov = String(ev.provider || '');
+    switch (findingId) {
+        case 'kp41':        return id === 41 && /Kernel-Power/i.test(prov);
+        case 'whea':        return ev.subsystem === 'Hardware / WHEA' && !ev.isBenign;
+        case 'disk':        return ev.subsystem === 'Storage & Disk' && [7, 11, 51, 55, 98, 129, 153].includes(id);
+        case 'gpu_tdr':     return ev.subsystem === 'Graphics / GPU' && [4101, 14].includes(id);
+        case 'app_crashes': return [1000, 1002, 1026].includes(id) && ev.channel === 'Application';
+        case 'svc_fails':   return /Service Control Manager/i.test(prov) && [7000, 7001, 7009, 7023, 7031, 7034].includes(id);
+        case 'net_drops':   return ev.subsystem === 'Network & DNS' && ['Critical', 'Error', 'Warning'].includes(ev.severity);
+        case 'ext_errors':  return ev.sourceType === 'External' && ['Critical', 'Error'].includes(ev.severity);
+        default:            return false;
+    }
+}
+
+function IsDiagXEventDismissed(ev) {
+    const d = window._diagXDismissed || { findings: {}, signatures: {}, events: {} };
+    const evKey = GetDiagXEventKey(ev);
+    if (d.events && d.events[evKey]) return true;
+
+    const ep = Number(ev.epochMs || 0);
+    const sigKey = GetDiagXSignatureKey(ev.provider, ev.eventId);
+    if (d.signatures && d.signatures[sigKey]) {
+        const at = Number(d.signatures[sigKey].dismissedAt || 0);
+        if (ep <= at) return true;
+    }
+    if (d.findings) {
+        for (const [fId, fRec] of Object.entries(d.findings)) {
+            if (fRec && DoesEventMatchDiagXFinding(ev, fId)) {
+                if (ep <= Number(fRec.dismissedAt || 0)) return true;
+            }
+        }
+    }
+    return false;
+}
+
+function IsDiagXFindingDismissed(f) {
+    const d = window._diagXDismissed || { findings: {} };
+    const rec = d.findings && f.id ? d.findings[f.id] : null;
+    if (!rec) return false;
+    const latest = Number(f.latestEpochMs || 0);
+    if (latest > 0 && latest > Number(rec.dismissedAt || 0)) {
+        return false; // Brand-new occurrence after dismissal -> auto re-surface!
+    }
+    return true;
+}
+
+window.DismissDiagXFinding = function(findingId, title) {
+    if (!findingId) return;
+    const rawEvents = Array.isArray(window._diagXReport?.events) ? window._diagXReport.events : [];
+    const matching = rawEvents.filter(ev => DoesEventMatchDiagXFinding(ev, findingId));
+    const maxEp = matching.reduce((m, e) => Math.max(m, Number(e.epochMs || 0)), 0);
+    const fObj = (window._diagXReport?.findings || []).find(x => x.id === findingId);
+    const cutoff = Math.max(Date.now(), maxEp, Number(fObj?.latestEpochMs || 0));
+
+    window._diagXDismissed.findings[findingId] = {
+        label: title || findingId,
+        dismissedAt: cutoff,
+        kind: 'finding'
+    };
+    PersistDiagXDismissed(true);
+    AppendConsoleLogEntry(`[ULTIMADIAGX] Marked finding solved: ${title || findingId}`);
+    RecalculateAndRenderDiagX();
+};
+
+window.DismissDiagXSignature = function(provider, eventId) {
+    const sigKey = GetDiagXSignatureKey(provider, eventId);
+    const rawEvents = Array.isArray(window._diagXReport?.events) ? window._diagXReport.events : [];
+    const maxEp = rawEvents
+        .filter(ev => GetDiagXSignatureKey(ev.provider, ev.eventId) === sigKey)
+        .reduce((m, e) => Math.max(m, Number(e.epochMs || 0)), 0);
+    const cutoff = Math.max(Date.now(), maxEp);
+
+    window._diagXDismissed.signatures[sigKey] = {
+        label: `${provider} (ID ${eventId})`,
+        dismissedAt: cutoff,
+        kind: 'signature'
+    };
+    PersistDiagXDismissed(true);
+    AppendConsoleLogEntry(`[ULTIMADIAGX] Dismissed recurring signature: ${provider} (ID ${eventId})`);
+    RecalculateAndRenderDiagX();
+};
+
+window.DismissDiagXEventByKey = function(evKey, label) {
+    if (!evKey) return;
+    window._diagXDismissed.events[evKey] = {
+        label: label || evKey,
+        dismissedAt: Date.now(),
+        kind: 'event'
+    };
+    PersistDiagXDismissed(true);
+    AppendConsoleLogEntry(`[ULTIMADIAGX] Dismissed event: ${label || evKey}`);
+    RecalculateAndRenderDiagX();
+};
+
+window.RestoreDiagXDismissedItem = function(bucket, key) {
+    if (window._diagXDismissed[bucket] && window._diagXDismissed[bucket][key]) {
+        const lbl = window._diagXDismissed[bucket][key].label || key;
+        delete window._diagXDismissed[bucket][key];
+        PersistDiagXDismissed(true);
+        AppendConsoleLogEntry(`[ULTIMADIAGX] Restored dismissed item: ${lbl}`);
+        RecalculateAndRenderDiagX();
+    }
+};
+
+window.RestoreAllDiagXDismissed = function() {
+    window._diagXDismissed = { findings: {}, signatures: {}, events: {} };
+    PersistDiagXDismissed(true);
+    const sec = document.getElementById('diagXDismissedSection');
+    if (sec) sec.style.display = 'none';
+    AppendConsoleLogEntry('[ULTIMADIAGX] Restored all solved/dismissed issues.');
+    RecalculateAndRenderDiagX();
+};
+
+window.ToggleDiagXDismissedDrawer = function() {
+    const sec = document.getElementById('diagXDismissedSection');
+    const btn = document.getElementById('btnDiagDismissedToggle');
+    if (!sec) return;
+    const isOpen = sec.style.display !== 'none';
+    sec.style.display = isOpen ? 'none' : 'block';
+    if (btn) btn.classList.toggle('active', !isOpen);
+};
 
 function LoadDiagXExternalLogs() {
     try {
@@ -3857,6 +4037,11 @@ function SaveDiagXExternalLogs() {
 
 window.InitUltimaDiagX = function() {
     window._diagXExternalLogs = LoadDiagXExternalLogs();
+    if (!Object.keys(window._diagXDismissed.findings).length &&
+        !Object.keys(window._diagXDismissed.signatures).length &&
+        !Object.keys(window._diagXDismissed.events).length) {
+        window._diagXDismissed = LoadLocalDiagXDismissed();
+    }
     RenderDiagXExternalLogChips();
     RunUltimaDiagXScan();
 };
@@ -4068,9 +4253,14 @@ function RenderUltimaDiagXReport(data) {
     window._diagXReport = data;
     const events = Array.isArray(data.events) ? data.events : (data.events ? [data.events] : []);
 
-    // Detect brand new critical/error events during Live Watch
+    // Detect brand new critical/error events during Live Watch (ignoring already-dismissed ones)
     if (window._diagXLastTopEpoch > 0 && events.length > 0) {
-        const newAlerts = events.filter(e => e.epochMs > window._diagXLastTopEpoch && (e.severity === 'Critical' || e.severity === 'Error') && !e.isBenign);
+        const newAlerts = events.filter(e =>
+            e.epochMs > window._diagXLastTopEpoch &&
+            (e.severity === 'Critical' || e.severity === 'Error') &&
+            !e.isBenign &&
+            !IsDiagXEventDismissed(e)
+        );
         newAlerts.forEach(ev => {
             ev._isLiveNew = true;
             AppendConsoleLogEntry(`[ULTIMADIAGX LIVE ALERT] [${ev.severity}] ${ev.provider} (ID ${ev.eventId}): ${ev.translation || ev.message}`);
@@ -4080,19 +4270,91 @@ function RenderUltimaDiagXReport(data) {
         window._diagXLastTopEpoch = Math.max(window._diagXLastTopEpoch, events[0].epochMs || 0);
     }
 
-    window._diagXEventsCache = events;
+    RecalculateAndRenderDiagX();
+}
+
+function RecalculateAndRenderDiagX() {
+    const data = window._diagXReport;
+    if (!data) return;
+
+    const status = document.getElementById('diagXStatus');
+    const allEvents = Array.isArray(data.events) ? data.events : (data.events ? [data.events] : []);
+    const activeEvents = allEvents.filter(ev => !IsDiagXEventDismissed(ev));
+    const excludedEventCount = allEvents.length - activeEvents.length;
+
+    window._diagXEventsCache = activeEvents;
+
+    // Count total active dismissal rules
+    const dObj = window._diagXDismissed || { findings: {}, signatures: {}, events: {} };
+    const dismissedEntries = [
+        ...Object.entries(dObj.findings || {}).map(([key, v]) => ({ bucket: 'findings', key, ...v })),
+        ...Object.entries(dObj.signatures || {}).map(([key, v]) => ({ bucket: 'signatures', key, ...v })),
+        ...Object.entries(dObj.events || {}).map(([key, v]) => ({ bucket: 'events', key, ...v }))
+    ].sort((a, b) => (b.dismissedAt || 0) - (a.dismissedAt || 0));
+
+    const hasDismissals = dismissedEntries.length > 0;
+
+    // Live actionable counts from unresolved events
+    const critCount = activeEvents.filter(e => e.severity === 'Critical' && !e.isBenign).length;
+    const errCount  = activeEvents.filter(e => e.severity === 'Error' && !e.isBenign).length;
+    const warnCount = activeEvents.filter(e => e.severity === 'Warning' && !e.isBenign).length;
+    const extCount  = activeEvents.filter(e => e.sourceType === 'External').length;
+    const wheaCount = activeEvents.filter(e => e.subsystem === 'Hardware / WHEA' && !e.isBenign).length;
+    const diskCount = activeEvents.filter(e => e.subsystem === 'Storage & Disk' && [7, 11, 51, 55, 98, 129, 153].includes(Number(e.eventId))).length;
+
+    // Exact Composite Stability Score Formula (mirrors UltimaDiagX.ps1)
+    const critPen = Math.min(45, critCount * 15);
+    const errPen  = Math.min(30, errCount * 2);
+    const warnPen = Math.min(12, Math.floor(warnCount / 4));
+    const wheaPen = wheaCount > 0 ? 12 : 0;
+    const diskPen = diskCount > 0 ? 12 : 0;
+
+    const relIdx = (data.reliabilityIndex !== null && data.reliabilityIndex !== undefined && Number.isFinite(Number(data.reliabilityIndex)))
+        ? Number(data.reliabilityIndex)
+        : null;
+    const rawRelPen = (relIdx !== null && relIdx < 7.0) ? Math.round((7.0 - relIdx) * 4) : 0;
+    // If the user explicitly marked active faults solved and 0 Critical/Error events remain, waive stale historical Reliability Index lag
+    const relWaived = hasDismissals && rawRelPen > 0 && critCount === 0 && errCount === 0;
+    const relPen = relWaived ? 0 : rawRelPen;
+
+    const score = Math.max(5, Math.min(100, 100 - critPen - errPen - warnPen - wheaPen - diskPen - relPen));
+    const grade = (score >= 85 && critCount === 0) ? 'HEALTHY' : (score >= 65 ? 'ADVISORY' : (score >= 40 ? 'DEGRADED' : 'CRITICAL'));
 
     // Score & Grade Banner
-    SetDomText('lblDiagScore', data.healthScore ?? '--');
-    SetDomText('lblDiagGrade', data.healthGrade || 'UNKNOWN');
-    SetDomText('lblDiagSynopsisText', data.executiveSummary || '');
-    SetDomText('lblDiagReliability', data.reliabilityIndex !== null && data.reliabilityIndex !== undefined ? `Windows Reliability Index: ${data.reliabilityIndex} / 10` : 'Reliability Index: N/A');
+    SetDomText('lblDiagScore', score);
+    SetDomText('lblDiagGrade', grade);
+    SetDomText('lblDiagReliability', relIdx !== null ? `Windows Reliability Index: ${relIdx} / 10` : 'Reliability Index: N/A');
     SetDomText('diagXLastScanStamp', `Last scan: ${data.generatedAt || 'now'}`);
+
+    const rawScore = Number.isFinite(Number(data.healthScore)) ? Number(data.healthScore) : score;
+    const deltaPts = score - rawScore;
+    const breakdownParts = [
+        `Base 100`,
+        critPen ? `Crit -${critPen}` : null,
+        errPen  ? `Err -${errPen}` : null,
+        warnPen ? `Warn -${warnPen}` : null,
+        wheaPen ? `WHEA -${wheaPen}` : null,
+        diskPen ? `Disk -${diskPen}` : null,
+        relPen  ? `RelIdx -${relPen}` : (relWaived ? `RelIdx 0 (waived)` : null)
+    ].filter(Boolean).join(' · ');
+    const deltaSuffix = (hasDismissals && deltaPts > 0) ? `  (+${deltaPts} pts recovered from ${excludedEventCount} solved event${excludedEventCount === 1 ? '' : 's'})` : '';
+    SetDomText('lblDiagScoreBreakdown', `Formula: ${breakdownParts} = ${score}/100${deltaSuffix}`);
+
+    // Dynamic Executive Synopsis
+    let synopsis = data.executiveSummary || '';
+    if (hasDismissals && excludedEventCount > 0) {
+        if (critCount === 0 && errCount === 0) {
+            synopsis = `System stability is now ${grade} (${score}/100) with all active Critical/Error faults resolved (${excludedEventCount} solved event${excludedEventCount === 1 ? '' : 's'} excluded; new occurrences will auto-alert).`;
+        } else {
+            synopsis = `Adjusted stability: ${grade} (${score}/100) — ${critCount} critical, ${errCount} error, and ${warnCount} warning event(s) remain active (${excludedEventCount} solved event${excludedEventCount === 1 ? '' : 's'} excluded).`;
+        }
+    }
+    SetDomText('lblDiagSynopsisText', synopsis);
 
     const scoreBox = document.getElementById('diagXScoreBox');
     if (scoreBox) {
         scoreBox.className = 'diagx-score-box';
-        const g = (data.healthGrade || '').toLowerCase();
+        const g = grade.toLowerCase();
         if (g === 'healthy') scoreBox.classList.add('grade-healthy');
         else if (g === 'advisory') scoreBox.classList.add('grade-advisory');
         else if (g === 'degraded') scoreBox.classList.add('grade-degraded');
@@ -4100,32 +4362,72 @@ function RenderUltimaDiagXReport(data) {
     }
 
     const c = data.counts || {};
-    SetDomText('sumDiagTotal',    c.total ?? events.length);
-    SetDomText('sumDiagCritical', c.critical ?? 0);
-    SetDomText('sumDiagErrors',   c.errors ?? 0);
-    SetDomText('sumDiagWarnings', c.warnings ?? 0);
-    SetDomText('sumDiagExternal', c.external ?? 0);
+    SetDomText('sumDiagTotal',    activeEvents.length);
+    SetDomText('sumDiagCritical', critCount);
+    SetDomText('sumDiagErrors',   errCount);
+    SetDomText('sumDiagWarnings', warnCount);
+    SetDomText('sumDiagExternal', extCount);
     SetDomText('sumDiagWer',      data.werRecent7d ?? 0);
 
-    // Subsystem Health Matrix (clickable to filter timeline!)
+    // Solved / Dismissed Toggle Chip & Drawer
+    const disToggle = document.getElementById('btnDiagDismissedToggle');
+    const disSec = document.getElementById('diagXDismissedSection');
+    const disList = document.getElementById('diagXDismissedList');
+    if (disToggle) {
+        disToggle.style.display = hasDismissals ? 'inline-flex' : 'none';
+        SetDomText('sumDiagDismissed', `${dismissedEntries.length}${excludedEventCount > 0 ? ` (${excludedEventCount} ev)` : ''}`);
+    }
+    if (!hasDismissals && disSec) {
+        disSec.style.display = 'none';
+        if (disToggle) disToggle.classList.remove('active');
+    }
+    if (disList) {
+        disList.replaceChildren();
+        dismissedEntries.forEach(item => {
+            const row = document.createElement('div');
+            row.className = 'diagx-mini-row';
+            const when = item.dismissedAt ? new Date(item.dismissedAt).toLocaleString() : 'Unknown';
+            const kindLabel = item.bucket === 'findings' ? 'Finding' : (item.bucket === 'signatures' ? 'Signature' : 'Event');
+            const left = document.createElement('div');
+            left.style.minWidth = '0';
+            left.style.flex = '1';
+            left.innerHTML = `<span class="sharing-badge badge-success">${kindLabel}</span> <strong>${EscapeHtmlTp(item.label)}</strong><div class="org-folder-path">Solved on ${EscapeHtmlTp(when)} · Auto re-alerts if a newer event occurs</div>`;
+
+            const restoreBtn = document.createElement('button');
+            restoreBtn.type = 'button';
+            restoreBtn.className = 'org-mini-btn';
+            restoreBtn.textContent = 'Restore';
+            restoreBtn.addEventListener('click', () => RestoreDiagXDismissedItem(item.bucket, item.key));
+            row.append(left, restoreBtn);
+            disList.appendChild(row);
+        });
+    }
+
+    // Recompute Subsystem Health Matrix from activeEvents (preserving icons/order from backend)
     const subGrid = document.getElementById('diagXSubsystemsGrid');
     if (subGrid) {
         subGrid.replaceChildren();
         const subs = Array.isArray(data.subsystems) ? data.subsystems : [];
-        subs.forEach(s => {
+        subs.forEach(baseSub => {
+            const matching = activeEvents.filter(e => e.subsystem === baseSub.name && !e.isBenign);
+            const sCrit = matching.filter(e => e.severity === 'Critical').length;
+            const sErr  = matching.filter(e => e.severity === 'Error').length;
+            const sWarn = matching.filter(e => e.severity === 'Warning').length;
+            const sStatus = (sCrit > 0) ? 'CRITICAL' : ((sErr > 0 || sWarn >= 5) ? 'WARN' : 'OK');
+
             const tile = document.createElement('button');
             tile.type = 'button';
-            const stClass = s.status === 'CRITICAL' ? 'sub-crit' : (s.status === 'WARN' ? 'sub-warn' : 'sub-ok');
-            tile.className = `diagx-sub-tile ${stClass}${window._diagXSubsystemFilter === s.name ? ' active' : ''}`;
+            const stClass = sStatus === 'CRITICAL' ? 'sub-crit' : (sStatus === 'WARN' ? 'sub-warn' : 'sub-ok');
+            tile.className = `diagx-sub-tile ${stClass}${window._diagXSubsystemFilter === baseSub.name ? ' active' : ''}`;
             tile.innerHTML = `
                 <div class="diagx-sub-top">
-                    <span>${s.icon} ${s.name}</span>
-                    <span class="sharing-badge ${s.status === 'CRITICAL' ? 'badge-danger' : (s.status === 'WARN' ? 'badge-purple' : 'badge-success')}">${s.status}</span>
+                    <span>${baseSub.icon} ${EscapeHtmlTp(baseSub.name)}</span>
+                    <span class="sharing-badge ${sStatus === 'CRITICAL' ? 'badge-danger' : (sStatus === 'WARN' ? 'badge-purple' : 'badge-success')}">${sStatus}</span>
                 </div>
-                <div class="diagx-sub-counts">Crit: <strong>${s.critical}</strong> · Err: <strong>${s.errors}</strong> · Warn: <strong>${s.warnings}</strong></div>
+                <div class="diagx-sub-counts">Crit: <strong>${sCrit}</strong> · Err: <strong>${sErr}</strong> · Warn: <strong>${sWarn}</strong></div>
             `;
             tile.addEventListener('click', () => {
-                window._diagXSubsystemFilter = (window._diagXSubsystemFilter === s.name) ? 'all' : s.name;
+                window._diagXSubsystemFilter = (window._diagXSubsystemFilter === baseSub.name) ? 'all' : baseSub.name;
                 RenderUltimaDiagXReportSubHighlight();
                 ApplyDiagXEventFilter();
             });
@@ -4133,25 +4435,66 @@ function RenderUltimaDiagXReport(data) {
         });
     }
 
-    // Detected Findings & Actionable Recommendations
+    // Detected Findings & Actionable Recommendations (with ✓ Mark Solved)
     const findSec = document.getElementById('diagXFindingsSection');
     const findList = document.getElementById('diagXFindingsList');
-    const findings = Array.isArray(data.findings) ? data.findings : (data.findings ? [data.findings] : []);
+    const rawFindings = Array.isArray(data.findings) ? data.findings : (data.findings ? [data.findings] : []);
+    const activeFindings = rawFindings.filter(f => {
+        if (IsDiagXFindingDismissed(f)) return false;
+        if (f.id && f.id !== 'kernel_dumps') {
+            const rem = activeEvents.filter(ev => DoesEventMatchDiagXFinding(ev, f.id));
+            if (rem.length === 0) return false;
+            f._activeCount = rem.length;
+        } else {
+            f._activeCount = f.count;
+        }
+        return true;
+    });
+
     if (findSec && findList) {
         findList.replaceChildren();
-        if (findings.length) {
+        if (activeFindings.length) {
             findSec.style.display = 'block';
-            findings.forEach(f => {
+            activeFindings.forEach(f => {
                 const card = document.createElement('div');
                 card.className = `diagx-finding-card ${f.severity === 'CRITICAL' ? 'find-crit' : 'find-warn'}`;
-                card.innerHTML = `
-                    <div class="diagx-finding-head">
-                        <strong>${f.title}</strong>
-                        <span class="sharing-badge ${f.severity === 'CRITICAL' ? 'badge-danger' : 'badge-purple'}">${f.severity} · ${f.count}x</span>
-                    </div>
-                    <div class="diagx-finding-desc">${f.explanation}</div>
-                    <div class="diagx-finding-fix">💡 <strong>Action:</strong> ${f.recommendation}</div>
-                `;
+
+                const head = document.createElement('div');
+                head.className = 'diagx-finding-head';
+                const titleEl = document.createElement('strong');
+                titleEl.textContent = f.title;
+
+                const rightBox = document.createElement('div');
+                rightBox.className = 'diagx-finding-actions';
+                const badge = document.createElement('span');
+                badge.className = `sharing-badge ${f.severity === 'CRITICAL' ? 'badge-danger' : 'badge-purple'}`;
+                badge.textContent = `${f.severity} · ${f._activeCount ?? f.count}x`;
+                rightBox.appendChild(badge);
+
+                if (f.id) {
+                    const solveBtn = document.createElement('button');
+                    solveBtn.type = 'button';
+                    solveBtn.className = 'diagx-dismiss-btn';
+                    solveBtn.textContent = '✓ Mark Solved';
+                    solveBtn.title = 'Dismiss this issue and recalculate Stability Score (auto re-alerts if a new occurrence happens)';
+                    solveBtn.addEventListener('click', () => DismissDiagXFinding(f.id, f.title));
+                    rightBox.appendChild(solveBtn);
+                }
+
+                head.append(titleEl, rightBox);
+                card.appendChild(head);
+
+                const desc = document.createElement('div');
+                desc.className = 'diagx-finding-desc';
+                desc.textContent = f.explanation;
+                card.appendChild(desc);
+
+                const fix = document.createElement('div');
+                fix.className = 'diagx-finding-fix';
+                fix.innerHTML = `💡 <strong>Action:</strong> `;
+                fix.appendChild(document.createTextNode(f.recommendation || ''));
+                card.appendChild(fix);
+
                 findList.appendChild(card);
             });
         } else {
@@ -4171,7 +4514,7 @@ function RenderUltimaDiagXReport(data) {
                 const row = document.createElement('div');
                 row.className = 'diagx-mini-row';
                 const left = document.createElement('div');
-                left.innerHTML = `<strong>${d.name}</strong> <span class="sharing-badge badge-danger">${d.sizeMB} MB</span><div class="org-folder-path">${d.kind} · ${d.timestamp}</div>`;
+                left.innerHTML = `<strong>${EscapeHtmlTp(d.name)}</strong> <span class="sharing-badge badge-danger">${d.sizeMB} MB</span><div class="org-folder-path">${EscapeHtmlTp(d.kind)} · ${EscapeHtmlTp(d.timestamp)}</div>`;
                 const btn = document.createElement('button');
                 btn.type = 'button';
                 btn.className = 'org-mini-btn';
@@ -4185,23 +4528,52 @@ function RenderUltimaDiagXReport(data) {
         }
     }
 
-    // Top Recurring Fault Signatures
+    // Top Recurring Fault Signatures (live recomputed from activeEvents, with ✓ Dismiss)
     const recList = document.getElementById('diagXRecurringList');
     if (recList) {
         recList.replaceChildren();
-        const recs = Array.isArray(data.topRecurring) ? data.topRecurring : (data.topRecurring ? [data.topRecurring] : []);
+        const sigMap = new Map();
+        activeEvents.forEach(ev => {
+            if (ev.isBenign || !(ev.eventId > 0)) return;
+            const k = GetDiagXSignatureKey(ev.provider, ev.eventId);
+            if (!sigMap.has(k)) {
+                sigMap.set(k, {
+                    provider: ev.provider,
+                    eventId: ev.eventId,
+                    severity: ev.severity,
+                    count: 0,
+                    summary: ev.translation || ev.message || ''
+                });
+            }
+            const rec = sigMap.get(k);
+            rec.count++;
+            if (ev.severity === 'Critical') rec.severity = 'Critical';
+        });
+        const recs = Array.from(sigMap.values()).sort((a, b) => b.count - a.count).slice(0, 6);
+
         if (!recs.length) {
-            recList.innerHTML = '<div class="driver-text-node" style="color:#48bb78;">✓ No recurring fault patterns detected.</div>';
+            recList.innerHTML = '<div class="driver-text-node" style="color:#48bb78;">✓ No unresolved recurring fault patterns.</div>';
         } else {
             recs.forEach(r => {
                 const row = document.createElement('div');
                 row.className = 'diagx-mini-row';
-                row.innerHTML = `
-                    <div style="min-width:0; flex:1;">
-                        <strong>${r.provider}</strong> <span class="sharing-badge badge-info">ID ${r.eventId}</span> <span class="sharing-badge ${r.severity === 'Critical' ? 'badge-danger' : 'badge-purple'}">${r.count}x</span>
-                        <div class="org-folder-path" title="${r.summary}">${r.summary}</div>
-                    </div>
+
+                const left = document.createElement('div');
+                left.style.minWidth = '0';
+                left.style.flex = '1';
+                left.innerHTML = `
+                    <strong>${EscapeHtmlTp(r.provider)}</strong> <span class="sharing-badge badge-info">ID ${r.eventId}</span> <span class="sharing-badge ${r.severity === 'Critical' ? 'badge-danger' : 'badge-purple'}">${r.count}x</span>
+                    <div class="org-folder-path" title="${EscapeHtmlTp(r.summary)}">${EscapeHtmlTp(r.summary)}</div>
                 `;
+
+                const dismissBtn = document.createElement('button');
+                dismissBtn.type = 'button';
+                dismissBtn.className = 'diagx-dismiss-btn mini';
+                dismissBtn.textContent = '✓ Dismiss';
+                dismissBtn.title = `Mark ${r.provider} (ID ${r.eventId}) solved and exclude from score`;
+                dismissBtn.addEventListener('click', () => DismissDiagXSignature(r.provider, r.eventId));
+
+                row.append(left, dismissBtn);
                 recList.appendChild(row);
             });
         }
@@ -4211,7 +4583,8 @@ function RenderUltimaDiagXReport(data) {
 
     if (status) {
         status.classList.remove('sharing-error');
-        status.textContent = `Scan complete: ${c.total ?? events.length} events across ${c.channels ?? 0} Windows channels (Health: ${data.healthScore}/100 ${data.healthGrade}).`;
+        const disNote = excludedEventCount > 0 ? ` · ${excludedEventCount} solved excluded` : '';
+        status.textContent = `Scan complete: ${activeEvents.length} active events across ${c.channels ?? 0} Windows channels (Health: ${score}/100 ${grade}${disNote}).`;
     }
 
     ApplyDiagXEventFilter();
@@ -4292,13 +4665,27 @@ window.ApplyDiagXEventFilter = function() {
             <span class="diagx-ev-left">
                 <span class="sharing-badge ${sevBadgeClass}">${ev.severity}</span>
                 ${newTag}
-                <strong>${ev.provider}</strong>
+                <strong>${EscapeHtmlTp(ev.provider)}</strong>
                 ${idBadge}
-                <span class="diagx-ev-channel">${ev.channel}</span>
+                <span class="diagx-ev-channel">${EscapeHtmlTp(ev.channel)}</span>
                 ${benignTag}
             </span>
-            <span class="diagx-ev-time">${ev.timestamp}</span>
         `;
+        const rightEv = document.createElement('span');
+        rightEv.className = 'diagx-ev-right';
+        const timeSpan = document.createElement('span');
+        timeSpan.className = 'diagx-ev-time';
+        timeSpan.textContent = ev.timestamp;
+        const evDisBtn = document.createElement('button');
+        evDisBtn.type = 'button';
+        evDisBtn.className = 'diagx-dismiss-btn mini';
+        evDisBtn.textContent = '✓';
+        evDisBtn.title = 'Dismiss this event as solved (excludes from Stability Score)';
+        const evKey = GetDiagXEventKey(ev);
+        const evLbl = `${ev.provider} (ID ${ev.eventId || 'EXT'}) · ${ev.timestamp}`;
+        evDisBtn.addEventListener('click', () => DismissDiagXEventByKey(evKey, evLbl));
+        rightEv.append(timeSpan, evDisBtn);
+        head.appendChild(rightEv);
         card.appendChild(head);
 
         const msgEl = document.createElement('div');
@@ -5971,6 +6358,9 @@ window._cmdPaletteFiltered = [];
 
 const COREWATCH_PALETTE_ITEMS = [
     { label: '📟 Dashboard — System Overview', cat: 'Tab', run: () => SwitchAppLayoutView('dashboard') },
+    { label: '✏️ Customize Dashboard Layout (Grid / Side Dock / Hide)', cat: 'UI', run: () => { SwitchAppLayoutView('dashboard'); OpenLayoutCustomizer(); } },
+    { label: '◫ Toggle Side Pop-Out Telemetry Dock', cat: 'UI', run: () => ToggleSideTelemetryDock() },
+    { label: '📌 Toggle Always on Top (Pin Window)', cat: 'Window', run: () => ToggleWindowAlwaysOnTop() },
     { label: '📡 Network — Adapters, Diagnostics & Routing', cat: 'Tab', run: () => SwitchAppLayoutView('netmanager') },
     { label: '🧪 Network — Active Diagnostics (Ping / Trace / Ports / DNS)', cat: 'Tool', run: () => { SwitchAppLayoutView('netmanager'); SetNetworkSubView('diagnostics'); } },
     { label: '📶 Network — Wi-Fi RSSI, Routing Table & ARP', cat: 'Tool', run: () => { SwitchAppLayoutView('netmanager'); SetNetworkSubView('wifiroutes'); } },
@@ -7132,3 +7522,603 @@ function SetupDiskMapCanvasEvents() {
         window._dmResizeObs.observe(wrap);
     }
 }
+
+// =========================================================================
+// [PHASE 1 & 2] DASHBOARD LAYOUT CUSTOMIZER + WINDOW CONTROLS ENGINE
+// Supports Show/Hide Frames, Per-Section Visibility, Drag-and-Drop Reorder,
+// Half/Full Width Toggle, Collapse, 1-Click Presets, Always-on-Top & Opacity
+// =========================================================================
+const CW_LAYOUT_STORAGE_KEY = 'corewatch_dashboard_layout_v1';
+
+const CW_CARD_CATALOG = [
+    { id: 'hardware', label: '⚡ Hardware Metrics', defaultWide: false },
+    { id: 'identity', label: '👤 System Identity', defaultWide: false },
+    { id: 'storage',  label: '💾 Storage', defaultWide: false },
+    { id: 'infra',    label: '🛠️ System Infrastructure', defaultWide: false },
+    { id: 'network',  label: '📡 Network Profile System', defaultWide: true },
+    { id: 'console',  label: '📑 Log Profile Console', defaultWide: true }
+];
+
+const CW_METRIC_GROUPS = [
+    {
+        cardId: 'hardware',
+        title: '⚡ Hardware Metrics',
+        metrics: [
+            { key: 'hw-cpu',      label: 'CPU Load, Clock, Temp & Throttling' },
+            { key: 'hw-gpu',      label: 'GPU Utilization, Power & Temp' },
+            { key: 'hw-vram',     label: 'GPU VRAM Allocation Sub-Bar' },
+            { key: 'hw-ram',      label: 'RAM Allocation & Cache Matrix' },
+            { key: 'hw-pagefile', label: 'Pagefile Commitment' },
+            { key: 'hw-topproc',  label: 'Top Active Process Callout' }
+        ]
+    },
+    {
+        cardId: 'identity',
+        title: '👤 System Identity',
+        metrics: [
+            { key: 'id-host',      label: 'Host & Domain / Workgroup' },
+            { key: 'id-os',        label: 'OS Edition, Build & Update' },
+            { key: 'id-runtime',   label: 'DirectX, Virtualization, Secure Boot & PS' },
+            { key: 'id-java',      label: 'Java Runtime Picker' },
+            { key: 'id-telemetry', label: 'Windows Telemetry Toggle' },
+            { key: 'id-stability', label: 'Privilege, Pending Reboot & Last Crash' }
+        ]
+    },
+    {
+        cardId: 'infra',
+        title: '🛠️ System Infrastructure',
+        metrics: [
+            { key: 'infra-board',   label: 'Motherboard & BIOS Version' },
+            { key: 'infra-power',   label: 'Power Plan & System Uptime' },
+            { key: 'infra-audio',   label: 'Audio Output & Input Devices' },
+            { key: 'infra-display', label: 'Display Picker, HDR, Night Light & Warmth' }
+        ]
+    },
+    {
+        cardId: 'network',
+        title: '📡 Network Profile System',
+        metrics: [
+            { key: 'net-defender',  label: 'Defender Tamper / Behavior / Cloud / IOAV' },
+            { key: 'net-dnsarp',    label: 'DNS Servers, DNS Check & ARP Gateway' },
+            { key: 'net-drivers',   label: 'Ethernet/Wi-Fi Drivers & Adapter Toggles' },
+            { key: 'net-speedtest', label: 'Speedtest, Jitter & Packet Loss Bar' },
+            { key: 'net-bandwidth', label: 'Live RX/TX Bandwidth Activity Bar' }
+        ]
+    }
+];
+
+const CW_LAYOUT_PRESETS = {
+    full: {
+        preset: 'full',
+        order: ['hardware', 'identity', 'storage', 'infra', 'network', 'console'],
+        hiddenCards: [],
+        dockedCards: [],
+        wideCards: ['network', 'console'],
+        collapsedCards: [],
+        hiddenMetrics: []
+    },
+    hardware: {
+        preset: 'hardware',
+        order: ['hardware', 'storage', 'infra', 'identity', 'network', 'console'],
+        hiddenCards: ['identity', 'network', 'console'],
+        dockedCards: [],
+        wideCards: ['hardware'],
+        collapsedCards: [],
+        hiddenMetrics: []
+    },
+    netops: {
+        preset: 'netops',
+        order: ['network', 'hardware', 'storage', 'console', 'identity', 'infra'],
+        hiddenCards: ['identity', 'infra'],
+        dockedCards: [],
+        wideCards: ['network', 'console'],
+        collapsedCards: [],
+        hiddenMetrics: ['hw-pagefile']
+    },
+    compact: {
+        preset: 'compact',
+        order: ['hardware', 'storage', 'network', 'identity', 'infra', 'console'],
+        hiddenCards: ['identity', 'infra', 'console'],
+        dockedCards: [],
+        wideCards: ['network'],
+        collapsedCards: [],
+        hiddenMetrics: ['hw-pagefile', 'net-defender', 'net-speedtest']
+    }
+};
+
+window._cwLayoutState = JSON.parse(JSON.stringify(CW_LAYOUT_PRESETS.full));
+window._cwWindowAlwaysOnTop = false;
+window._cwWindowOpacity = 1.0;
+window._cwDragCardId = null;
+
+function NormalizeLayoutState(raw) {
+    const def = CW_LAYOUT_PRESETS.full;
+    if (!raw || typeof raw !== 'object') return JSON.parse(JSON.stringify(def));
+    const allIds = CW_CARD_CATALOG.map(c => c.id);
+    const rawOrder = Array.isArray(raw.order) ? raw.order.filter(id => allIds.includes(id)) : [];
+    const order = [...rawOrder, ...allIds.filter(id => !rawOrder.includes(id))];
+    const hiddenCards = Array.isArray(raw.hiddenCards) ? raw.hiddenCards.filter(id => allIds.includes(id)) : [];
+    const dockedCards = Array.isArray(raw.dockedCards)
+        ? raw.dockedCards.filter(id => allIds.includes(id) && !hiddenCards.includes(id))
+        : [];
+    return {
+        preset: typeof raw.preset === 'string' ? raw.preset : 'custom',
+        order,
+        hiddenCards,
+        dockedCards,
+        wideCards: Array.isArray(raw.wideCards) ? raw.wideCards.filter(id => allIds.includes(id)) : [...def.wideCards],
+        collapsedCards: Array.isArray(raw.collapsedCards) ? raw.collapsedCards.filter(id => allIds.includes(id)) : [],
+        hiddenMetrics: Array.isArray(raw.hiddenMetrics) ? raw.hiddenMetrics.map(String) : []
+    };
+}
+
+function LoadLocalLayoutFallback() {
+    try {
+        const str = localStorage.getItem(CW_LAYOUT_STORAGE_KEY);
+        if (str) return NormalizeLayoutState(JSON.parse(str));
+    } catch {}
+    return NormalizeLayoutState(CW_LAYOUT_PRESETS.full);
+}
+
+function PersistLayoutState(pushToHost = true) {
+    try {
+        localStorage.setItem(CW_LAYOUT_STORAGE_KEY, JSON.stringify(window._cwLayoutState));
+    } catch {}
+    if (pushToHost && window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage(JSON.stringify({
+            command: 'SAVE_UI_LAYOUT',
+            layout: window._cwLayoutState
+        }));
+    }
+}
+
+function FindDashboardCardElement(cardId) {
+    return document.querySelector(`.dashboard-card[data-card-id="${cardId}"]`);
+}
+
+function InjectCardEditHeaders() {
+    const grid = document.getElementById('viewDashboardGrid');
+    if (!grid) return;
+
+    document.querySelectorAll('.dashboard-card[data-card-id]').forEach(card => {
+        const cardId = card.dataset.cardId;
+        if (card.dataset.editWired === '1') return;
+        card.dataset.editWired = '1';
+
+        let headerHost = card.querySelector(':scope > .console-header-row');
+        if (!headerHost) {
+            const h2 = card.querySelector(':scope > h2');
+            if (h2) {
+                headerHost = document.createElement('div');
+                headerHost.className = 'card-header-bar';
+                card.insertBefore(headerHost, h2);
+                headerHost.appendChild(h2);
+            }
+        }
+
+        if (headerHost) {
+            const ctrls = document.createElement('div');
+            ctrls.className = 'card-edit-controls';
+            ctrls.innerHTML = `
+                <span class="card-drag-grip" title="Drag card to reorder">⠿</span>
+                <button type="button" class="card-ctrl-btn ctrl-width" onclick="ToggleDashboardCardWidth('${cardId}')" title="Toggle Half / Full Width">◧</button>
+                <button type="button" class="card-ctrl-btn ctrl-dock" onclick="ToggleDashboardCardDock('${cardId}')" title="Move frame to Side Pop-Out Telemetry Dock">◫</button>
+                <button type="button" class="card-ctrl-btn ctrl-collapse" onclick="ToggleDashboardCardCollapse('${cardId}')" title="Collapse / Expand card">▾</button>
+                <button type="button" class="card-ctrl-btn ctrl-hide" onclick="SetDashboardCardPlacement('${cardId}', 'hide')" title="Hide this frame">✕</button>
+            `;
+            headerHost.appendChild(ctrls);
+        }
+
+        // Native HTML5 Drag-and-Drop Reordering (active only when grid has .layout-edit-mode)
+        card.addEventListener('dragstart', (e) => {
+            if (!grid.classList.contains('layout-edit-mode') || card.classList.contains('card-docked')) { e.preventDefault(); return; }
+            window._cwDragCardId = cardId;
+            card.classList.add('is-dragging');
+            try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', cardId); } catch {}
+        });
+        card.addEventListener('dragend', () => {
+            window._cwDragCardId = null;
+            grid.querySelectorAll('.dashboard-card').forEach(c => c.classList.remove('is-dragging', 'drag-over'));
+        });
+        card.addEventListener('dragover', (e) => {
+            if (!window._cwDragCardId || window._cwDragCardId === cardId || card.classList.contains('card-docked')) return;
+            e.preventDefault();
+            card.classList.add('drag-over');
+        });
+        card.addEventListener('dragleave', () => {
+            card.classList.remove('drag-over');
+        });
+        card.addEventListener('drop', (e) => {
+            e.preventDefault();
+            card.classList.remove('drag-over');
+            const srcId = window._cwDragCardId;
+            if (!srcId || srcId === cardId) return;
+            ReorderDashboardCards(srcId, cardId);
+        });
+    });
+}
+
+function SyncSideDockUiChrome() {
+    const st = window._cwLayoutState;
+    const dockCount = (st.dockedCards || []).filter(id => !st.hiddenCards.includes(id)).length;
+    const dock = document.getElementById('sideTelemetryDock');
+    const toggleBtn = document.getElementById('btnSideDockToggle');
+    const pullTab = document.getElementById('sideDockPullTab');
+
+    if (dockCount === 0 && dock && dock.style.display !== 'none') {
+        CloseSideTelemetryDock();
+    }
+
+    const isOpen = !!(dock && dock.style.display !== 'none');
+    if (toggleBtn) {
+        toggleBtn.style.display = dockCount > 0 ? 'inline-flex' : 'none';
+        toggleBtn.classList.toggle('active', isOpen);
+        SetDomText('lblSideDockCount', dockCount);
+    }
+    if (pullTab) {
+        pullTab.style.display = (dockCount > 0 && !isOpen) ? 'flex' : 'none';
+        pullTab.innerHTML = `<span>◫</span><span style="font-size:9px;font-weight:700;">${dockCount}</span>`;
+    }
+}
+
+function ApplyDashboardLayout(persist = false) {
+    const grid = document.getElementById('viewDashboardGrid');
+    const dockHost = document.getElementById('sideDockCardsHost');
+    if (!grid) return;
+
+    InjectCardEditHeaders();
+    const st = window._cwLayoutState;
+    const isEdit = grid.classList.contains('layout-edit-mode');
+
+    // 1. Place and order DOM cards cleanly into Main Grid vs Live Side Telemetry Dock
+    st.order.forEach(cardId => {
+        const card = FindDashboardCardElement(cardId);
+        if (!card) return;
+
+        const isHidden    = st.hiddenCards.includes(cardId);
+        const isDocked    = !isHidden && (st.dockedCards || []).includes(cardId) && !!dockHost;
+        const isWide      = st.wideCards.includes(cardId);
+        const isCollapsed = st.collapsedCards.includes(cardId);
+
+        if (isDocked) {
+            dockHost.appendChild(card);
+            card.classList.remove('card-hidden', 'card-wide', 'card-half');
+            card.classList.add('card-docked');
+            card.classList.toggle('card-collapsed', isCollapsed);
+            card.draggable = false;
+        } else {
+            grid.appendChild(card);
+            card.classList.remove('card-docked');
+            card.classList.toggle('card-hidden', isHidden);
+            card.classList.toggle('card-wide', isWide);
+            card.classList.toggle('card-half', !isWide);
+            card.classList.toggle('card-collapsed', isCollapsed);
+            card.draggable = isEdit;
+        }
+
+        const wBtn = card.querySelector('.ctrl-width');
+        if (wBtn) {
+            wBtn.textContent = isWide ? '▬' : '◧';
+            wBtn.title = isWide ? 'Full Width — Click for Half Width' : 'Half Width — Click for Full Width';
+        }
+        const dBtn = card.querySelector('.ctrl-dock');
+        if (dBtn) {
+            dBtn.classList.toggle('is-docked', isDocked);
+            dBtn.textContent = isDocked ? '↩ Grid' : '◫';
+            dBtn.title = isDocked ? 'Return frame to Main Dashboard Grid' : 'Move frame to Side Pop-Out Telemetry Dock';
+        }
+        const cBtn = card.querySelector('.ctrl-collapse');
+        if (cBtn) {
+            cBtn.textContent = isCollapsed ? '▸' : '▾';
+            cBtn.title = isCollapsed ? 'Expand frame' : 'Collapse frame';
+        }
+    });
+
+    // 2. Apply per-section metric visibility across both Grid and Side Dock
+    document.querySelectorAll('#viewDashboardGrid [data-metric-key], #sideDockCardsHost [data-metric-key]').forEach(el => {
+        const key = el.dataset.metricKey;
+        el.classList.toggle('metric-hidden', st.hiddenMetrics.includes(key));
+    });
+
+    SyncSideDockUiChrome();
+    RenderLayoutCustomizerDrawer();
+    if (persist) PersistLayoutState(true);
+}
+
+function ReorderDashboardCards(srcId, targetId) {
+    const order = [...window._cwLayoutState.order];
+    const fromIdx = order.indexOf(srcId);
+    const toIdx   = order.indexOf(targetId);
+    if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return;
+    order.splice(fromIdx, 1);
+    order.splice(toIdx, 0, srcId);
+    window._cwLayoutState.order = order;
+    window._cwLayoutState.preset = 'custom';
+    ApplyDashboardLayout(true);
+}
+
+window.MoveDashboardCardStep = function(cardId, delta) {
+    const order = [...window._cwLayoutState.order];
+    const idx = order.indexOf(cardId);
+    const next = idx + delta;
+    if (idx < 0 || next < 0 || next >= order.length) return;
+    [order[idx], order[next]] = [order[next], order[idx]];
+    window._cwLayoutState.order = order;
+    window._cwLayoutState.preset = 'custom';
+    ApplyDashboardLayout(true);
+};
+
+window.SetDashboardCardPlacement = function(cardId, mode) {
+    const hidden = new Set(window._cwLayoutState.hiddenCards);
+    const docked = new Set(window._cwLayoutState.dockedCards || []);
+
+    if (mode === 'hide') {
+        // Keep at least 1 card active across Grid + Side Dock so the app never looks blank
+        if (CW_CARD_CATALOG.length - hidden.size <= 1 && !hidden.has(cardId)) return;
+        hidden.add(cardId);
+        docked.delete(cardId);
+    } else if (mode === 'dock') {
+        hidden.delete(cardId);
+        docked.add(cardId);
+    } else {
+        hidden.delete(cardId);
+        docked.delete(cardId);
+    }
+
+    window._cwLayoutState.hiddenCards = Array.from(hidden);
+    window._cwLayoutState.dockedCards = Array.from(docked);
+    window._cwLayoutState.preset = 'custom';
+    ApplyDashboardLayout(true);
+
+    // If user docked directly from the card header while customizer is closed, pop open the Side Dock
+    if (mode === 'dock') {
+        const custDrawer = document.getElementById('layoutCustomizerDrawer');
+        if (!custDrawer || custDrawer.style.display === 'none') {
+            OpenSideTelemetryDock();
+        }
+    }
+};
+
+window.SetDashboardCardVisible = function(cardId, visible) {
+    SetDashboardCardPlacement(cardId, visible ? 'grid' : 'hide');
+};
+
+window.ToggleDashboardCardDock = function(cardId) {
+    const isDocked = (window._cwLayoutState.dockedCards || []).includes(cardId);
+    SetDashboardCardPlacement(cardId, isDocked ? 'grid' : 'dock');
+};
+
+window.OpenSideTelemetryDock = function() {
+    const dockCount = (window._cwLayoutState.dockedCards || []).filter(id => !window._cwLayoutState.hiddenCards.includes(id)).length;
+    if (dockCount === 0) {
+        OpenLayoutCustomizer();
+        return;
+    }
+    const cust = document.getElementById('layoutCustomizerDrawer');
+    if (cust && cust.style.display !== 'none') CloseLayoutCustomizer();
+
+    const dock = document.getElementById('sideTelemetryDock');
+    if (dock) dock.style.display = 'flex';
+    SyncSideDockUiChrome();
+    window.chrome?.webview?.postMessage('Side-Dock:open');
+};
+
+window.CloseSideTelemetryDock = function() {
+    const dock = document.getElementById('sideTelemetryDock');
+    if (dock) dock.style.display = 'none';
+    SyncSideDockUiChrome();
+    window.chrome?.webview?.postMessage('Side-Dock:closed');
+};
+
+window.ToggleSideTelemetryDock = function() {
+    const dock = document.getElementById('sideTelemetryDock');
+    if (dock && dock.style.display !== 'none') CloseSideTelemetryDock();
+    else OpenSideTelemetryDock();
+};
+
+window.ToggleDashboardCardWidth = function(cardId) {
+    const wide = new Set(window._cwLayoutState.wideCards);
+    if (wide.has(cardId)) wide.delete(cardId);
+    else wide.add(cardId);
+    window._cwLayoutState.wideCards = Array.from(wide);
+    window._cwLayoutState.preset = 'custom';
+    ApplyDashboardLayout(true);
+};
+
+window.ToggleDashboardCardCollapse = function(cardId) {
+    const col = new Set(window._cwLayoutState.collapsedCards);
+    if (col.has(cardId)) col.delete(cardId);
+    else col.add(cardId);
+    window._cwLayoutState.collapsedCards = Array.from(col);
+    ApplyDashboardLayout(true);
+};
+
+window.SetDashboardMetricVisible = function(metricKey, visible) {
+    const hidden = new Set(window._cwLayoutState.hiddenMetrics);
+    if (visible) hidden.delete(metricKey);
+    else hidden.add(metricKey);
+    window._cwLayoutState.hiddenMetrics = Array.from(hidden);
+    window._cwLayoutState.preset = 'custom';
+    ApplyDashboardLayout(true);
+};
+
+window.ApplyDashboardPreset = function(presetKey) {
+    const p = CW_LAYOUT_PRESETS[presetKey];
+    if (!p) return;
+    window._cwLayoutState = JSON.parse(JSON.stringify(p));
+    ApplyDashboardLayout(true);
+    AppendConsoleLogEntry(`[LAYOUT] Applied dashboard preset: ${presetKey}`);
+};
+
+window.ResetDashboardLayoutToDefault = function() {
+    ApplyDashboardPreset('full');
+};
+
+function RenderLayoutCustomizerDrawer() {
+    const drawer = document.getElementById('layoutCustomizerDrawer');
+    if (!drawer || drawer.style.display === 'none') return;
+
+    const st = window._cwLayoutState;
+
+    // Highlight active preset pill
+    drawer.querySelectorAll('.layout-preset-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.preset === st.preset);
+    });
+
+    // Render ordered card list with 3-way placement (Grid | Dock | Hide)
+    const cardList = document.getElementById('layoutCardsChecklist');
+    if (cardList) {
+        cardList.innerHTML = st.order.map((cardId, idx) => {
+            const meta = CW_CARD_CATALOG.find(c => c.id === cardId) || { id: cardId, label: cardId };
+            const isHidden = st.hiddenCards.includes(cardId);
+            const isDocked = !isHidden && (st.dockedCards || []).includes(cardId);
+            const mode     = isHidden ? 'hide' : (isDocked ? 'dock' : 'grid');
+            const isWide   = st.wideCards.includes(cardId);
+            const rowCls   = isHidden ? 'is-hidden-card' : (isDocked ? 'is-docked-card' : '');
+            return `<div class="layout-card-row ${rowCls}">
+                <div class="layout-card-row-left" title="${meta.label}">
+                    <span>${meta.label}</span>
+                </div>
+                <div class="layout-card-row-actions">
+                    <div class="layout-place-group" role="group" aria-label="Placement for ${meta.label}">
+                        <button type="button" class="layout-place-btn ${mode === 'grid' ? 'active-grid' : ''}" onclick="SetDashboardCardPlacement('${cardId}', 'grid')" title="Show on Main Dashboard Grid">Grid</button>
+                        <button type="button" class="layout-place-btn ${mode === 'dock' ? 'active-dock' : ''}" onclick="SetDashboardCardPlacement('${cardId}', 'dock')" title="Move live frame to Side Pop-Out Telemetry Dock">Dock</button>
+                        <button type="button" class="layout-place-btn ${mode === 'hide' ? 'active-hide' : ''}" onclick="SetDashboardCardPlacement('${cardId}', 'hide')" title="Completely hide frame">Hide</button>
+                    </div>
+                    <button type="button" class="card-ctrl-btn" ${idx === 0 ? 'disabled' : ''} onclick="MoveDashboardCardStep('${cardId}', -1)" title="Move up">▲</button>
+                    <button type="button" class="card-ctrl-btn" ${idx === st.order.length - 1 ? 'disabled' : ''} onclick="MoveDashboardCardStep('${cardId}', 1)" title="Move down">▼</button>
+                    <button type="button" class="card-ctrl-btn" ${mode !== 'grid' ? 'disabled' : ''} onclick="ToggleDashboardCardWidth('${cardId}')" title="Toggle Half / Full Width">${isWide ? 'Wide' : 'Half'}</button>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    // Render per-section metric toggles (preserving open <details> state)
+    const metList = document.getElementById('layoutMetricsChecklist');
+    if (metList) {
+        const openCards = new Set(Array.from(metList.querySelectorAll('details[open]')).map(d => d.dataset.card));
+        metList.innerHTML = CW_METRIC_GROUPS.map(g => {
+            const openAttr = openCards.has(g.cardId) ? 'open' : '';
+            const checks = g.metrics.map(m => {
+                const checked = !st.hiddenMetrics.includes(m.key) ? 'checked' : '';
+                return `<label><input type="checkbox" ${checked} onchange="SetDashboardMetricVisible('${m.key}', this.checked)"> ${m.label}</label>`;
+            }).join('');
+            return `<details class="layout-metric-group-box" data-card="${g.cardId}" ${openAttr}>
+                <summary>${g.title}</summary>
+                <div class="layout-metric-checks">${checks}</div>
+            </details>`;
+        }).join('');
+    }
+}
+
+window.OpenLayoutCustomizer = function() {
+    SwitchAppLayoutView('dashboard');
+    const sideDock = document.getElementById('sideTelemetryDock');
+    if (sideDock && sideDock.style.display !== 'none') CloseSideTelemetryDock();
+
+    const drawer = document.getElementById('layoutCustomizerDrawer');
+    const grid   = document.getElementById('viewDashboardGrid');
+    const btn    = document.getElementById('btnCustomizeLayout');
+    if (drawer) drawer.style.display = 'flex';
+    if (grid)   grid.classList.add('layout-edit-mode');
+    if (btn)    btn.classList.add('active');
+    ApplyDashboardLayout(false);
+};
+
+window.CloseLayoutCustomizer = function() {
+    const drawer = document.getElementById('layoutCustomizerDrawer');
+    const grid   = document.getElementById('viewDashboardGrid');
+    const btn    = document.getElementById('btnCustomizeLayout');
+    if (drawer) drawer.style.display = 'none';
+    if (grid)   grid.classList.remove('layout-edit-mode');
+    if (btn)    btn.classList.remove('active');
+    ApplyDashboardLayout(false);
+};
+
+window.ToggleLayoutCustomizer = function() {
+    const drawer = document.getElementById('layoutCustomizerDrawer');
+    if (drawer && drawer.style.display !== 'none') CloseLayoutCustomizer();
+    else OpenLayoutCustomizer();
+};
+
+// Window Always-on-Top & Opacity Controls (Phase 1)
+function SyncWindowPinAndOpacityUi(alwaysOnTop, opacity) {
+    if (alwaysOnTop !== undefined && alwaysOnTop !== null) {
+        window._cwWindowAlwaysOnTop = !!alwaysOnTop;
+    }
+    if (opacity !== undefined && opacity !== null && Number.isFinite(Number(opacity))) {
+        window._cwWindowOpacity = Math.max(0.7, Math.min(1.0, Number(opacity)));
+    }
+    const pinBtn = document.getElementById('btnPinOnTop');
+    if (pinBtn) {
+        pinBtn.classList.toggle('active', window._cwWindowAlwaysOnTop);
+        pinBtn.title = window._cwWindowAlwaysOnTop ? 'Pinned Always on Top — Click to Unpin' : 'Toggle Always on Top (Pin Window)';
+    }
+    const chk = document.getElementById('chkWindowAlwaysOnTop');
+    if (chk) chk.checked = window._cwWindowAlwaysOnTop;
+
+    const pct = Math.round(window._cwWindowOpacity * 100);
+    const rng = document.getElementById('rngWindowOpacity');
+    if (rng) rng.value = String(pct);
+    SetDomText('lblWindowOpacity', `${pct}%`);
+}
+
+window.SetWindowAlwaysOnTop = function(enabled) {
+    SyncWindowPinAndOpacityUi(!!enabled, undefined);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'SET_ALWAYS_ON_TOP', enabled: !!enabled }));
+    AppendConsoleLogEntry(`[WINDOW] Always on Top: ${enabled ? 'ON' : 'OFF'}`);
+};
+
+window.ToggleWindowAlwaysOnTop = function() {
+    SetWindowAlwaysOnTop(!window._cwWindowAlwaysOnTop);
+};
+
+window.OnWindowOpacityInput = function(rawPct) {
+    const pct = Math.max(70, Math.min(100, Number(rawPct) || 100));
+    SetDomText('lblWindowOpacity', `${pct}%`);
+};
+
+window.OnWindowOpacityCommit = function(rawPct) {
+    const pct = Math.max(70, Math.min(100, Number(rawPct) || 100));
+    const op = Number((pct / 100).toFixed(2));
+    SyncWindowPinAndOpacityUi(undefined, op);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'SET_WINDOW_OPACITY', opacity: op }));
+};
+
+function ApplyHostUiSettingsState(data) {
+    if (!data) return;
+    SyncWindowPinAndOpacityUi(data.alwaysOnTop, data.opacity);
+    if (data.layout && typeof data.layout === 'object') {
+        window._cwLayoutState = NormalizeLayoutState(data.layout);
+        try { localStorage.setItem(CW_LAYOUT_STORAGE_KEY, JSON.stringify(window._cwLayoutState)); } catch {}
+    } else {
+        window._cwLayoutState = LoadLocalLayoutFallback();
+    }
+    if (data.diagxDismissed && typeof data.diagxDismissed === 'object') {
+        window._diagXDismissed = NormalizeDiagXDismissed(data.diagxDismissed);
+        try { localStorage.setItem(DIAGX_DISMISSED_STORAGE_KEY, JSON.stringify(window._diagXDismissed)); } catch {}
+        if (window._diagXReport) RecalculateAndRenderDiagX();
+    } else {
+        window._diagXDismissed = LoadLocalDiagXDismissed();
+    }
+    ApplyDashboardLayout(false);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    window._cwLayoutState = LoadLocalLayoutFallback();
+    window._diagXDismissed = LoadLocalDiagXDismissed();
+    ApplyDashboardLayout(false);
+});
+
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        const drawer = document.getElementById('layoutCustomizerDrawer');
+        if (drawer && drawer.style.display !== 'none') {
+            CloseLayoutCustomizer();
+        }
+        const sideDock = document.getElementById('sideTelemetryDock');
+        if (sideDock && sideDock.style.display !== 'none') {
+            CloseSideTelemetryDock();
+        }
+    }
+});

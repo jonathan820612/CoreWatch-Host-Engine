@@ -67,6 +67,13 @@ button, input, select {
     /* FIXED: Ensures that interactive elements remain clickable and do not pass drag actions upstream */
     -webkit-app-region: no-drag;
 }
+.header-left-group,
+.header-right-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
 .modular-tabs { display: flex; flex-wrap: nowrap; gap: 5px; justify-content: center; align-items: center; }
 
 /* Control buttons and tab handlers */
@@ -230,12 +237,15 @@ button, input, select {
 }
 .exit-system-btn:hover { background: #c53030; }
 
-/* Dashboard layout grid and cards (1080x1920 Portrait Optimized) */
+/* Dashboard layout grid and cards (Dynamic Dense Reflow + Customizable Widths) */
 .dashboard-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    grid-template-rows: auto auto auto minmax(120px, 1fr); /* Telemetry rows fit content; Log Console stretches to bottom */
+    grid-auto-rows: auto;
+    grid-auto-flow: dense;
     grid-gap: 8px;
+    align-items: stretch;
+    align-content: start;
     flex: 1 1 auto;
     min-height: 0;
     width: 100%;
@@ -254,6 +264,31 @@ button, input, select {
     height: 100%;
     min-width: 0;
     overflow: visible; /* Never clip telemetry metrics */
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+.dashboard-card.card-wide {
+    grid-column: 1 / -1 !important;
+}
+.dashboard-card.card-half {
+    grid-column: span 1 !important;
+}
+.dashboard-card.card-hidden {
+    display: none !important;
+}
+.dashboard-card.card-collapsed {
+    height: auto !important;
+    min-height: 0 !important;
+}
+.dashboard-card.card-collapsed > :not(.card-header-bar):not(.console-header-row) {
+    display: none !important;
+}
+.dashboard-card .metric-hidden,
+[data-metric-key].metric-hidden {
+    display: none !important;
+}
+.metric-group {
+    display: flex;
+    flex-direction: column;
 }
 /* File: modules/layouts/style.css - Append to the bottom of your file */
 
@@ -3471,9 +3506,498 @@ button.adapter-status-badge.status-off:hover {
 @media (max-width: 680px) {
     .dashboard-grid {
         grid-template-columns: 1fr;
-        grid-template-rows: auto auto auto auto auto minmax(140px, 1fr);
+        grid-auto-rows: auto;
     }
-    .wide-sub-console {
+    .wide-sub-console,
+    .dashboard-card.card-wide,
+    .dashboard-card.card-half {
         grid-column: 1 / -1 !important;
     }
+}
+
+/* =========================================================================
+   [PHASE 1 & 2] LAYOUT EDIT MODE, CARD CONTROLS & SLIDE-OVER CUSTOMIZER
+   ========================================================================= */
+.nav-util-btn {
+    color: #90cdf4;
+    border-color: #3a4659;
+    background: #1f2937;
+    font-size: 9.5px;
+    padding: 4px 7px;
+}
+.nav-util-btn.active {
+    background: #3182ce;
+    border-color: #63b3ed;
+    color: #fff;
+}
+.nav-pin-btn {
+    color: #a0aec0;
+    border-color: #3a4659;
+    background: #1a202c;
+    font-size: 10px;
+    padding: 4px 6px;
+}
+.nav-pin-btn.active {
+    background: rgba(236, 201, 75, 0.2);
+    border-color: #ecc94b;
+    color: #ecc94b;
+}
+
+.card-header-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+    border-bottom: 1px solid #2d3748;
+    margin-bottom: 6px;
+    padding-bottom: 4px;
+    flex: 0 0 auto;
+}
+.card-header-bar h2 {
+    margin: 0 !important;
+    border-bottom: none !important;
+    padding-bottom: 0 !important;
+}
+.card-edit-controls {
+    display: none;
+    align-items: center;
+    gap: 3px;
+    flex-shrink: 0;
+    -webkit-app-region: no-drag;
+}
+.dashboard-grid.layout-edit-mode .card-edit-controls {
+    display: inline-flex;
+}
+.dashboard-grid.layout-edit-mode .dashboard-card {
+    border: 1px dashed #4299e1;
+    box-shadow: inset 0 0 0 1px rgba(66, 153, 225, 0.14);
+}
+.dashboard-grid.layout-edit-mode .dashboard-card.is-dragging {
+    opacity: 0.45;
+    border-color: #ecc94b;
+}
+.dashboard-grid.layout-edit-mode .dashboard-card.drag-over {
+    border: 2px solid #63b3ed;
+    box-shadow: 0 0 14px rgba(99, 179, 237, 0.35);
+}
+.card-drag-grip {
+    cursor: grab;
+    color: #63b3ed;
+    font-size: 12px;
+    padding: 0 4px;
+    user-select: none;
+}
+.card-drag-grip:active { cursor: grabbing; }
+.card-ctrl-btn {
+    background: #1a202c;
+    border: 1px solid #4a5568;
+    color: #cbd5e0;
+    font-size: 9px;
+    padding: 1px 5px;
+    cursor: pointer;
+    border-radius: 2px;
+    line-height: 1.3;
+}
+.card-ctrl-btn:hover {
+    background: #3182ce;
+    border-color: #63b3ed;
+    color: #fff;
+}
+.card-ctrl-btn.ctrl-hide:hover {
+    background: #9b2c2c;
+    border-color: #fc8181;
+}
+.dashboard-card.card-collapsed .card-header-bar,
+.dashboard-card.card-collapsed .console-header-row {
+    margin-bottom: 0;
+    padding-bottom: 0;
+    border-bottom: none;
+}
+.dashboard-card.card-collapsed .card-edit-controls {
+    display: inline-flex; /* Always keep uncollapse button visible when collapsed */
+}
+.dashboard-grid:not(.layout-edit-mode) .dashboard-card.card-collapsed .card-ctrl-btn:not(.ctrl-collapse),
+.dashboard-grid:not(.layout-edit-mode) .dashboard-card.card-collapsed .card-drag-grip {
+    display: none;
+}
+/* Adapt Network Matrix cleanly when user shrinks Network card to Half-Width */
+.dashboard-card.card-half .network-matrix-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+}
+/* When Log Console is visible and not collapsed, give it a comfortable readable height */
+.dashboard-card.log-console-card:not(.card-collapsed) {
+    min-height: 150px;
+}
+
+/* Slide-Over Layout Customizer Drawer */
+.layout-drawer {
+    position: fixed;
+    top: 48px;
+    right: 10px;
+    bottom: 10px;
+    width: 345px;
+    max-width: calc(100vw - 20px);
+    background: #18202c;
+    border: 1px solid #4299e1;
+    border-radius: 3px;
+    box-shadow: -12px 12px 36px rgba(0, 0, 0, 0.72);
+    z-index: 8800;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    -webkit-app-region: no-drag;
+}
+.layout-drawer-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 12px;
+    background: #212936;
+    border-bottom: 1px solid #323c4b;
+    color: #90cdf4;
+    font-size: 11.5px;
+}
+.layout-drawer-sub {
+    font-size: 9.5px;
+    color: #8b9bb4;
+    margin-top: 2px;
+}
+.layout-drawer-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.layout-drawer-section {
+    background: #141923;
+    border: 1px solid #2d3748;
+    padding: 8px 10px;
+    border-radius: 2px;
+}
+.layout-drawer-sec-title {
+    font-size: 10px;
+    font-weight: 700;
+    color: #63b3ed;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 7px;
+}
+.layout-preset-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 5px;
+}
+.layout-preset-btn {
+    background: #212936;
+    border: 1px solid #4a5568;
+    color: #e2e8f0;
+    font-size: 10px;
+    padding: 5px 6px;
+    cursor: pointer;
+    text-align: left;
+    border-radius: 2px;
+}
+.layout-preset-btn:hover {
+    border-color: #63b3ed;
+    background: #283548;
+}
+.layout-preset-btn.active {
+    background: rgba(49, 130, 206, 0.28);
+    border-color: #4299e1;
+    color: #fff;
+}
+.layout-cards-list {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+.layout-card-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    background: #1c2432;
+    border: 1px solid #2d3748;
+    padding: 5px 7px;
+    font-size: 10.5px;
+    color: #edf2f7;
+    border-radius: 2px;
+}
+.layout-card-row.is-hidden-card {
+    opacity: 0.55;
+}
+.layout-card-row-left {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    cursor: pointer;
+}
+.layout-card-row-left span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.layout-card-row-actions {
+    display: inline-flex;
+    gap: 3px;
+    flex-shrink: 0;
+}
+.layout-metrics-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.layout-metric-group-box {
+    border: 1px solid #253042;
+    background: #18202c;
+    padding: 6px 8px;
+    border-radius: 2px;
+}
+.layout-metric-group-box summary {
+    cursor: pointer;
+    font-size: 10.5px;
+    font-weight: 700;
+    color: #cbd5e0;
+    user-select: none;
+}
+.layout-metric-checks {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 6px;
+    padding-top: 5px;
+    border-top: 1px dashed #2d3748;
+}
+.layout-metric-checks label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10px;
+    color: #a0aec0;
+    cursor: pointer;
+}
+.layout-opacity-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 10.5px;
+    color: #a0aec0;
+}
+.layout-opacity-row input[type="range"] {
+    flex: 1 1 auto;
+}
+.layout-opacity-row strong {
+    color: #90cdf4;
+    min-width: 34px;
+    text-align: right;
+}
+.layout-drawer-footer {
+    display: flex;
+    justify-content: flex-end;
+    padding-top: 2px;
+}
+
+/* =========================================================================
+   [PHASE 2] LIVE SIDE POP-OUT TELEMETRY DOCK & 3-WAY PLACEMENT CONTROLS
+   ========================================================================= */
+.nav-dock-btn {
+    color: #81e6d9;
+    border-color: #2c7a7b;
+    background: rgba(49, 151, 149, 0.16);
+    font-size: 9.5px;
+    padding: 4px 7px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+.nav-dock-btn:hover {
+    background: rgba(49, 151, 149, 0.32);
+    border-color: #4fd1c5;
+    color: #fff;
+}
+.nav-dock-btn.active {
+    background: #2c7a7b;
+    border-color: #4fd1c5;
+    color: #fff;
+}
+
+.side-dock-pull-tab {
+    position: fixed;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 8400;
+    width: 24px;
+    min-height: 76px;
+    background: #1b2636;
+    border: 1px solid #38b2ac;
+    border-right: none;
+    border-radius: 5px 0 0 5px;
+    color: #81e6d9;
+    font-size: 13px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    box-shadow: -4px 4px 16px rgba(0, 0, 0, 0.55);
+    transition: width 0.15s ease, background 0.15s ease, color 0.15s ease;
+    -webkit-app-region: no-drag;
+}
+.side-dock-pull-tab:hover {
+    width: 30px;
+    background: #2c7a7b;
+    color: #fff;
+}
+
+.side-telemetry-dock {
+    position: fixed;
+    top: 48px;
+    right: 10px;
+    bottom: 10px;
+    width: 430px;
+    max-width: calc(100vw - 24px);
+    background: #161d28;
+    border: 1px solid #38b2ac;
+    border-radius: 3px;
+    box-shadow: -14px 12px 38px rgba(0, 0, 0, 0.78);
+    z-index: 8600;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    -webkit-app-region: no-drag;
+}
+.side-dock-cards-host {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.side-dock-cards-host .dashboard-card {
+    height: auto;
+    flex: 0 0 auto;
+    border-color: #2d4459;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+.side-dock-cards-host .dashboard-card .card-edit-controls {
+    display: inline-flex;
+}
+.side-dock-cards-host .dashboard-card .card-drag-grip,
+.side-dock-cards-host .dashboard-card .ctrl-width {
+    display: none;
+}
+.side-dock-cards-host .network-matrix-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+}
+.side-dock-cards-host .dashboard-card.log-console-card:not(.card-collapsed) {
+    min-height: 170px;
+    max-height: 250px;
+}
+.card-ctrl-btn.ctrl-dock.is-docked {
+    background: rgba(56, 178, 172, 0.25);
+    border-color: #4fd1c5;
+    color: #81e6d9;
+}
+
+/* 3-Way Placement Selector (Grid | Dock | Hide) in Layout Drawer */
+.layout-card-row.is-docked-card {
+    border-left: 2px solid #38b2ac;
+}
+.layout-place-group {
+    display: inline-flex;
+    border: 1px solid #3a4659;
+    border-radius: 2px;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+.layout-place-btn {
+    background: #141923;
+    border: none;
+    border-right: 1px solid #2d3748;
+    color: #8b9bb4;
+    font-size: 9px;
+    padding: 2px 5px;
+    cursor: pointer;
+    line-height: 1.3;
+    transition: background 0.12s, color 0.12s;
+}
+.layout-place-btn:last-child { border-right: none; }
+.layout-place-btn:hover { background: #263144; color: #edf2f7; }
+.layout-place-btn.active-grid { background: #3182ce; color: #fff; font-weight: 700; }
+.layout-place-btn.active-dock { background: #2c7a7b; color: #fff; font-weight: 700; }
+.layout-place-btn.active-hide { background: #742a2a; color: #feb2b2; font-weight: 700; }
+
+/* =========================================================================
+   ULTIMADIAGX: SCORE BREAKDOWN & DISMISS/SOLVED ISSUE CONTROLS
+   ========================================================================= */
+.diagx-score-breakdown {
+    font-size: 10px;
+    color: #90cdf4;
+    margin-top: 6px;
+    padding: 4px 8px;
+    background: #141923;
+    border: 1px solid #2d3748;
+    border-radius: 2px;
+    line-height: 1.35;
+}
+.diagx-dismissed-chip {
+    cursor: pointer;
+    border-color: #38a169 !important;
+    background: rgba(72, 187, 120, 0.14) !important;
+    color: #9ae6b4 !important;
+    transition: background 0.15s, border-color 0.15s;
+}
+.diagx-dismissed-chip:hover,
+.diagx-dismissed-chip.active {
+    background: rgba(72, 187, 120, 0.28) !important;
+    border-color: #68d391 !important;
+    color: #fff !important;
+}
+.diagx-finding-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+.diagx-ev-right {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    flex-shrink: 0;
+}
+.diagx-dismiss-btn {
+    background: #1a202c;
+    border: 1px solid #38a169;
+    color: #68d391;
+    font-size: 9.5px;
+    padding: 2px 7px;
+    cursor: pointer;
+    border-radius: 2px;
+    white-space: nowrap;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.diagx-dismiss-btn:hover {
+    background: #2f855a;
+    border-color: #68d391;
+    color: #fff;
+}
+.diagx-dismiss-btn.mini {
+    font-size: 9px;
+    padding: 1px 6px;
+    border-color: #4a5568;
+    color: #a0aec0;
+}
+.diagx-dismiss-btn.mini:hover {
+    background: #2f855a;
+    border-color: #68d391;
+    color: #fff;
 }

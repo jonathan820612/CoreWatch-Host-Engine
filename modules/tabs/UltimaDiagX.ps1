@@ -596,10 +596,18 @@ function Get-UltimaDiagXReport {
 
         # Detect High-Priority Diagnostic Findings (Root-Cause Patterns)
         $findings = New-Object System.Collections.Generic.List[PSCustomObject]
+        function _maxEpoch($arr) {
+            if (-not $arr -or $arr.Count -eq 0) { return [long]0 }
+            $m = ($arr | Measure-Object -Property epochMs -Maximum).Maximum
+            if ($null -ne $m) { return [long]$m }
+            return [long]0
+        }
 
         $kp41 = @($sortedEvents | Where-Object { $_.eventId -eq 41 -and $_.provider -match 'Kernel-Power' })
         if ($kp41.Count -gt 0) {
             $findings.Add([PSCustomObject]@{
+                id             = "kp41"
+                latestEpochMs  = _maxEpoch $kp41
                 severity       = "CRITICAL"
                 title          = "Unexpected System Reboots / Power Loss (Event 41)"
                 count          = $kp41.Count
@@ -612,6 +620,8 @@ function Get-UltimaDiagXReport {
         $whea = @($sortedEvents | Where-Object { $_.subsystem -eq "Hardware / WHEA" -and -not $_.isBenign })
         if ($whea.Count -gt 0) {
             $findings.Add([PSCustomObject]@{
+                id             = "whea"
+                latestEpochMs  = _maxEpoch $whea
                 severity       = "CRITICAL"
                 title          = "Hardware / WHEA Faults Detected"
                 count          = $whea.Count
@@ -624,6 +634,8 @@ function Get-UltimaDiagXReport {
         $diskIssues = @($sortedEvents | Where-Object { $_.subsystem -eq "Storage & Disk" -and $_.eventId -in @(7, 11, 51, 55, 98, 129, 153) })
         if ($diskIssues.Count -gt 0) {
             $findings.Add([PSCustomObject]@{
+                id             = "disk"
+                latestEpochMs  = _maxEpoch $diskIssues
                 severity       = "CRITICAL"
                 title          = "Storage / Disk I/O or NTFS Warnings"
                 count          = $diskIssues.Count
@@ -636,6 +648,8 @@ function Get-UltimaDiagXReport {
         $gpuTdr = @($sortedEvents | Where-Object { $_.subsystem -eq "Graphics / GPU" -and $_.eventId -in @(4101, 14) })
         if ($gpuTdr.Count -gt 0) {
             $findings.Add([PSCustomObject]@{
+                id             = "gpu_tdr"
+                latestEpochMs  = _maxEpoch $gpuTdr
                 severity       = "WARN"
                 title          = "GPU Display Driver Timeout / Reset (TDR)"
                 count          = $gpuTdr.Count
@@ -648,6 +662,8 @@ function Get-UltimaDiagXReport {
         $appCrashes = @($sortedEvents | Where-Object { $_.eventId -in @(1000, 1002, 1026) -and $_.channel -eq "Application" })
         if ($appCrashes.Count -gt 0) {
             $findings.Add([PSCustomObject]@{
+                id             = "app_crashes"
+                latestEpochMs  = _maxEpoch $appCrashes
                 severity       = if ($appCrashes.Count -ge 5) { "CRITICAL" } else { "WARN" }
                 title          = "Application Crashes & Hangs"
                 count          = $appCrashes.Count
@@ -660,6 +676,8 @@ function Get-UltimaDiagXReport {
         $svcFails = @($sortedEvents | Where-Object { $_.provider -match 'Service Control Manager' -and $_.eventId -in @(7000, 7001, 7009, 7023, 7031, 7034) })
         if ($svcFails.Count -gt 0) {
             $findings.Add([PSCustomObject]@{
+                id             = "svc_fails"
+                latestEpochMs  = _maxEpoch $svcFails
                 severity       = "WARN"
                 title          = "Windows Service Start / Crash Failures"
                 count          = $svcFails.Count
@@ -672,6 +690,8 @@ function Get-UltimaDiagXReport {
         $netDrops = @($sortedEvents | Where-Object { $_.subsystem -eq "Network & DNS" -and $_.severity -in @("Critical", "Error", "Warning") })
         if ($netDrops.Count -ge 3) {
             $findings.Add([PSCustomObject]@{
+                id             = "net_drops"
+                latestEpochMs  = _maxEpoch $netDrops
                 severity       = "WARN"
                 title          = "Network / DNS / WLAN Disruptions"
                 count          = $netDrops.Count
@@ -683,7 +703,16 @@ function Get-UltimaDiagXReport {
 
         $recentKernelDumps = @($crashInfo.dumps | Where-Object { $_.kind -match 'Kernel' })
         if ($recentKernelDumps.Count -gt 0) {
+            $dumpEpoch = [long]0
+            try {
+                if ($recentKernelDumps[0].timestamp) {
+                    $dt = [datetime]::ParseExact([string]$recentKernelDumps[0].timestamp, "yyyy-MM-dd HH:mm:ss", [System.Globalization.CultureInfo]::InvariantCulture)
+                    $dumpEpoch = [long]([DateTimeOffset]$dt).ToUnixTimeMilliseconds()
+                }
+            } catch {}
             $findings.Add([PSCustomObject]@{
+                id             = "kernel_dumps"
+                latestEpochMs  = $dumpEpoch
                 severity       = "WARN"
                 title          = "BSOD Kernel Crash Dumps Found on Disk"
                 count          = $recentKernelDumps.Count
@@ -694,7 +723,10 @@ function Get-UltimaDiagXReport {
         }
 
         if ($extErrCount -gt 0) {
+            $extErrEvs = @($sortedEvents | Where-Object { $_.sourceType -eq "External" -and $_.severity -in @("Critical", "Error") })
             $findings.Add([PSCustomObject]@{
+                id             = "ext_errors"
+                latestEpochMs  = _maxEpoch $extErrEvs
                 severity       = "WARN"
                 title          = "External Program Log Errors Detected"
                 count          = $extErrCount

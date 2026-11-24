@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [switch]$Release,
-    [switch]$DevTools
+    [switch]$DevTools,
+    [switch]$ShowConsole
 )
 
 try { if ($Host.Name -eq "ConsoleHost" -and -not [Console]::IsOutputRedirected) { Clear-Host } } catch {}
@@ -64,6 +65,96 @@ namespace CoreWatch {
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool SetProcessWorkingSetSize(IntPtr hProcess, IntPtr dwMinimumWorkingSetSize, IntPtr dwMaximumWorkingSetSize);
 
+        // [PHASE 1] Dedicated Taskbar Section (AppUserModelID) + Relaunch/Pin Metadata + Safe Standalone Console Hide
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern int SetCurrentProcessExplicitAppUserModelID([MarshalAs(UnmanagedType.LPWStr)] string AppID);
+
+        [DllImport("kernel32.dll")]
+        private static extern IntPtr GetConsoleWindow();
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern uint GetConsoleProcessList(uint[] lpdwProcessList, uint dwProcessCount);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+        [StructLayout(LayoutKind.Sequential, Pack = 4)]
+        private struct PROPERTYKEY {
+            public Guid fmtid;
+            public uint pid;
+        }
+
+        [StructLayout(LayoutKind.Explicit)]
+        private struct PROPVARIANT {
+            [FieldOffset(0)] public ushort vt;
+            [FieldOffset(8)] public IntPtr ptrVal;
+        }
+
+        [ComImport]
+        [Guid("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99")]
+        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        private interface IPropertyStore {
+            int GetCount(out uint cProps);
+            int GetAt(uint iProp, out PROPERTYKEY pkey);
+            int GetValue(ref PROPERTYKEY key, out PROPVARIANT pv);
+            int SetValue(ref PROPERTYKEY key, ref PROPVARIANT pv);
+            int Commit();
+        }
+
+        [DllImport("shell32.dll")]
+        private static extern int SHGetPropertyStoreForWindow(IntPtr hwnd, ref Guid iid, out IPropertyStore propertyStore);
+
+        [DllImport("ole32.dll")]
+        private static extern int PropVariantClear(ref PROPVARIANT pvar);
+
+        private static void SetPropString(IPropertyStore store, Guid fmtid, uint pid, string value) {
+            if (string.IsNullOrEmpty(value)) return;
+            var key = new PROPERTYKEY { fmtid = fmtid, pid = pid };
+            var pv = new PROPVARIANT { vt = 31 /* VT_LPWSTR */, ptrVal = Marshal.StringToCoTaskMemUni(value) };
+            try {
+                store.SetValue(ref key, ref pv);
+            } finally {
+                PropVariantClear(ref pv);
+            }
+        }
+
+        public static bool SetWindowAppUserModelProperties(IntPtr hwnd, string appId, string displayName, string iconResource, string relaunchCmd) {
+            if (hwnd == IntPtr.Zero) return false;
+            try {
+                Guid iid = new Guid("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99");
+                IPropertyStore store;
+                if (SHGetPropertyStoreForWindow(hwnd, ref iid, out store) != 0 || store == null) return false;
+                try {
+                    Guid aumidFmt = new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3");
+                    SetPropString(store, aumidFmt, 5, appId);            // System.AppUserModel.ID
+                    SetPropString(store, aumidFmt, 4, displayName);      // System.AppUserModel.RelaunchDisplayNameResource
+                    SetPropString(store, aumidFmt, 3, iconResource);     // System.AppUserModel.RelaunchIconResource
+                    SetPropString(store, aumidFmt, 2, relaunchCmd);      // System.AppUserModel.RelaunchCommand
+                    store.Commit();
+                    return true;
+                } finally {
+                    Marshal.ReleaseComObject(store);
+                }
+            } catch {
+                return false;
+            }
+        }
+
+        public static bool HideStandaloneConsole() {
+            try {
+                IntPtr hCon = GetConsoleWindow();
+                if (hCon == IntPtr.Zero) return false;
+                uint[] pids = new uint[4];
+                uint count = GetConsoleProcessList(pids, (uint)pids.Length);
+                if (count <= 1) {
+                    ShowWindow(hCon, 0); // SW_HIDE only when PowerShell owns this console exclusively
+                    return true;
+                }
+            } catch { }
+            return false;
+        }
+
         public static void TrimWorkingSet() {
             try {
                 GC.Collect(1, GCCollectionMode.Optimized, false);
@@ -73,6 +164,13 @@ namespace CoreWatch {
     }
 }
 "@ -ErrorAction SilentlyContinue
+}
+
+# Assign CoreWatch its own Windows Taskbar AppUserModelID BEFORE creating any Form/Window
+$Global:CoreWatchAppUserModelId = "CoreWatch.HostEngine.Dashboard"
+try { $null = [CoreWatch.Win32]::SetCurrentProcessExplicitAppUserModelID($Global:CoreWatchAppUserModelId) } catch {}
+if (-not $ShowConsole) {
+    try { $null = [CoreWatch.Win32]::HideStandaloneConsole() } catch {}
 }
 
 if (-not ("CoreWatch.IdentifyOverlayForm" -as [type])) {
@@ -110,6 +208,104 @@ $UserDataFolder = [System.IO.Path]::GetFullPath((Join-Path $AppDataRoot "WebView
 if (-not (Test-Path $UserDataFolder)) { $null = New-Item -ItemType Directory -Path $UserDataFolder -Force }
 $env:WEBVIEW2_USER_DATA_FOLDER = $UserDataFolder
 
+# [PHASE 1] Persistent UI & Window Preferences File (%LOCALAPPDATA%\CoreWatch\ui-settings.json)
+$Global:UiSettingsPath = Join-Path $AppDataRoot "ui-settings.json"
+
+function Get-CoreWatchUiSettings {
+    if (Test-Path -LiteralPath $Global:UiSettingsPath -ErrorAction SilentlyContinue) {
+        try {
+            $raw = Get-Content -LiteralPath $Global:UiSettingsPath -Raw -ErrorAction Stop
+            if ($raw -and $raw.Trim()) {
+                return ($raw | ConvertFrom-Json -AsHashtable)
+            }
+        } catch {}
+    }
+    return @{}
+}
+
+function Save-CoreWatchUiSettings {
+    param([hashtable]$Settings)
+    try {
+        $json = $Settings | ConvertTo-Json -Depth 8
+        [System.IO.File]::WriteAllText($Global:UiSettingsPath, $json, (New-Object System.Text.UTF8Encoding($false)))
+    } catch {}
+}
+
+function Ensure-CoreWatchMultiSizeIco {
+    param(
+        [string]$SourcePngPath,
+        [string]$DestIcoPath
+    )
+    if (-not (Test-Path -LiteralPath $SourcePngPath)) { return $false }
+    try {
+        if ((Test-Path -LiteralPath $DestIcoPath) -and ((Get-Item -LiteralPath $DestIcoPath).LastWriteTimeUtc -ge (Get-Item -LiteralPath $SourcePngPath).LastWriteTimeUtc)) {
+            return $true
+        }
+        $sizes = @(16, 32, 48, 256)
+        $srcImg = [System.Drawing.Image]::FromFile($SourcePngPath)
+        $frames = [System.Collections.Generic.List[byte[]]]::new()
+        try {
+            foreach ($sz in $sizes) {
+                $bmp = New-Object System.Drawing.Bitmap($sz, $sz, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+                $g = [System.Drawing.Graphics]::FromImage($bmp)
+                try {
+                    $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+                    $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+                    $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+                    $g.Clear([System.Drawing.Color]::Transparent)
+                    $g.DrawImage($srcImg, 0, 0, $sz, $sz)
+                } finally {
+                    $g.Dispose()
+                }
+                $ms = New-Object System.IO.MemoryStream
+                try {
+                    $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
+                    $frames.Add($ms.ToArray())
+                } finally {
+                    $ms.Dispose()
+                    $bmp.Dispose()
+                }
+            }
+        } finally {
+            $srcImg.Dispose()
+        }
+
+        $fs = [System.IO.File]::Create($DestIcoPath)
+        $bw = New-Object System.IO.BinaryWriter($fs)
+        try {
+            # ICONDIR header (6 bytes)
+            $bw.Write([uint16]0)
+            $bw.Write([uint16]1)
+            $bw.Write([uint16]$sizes.Count)
+
+            $offset = 6 + (16 * $sizes.Count)
+            for ($i = 0; $i -lt $sizes.Count; $i++) {
+                $dimByte = if ($sizes[$i] -ge 256) { [byte]0 } else { [byte]$sizes[$i] }
+                $bw.Write($dimByte)              # width
+                $bw.Write($dimByte)              # height
+                $bw.Write([byte]0)               # color palette
+                $bw.Write([byte]0)               # reserved
+                $bw.Write([uint16]1)             # planes
+                $bw.Write([uint16]32)            # bpp
+                $bw.Write([uint32]$frames[$i].Length)
+                $bw.Write([uint32]$offset)
+                $offset += $frames[$i].Length
+            }
+            foreach ($frameBytes in $frames) {
+                $bw.Write($frameBytes)
+            }
+        } finally {
+            $bw.Dispose()
+            $fs.Dispose()
+        }
+        return (Test-Path -LiteralPath $DestIcoPath)
+    } catch {
+        return $false
+    }
+}
+
+$Global:SavedUiSettings = Get-CoreWatchUiSettings
+
 $global:SharedData = [hashtable]::Synchronized(@{
     FullPayload  = $null
     FullVersion  = 0
@@ -117,6 +313,7 @@ $global:SharedData = [hashtable]::Synchronized(@{
     FastVersion  = 0
     ForceRefresh = $false
     ActiveView   = "dashboard"
+    SideDockOpen = $false
     IsMinimized  = $false
     IsRunning    = $true
 })
@@ -153,7 +350,7 @@ $RunspaceScript = {
         }
 
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
-        $onDashboard = ($SharedData.ActiveView -eq "dashboard")
+        $onDashboard = ($SharedData.ActiveView -eq "dashboard") -or [bool]$SharedData.SideDockOpen
         $forceNow    = [bool]$SharedData.ForceRefresh
 
         try {
@@ -295,13 +492,42 @@ $InitWidth  = [Math]::Max($script:MinWindowWidth,  [Math]::Min([int][Math]::Roun
 $InitHeight = [Math]::Max($script:MinWindowHeight, [Math]::Min([int][Math]::Round($script:BaseInitHeight * $primaryScale), $ScreenWorkArea.Height))
 
 $MainForm = New-Object System.Windows.Forms.Form
-$MainForm.Text = "CoreWatch Host Engine Dashboard Framework"
+$MainForm.Text = "CoreWatch"
 $MainForm.MinimumSize = New-Object System.Drawing.Size($script:MinWindowWidth, $script:MinWindowHeight)
 $MainForm.MaximumSize = New-Object System.Drawing.Size($script:MaxWindowWidth, $script:MaxWindowHeight)
 $MainForm.Size = New-Object System.Drawing.Size($InitWidth, $InitHeight)
 $MainForm.StartPosition = "CenterScreen"
 $MainForm.BackColor = [System.Drawing.Color]::FromArgb(26, 32, 44)
 $MainForm.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
+
+# [PHASE 1] Restore saved Window Bounds, Always-on-Top & Opacity safely within visible screens
+try {
+    if ($Global:SavedUiSettings -is [hashtable]) {
+        if ($Global:SavedUiSettings.ContainsKey("alwaysOnTop")) {
+            $MainForm.TopMost = [bool]$Global:SavedUiSettings["alwaysOnTop"]
+        }
+        if ($Global:SavedUiSettings.ContainsKey("opacity")) {
+            $opVal = [double]$Global:SavedUiSettings["opacity"]
+            if ($opVal -ge 0.70 -and $opVal -le 1.0) { $MainForm.Opacity = $opVal }
+        }
+        $wb = $Global:SavedUiSettings["windowBounds"]
+        if ($wb -is [hashtable] -and $wb["width"] -and $wb["height"]) {
+            $rx = [int]$wb["x"]; $ry = [int]$wb["y"]
+            $rw = [Math]::Max($script:MinWindowWidth,  [Math]::Min($script:MaxWindowWidth,  [int]$wb["width"]))
+            $rh = [Math]::Max($script:MinWindowHeight, [Math]::Min($script:MaxWindowHeight, [int]$wb["height"]))
+            $rect = New-Object System.Drawing.Rectangle($rx, $ry, $rw, $rh)
+            $visibleOnAny = $false
+            foreach ($scr in [System.Windows.Forms.Screen]::AllScreens) {
+                if ($scr.WorkingArea.IntersectsWith($rect)) { $visibleOnAny = $true; break }
+            }
+            if ($visibleOnAny) {
+                $MainForm.StartPosition = "Manual"
+                $MainForm.Location = New-Object System.Drawing.Point($rx, $ry)
+                $MainForm.Size     = New-Object System.Drawing.Size($rw, $rh)
+            }
+        }
+    }
+} catch {}
 
 $MainForm.Add_DpiChanged({
     param($evtSource, $evtArgs)
@@ -325,17 +551,37 @@ $MainForm.Add_DpiChanged({
 })
 
 $IconPath = Join-Path $Global:NodeWatchRoot "Images\Icon.png"
+$CoreWatchIcoPath = Join-Path $AppDataRoot "CoreWatch.ico"
+$IconHandle = $null
+$AppIconInstance = $null
+$TrayIconInstance = $null
 if (Test-Path $IconPath) {
     try {
-        $IconBitmap = New-Object System.Drawing.Bitmap($IconPath)
-        $IconHandle = $IconBitmap.GetHicon()
-        $AppIconInstance = [System.Drawing.Icon]::FromHandle($IconHandle)
+        if (Ensure-CoreWatchMultiSizeIco -SourcePngPath $IconPath -DestIcoPath $CoreWatchIcoPath) {
+            $AppIconInstance = New-Object System.Drawing.Icon($CoreWatchIcoPath)
+        } else {
+            $IconBitmap = New-Object System.Drawing.Bitmap($IconPath)
+            $IconHandle = $IconBitmap.GetHicon()
+            $AppIconInstance = [System.Drawing.Icon]::FromHandle($IconHandle)
+        }
         $MainForm.Icon = $AppIconInstance
         $MainForm.ShowIcon = $true
         $TrayIconSize = [System.Windows.Forms.SystemInformation]::SmallIconSize
         $TrayIconInstance = New-Object System.Drawing.Icon($AppIconInstance, $TrayIconSize.Width, $TrayIconSize.Height)
     } catch { Write-Warning "Failed to pack runtime scaling icon assets." }
 }
+
+# Apply per-window AppUserModel properties once the native HWND exists so Windows separates
+# CoreWatch from PowerShell consoles and supports right-click "Pin to Taskbar" with custom icon.
+$MainForm.Add_Shown({
+    try {
+        $pwshExe = (Get-Process -Id $PID).MainModule.FileName
+        $scriptFull = Join-Path $Global:NodeWatchRoot "Start-NodeWatch.ps1"
+        $relaunchCmd = "`"$pwshExe`" -NoProfile -ExecutionPolicy Bypass -File `"$scriptFull`""
+        $iconRes = if (Test-Path -LiteralPath $CoreWatchIcoPath) { "$CoreWatchIcoPath,0" } else { "" }
+        $null = [CoreWatch.Win32]::SetWindowAppUserModelProperties($MainForm.Handle, $Global:CoreWatchAppUserModelId, "CoreWatch", $iconRes, $relaunchCmd)
+    } catch {}
+})
 
 $global:IsFormDragging = $false
 $global:FormDragCursorOffset = [System.Drawing.Point]::Empty
@@ -451,6 +697,17 @@ $HandleUiMessageEvent = {
         
         '^\s*UI-Ready\s*$' {
             if (-not $global:TelemetryLoopTimer.Enabled) { $global:TelemetryLoopTimer.Start() }
+            # Push persisted UI layout & window state immediately on load
+            try {
+                $uiPayload = @{
+                    type           = "UI_SETTINGS_STATE"
+                    alwaysOnTop    = [bool]$MainForm.TopMost
+                    opacity        = [math]::Round([double]$MainForm.Opacity, 2)
+                    layout         = if ($Global:SavedUiSettings -is [hashtable] -and $Global:SavedUiSettings.ContainsKey("layout")) { $Global:SavedUiSettings["layout"] } else { $null }
+                    diagxDismissed = if ($Global:SavedUiSettings -is [hashtable] -and $Global:SavedUiSettings.ContainsKey("diagxDismissed")) { $Global:SavedUiSettings["diagxDismissed"] } else { $null }
+                } | ConvertTo-Json -Compress -Depth 8
+                $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($uiPayload)))
+            } catch {}
             # Immediately push any already-sampled telemetry so startup is instant
             & $global:FlushTelemetryToUi
         }
@@ -458,6 +715,14 @@ $HandleUiMessageEvent = {
             $viewKey = $Matches[1].Trim()
             $global:SharedData.ActiveView = $viewKey
             if ($viewKey -eq 'dashboard') {
+                $global:SharedData.ForceRefresh = $true
+                & $global:FlushTelemetryToUi
+            }
+        }
+        '^Side-Dock:(open|closed)$' {
+            $isOpen = ($Matches[1] -eq 'open')
+            $global:SharedData.SideDockOpen = $isOpen
+            if ($isOpen) {
                 $global:SharedData.ForceRefresh = $true
                 & $global:FlushTelemetryToUi
             }
@@ -966,6 +1231,40 @@ $HandleUiMessageEvent = {
                         return
                     }
 
+                    if ($Payload.command -eq "SET_ALWAYS_ON_TOP") {
+                        $wantTop = [bool]$Payload.enabled
+                        $MainForm.TopMost = $wantTop
+                        if (-not ($Global:SavedUiSettings -is [hashtable])) { $Global:SavedUiSettings = @{} }
+                        $Global:SavedUiSettings["alwaysOnTop"] = $wantTop
+                        Save-CoreWatchUiSettings -Settings $Global:SavedUiSettings
+                        $resp = @{ type = "UI_WINDOW_STATE"; alwaysOnTop = [bool]$MainForm.TopMost; opacity = [math]::Round([double]$MainForm.Opacity, 2) } | ConvertTo-Json -Compress
+                        $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($resp)))
+                        return
+                    }
+
+                    if ($Payload.command -eq "SET_WINDOW_OPACITY") {
+                        $op = [math]::Max(0.70, [math]::Min(1.0, [double]($Payload.opacity ?? 1.0)))
+                        $MainForm.Opacity = $op
+                        if (-not ($Global:SavedUiSettings -is [hashtable])) { $Global:SavedUiSettings = @{} }
+                        $Global:SavedUiSettings["opacity"] = [math]::Round($op, 2)
+                        Save-CoreWatchUiSettings -Settings $Global:SavedUiSettings
+                        return
+                    }
+
+                    if ($Payload.command -eq "SAVE_UI_LAYOUT") {
+                        if (-not ($Global:SavedUiSettings -is [hashtable])) { $Global:SavedUiSettings = @{} }
+                        $Global:SavedUiSettings["layout"] = $Payload.layout
+                        Save-CoreWatchUiSettings -Settings $Global:SavedUiSettings
+                        return
+                    }
+
+                    if ($Payload.command -eq "SAVE_DIAGX_DISMISSED") {
+                        if (-not ($Global:SavedUiSettings -is [hashtable])) { $Global:SavedUiSettings = @{} }
+                        $Global:SavedUiSettings["diagxDismissed"] = $Payload.dismissed
+                        Save-CoreWatchUiSettings -Settings $Global:SavedUiSettings
+                        return
+                    }
+
                     if ($Payload.command -eq "RELAUNCH_AS_ADMIN") {
                         try {
                             $pwshExe = (Get-Process -Id $PID).MainModule.FileName
@@ -1069,6 +1368,21 @@ $MainForm.Add_Resize({
 # TEARDOWN & LIFECYCLE DESTRUCTOR CLEANUP ROUTINES
 # =========================================================================
 $MainForm.Add_FormClosing({
+    # [PHASE 1] Persist final window bounds & preferences before teardown
+    try {
+        if (-not ($Global:SavedUiSettings -is [hashtable])) { $Global:SavedUiSettings = @{} }
+        if ($MainForm.WindowState -eq [System.Windows.Forms.FormWindowState]::Normal) {
+            $Global:SavedUiSettings["windowBounds"] = @{
+                x      = [int]$MainForm.Location.X
+                y      = [int]$MainForm.Location.Y
+                width  = [int]$MainForm.Size.Width
+                height = [int]$MainForm.Size.Height
+            }
+        }
+        $Global:SavedUiSettings["alwaysOnTop"] = [bool]$MainForm.TopMost
+        $Global:SavedUiSettings["opacity"]     = [math]::Round([double]$MainForm.Opacity, 2)
+        Save-CoreWatchUiSettings -Settings $Global:SavedUiSettings
+    } catch {}
     if ($null -ne $global:SystemTrayIcon) { $global:SystemTrayIcon.Visible = $false; $global:SystemTrayIcon.Dispose() }
     if ($null -ne $TrayIconInstance) { $TrayIconInstance.Dispose() }
     if ($null -ne $IconHandle) { [CoreWatch.Win32]::DestroyIcon($IconHandle) }

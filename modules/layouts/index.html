@@ -25,10 +25,11 @@
 APP HEADER NAVIGATION DECK
 ========================================================================= -->
     <div class="app-header-deck">
-        <div style="display: flex; align-items: center;">
+        <div class="header-left-group">
             <div class="icon-square-frame">
                 <img src="../../Images/Icon.png" class="header-corner-brand" alt="CoreWatch Logo">
             </div>
+            <button type="button" class="tab-btn nav-cmdk-btn" onclick="OpenCommandPalette()" title="Quick Command Palette (Ctrl+K)">⌘ Ctrl+K</button>
         </div>
         
         <div class="modular-tabs">
@@ -77,9 +78,14 @@ APP HEADER NAVIGATION DECK
                     </button>
                 </div>
             </div>
-            <button type="button" class="tab-btn nav-cmdk-btn" onclick="OpenCommandPalette()" title="Quick Command Palette (Ctrl+K)">⌘ Ctrl+K</button>
         </div>
-        <button class="exit-system-btn" onclick="window.chrome.webview.postMessage('Exit-App')" title="Terminate CoreWatch Engine">⏻ EXIT</button>
+
+        <div class="header-right-group">
+            <button type="button" id="btnSideDockToggle" class="tab-btn nav-dock-btn" onclick="ToggleSideTelemetryDock()" style="display: none;" title="Open Side Pop-Out Telemetry Dock (Docked live frames)">◫ <span id="lblSideDockCount">0</span></button>
+            <button type="button" id="btnCustomizeLayout" class="tab-btn nav-util-btn" onclick="ToggleLayoutCustomizer()" title="Customize Dashboard Frames, Side Dock, Order, Width & Window Settings">✏️ Layout</button>
+            <button type="button" id="btnPinOnTop" class="tab-btn nav-pin-btn" onclick="ToggleWindowAlwaysOnTop()" title="Toggle Always on Top (Pin Window)">📌</button>
+            <button class="exit-system-btn" onclick="window.chrome.webview.postMessage('Exit-App')" title="Terminate CoreWatch Engine">⏻ EXIT</button>
+        </div>
     </div>
 <!-- =========================================================================
 VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
@@ -87,11 +93,11 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
     <div id="viewDashboardGrid" class="dashboard-grid" style="display: grid;">
         
         <!-- HARDWARE METRICS CONTAINER -->
-        <div class="dashboard-card">
+        <div class="dashboard-card" data-card-id="hardware" data-card-title="⚡ Hardware Metrics">
             <h2>⚡ HARDWARE METRICS</h2>
             
             <!-- CPU Row Group -->
-            <div class="metric-row">
+            <div class="metric-row" data-metric-key="hw-cpu">
                 <div class="metric-metadata">
                     <span id="lblCpuModel">Processor Core</span>
                     <span id="lblCpuLoad">0%</span>
@@ -111,7 +117,7 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
             </div>
 
             <!-- GPU Row Group -->
-            <div class="metric-row" style="margin-top: 10px;">
+            <div class="metric-row" data-metric-key="hw-gpu" style="margin-top: 10px;">
                 <div class="metric-metadata">
                     <span id="lblGpuModel">Display Adapter</span>
                     <span id="lblGpuLoad">0%</span>
@@ -127,7 +133,7 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
                     </div>
                 </div>
                 <!-- [DIAGNOSTIC ADDITION] GPU VRAM Allocation Sub-Bar -->
-                <div class="vram-sub-row">
+                <div class="vram-sub-row" data-metric-key="hw-vram">
                     <div class="vram-sub-meta">
                         <span>🎞️ VRAM Allocation</span>
                         <span id="lblGpuVram">-- / -- GB</span>
@@ -139,7 +145,7 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
             </div>
 
             <!-- RAM Memory Allocation Row Group -->
-            <div class="metric-row" style="margin-top: 10px;">
+            <div class="metric-row" data-metric-key="hw-ram" style="margin-top: 10px;">
                 <div class="metric-metadata">
                     <span>📟 RAM Memory Allocation</span>
                     <span id="lblRamUsage">0.00 / 0.00 GB</span>
@@ -158,7 +164,7 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
             </div>
 
             <!-- Pagefile Commitment Row Group -->
-            <div class="metric-row" style="margin-top: 8px; margin-bottom: 4px;">
+            <div class="metric-row" data-metric-key="hw-pagefile" style="margin-top: 8px; margin-bottom: 4px;">
                 <div class="metric-metadata">
                     <span>💾 Pagefile Commitment</span>
                     <span id="lblPagefileUsage">0.00 / 0.00 GB</span>
@@ -169,24 +175,30 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
             </div>
 
             <!-- [DIAGNOSTIC ADDITION] Top Active Resource Consumer Callout (Click to Inspect/End) -->
-            <div class="top-process-strip" id="topProcessStrip" title="Top active process by CPU spike or RAM footprint — Click to inspect or terminate">
+            <div class="top-process-strip" id="topProcessStrip" data-metric-key="hw-topproc" title="Top active process by CPU spike or RAM footprint — Click to inspect or terminate">
                 <span class="top-proc-label">🔥 Top Process:</span>
                 <strong id="lblTopProcess" class="top-proc-value clickable-value" onclick="TriggerTopProcessAction()">Sampling...</strong>
             </div>
         </div>
 
         <!-- SYSTEM IDENTITY FRAME -->
-        <div class="dashboard-card">
+        <div class="dashboard-card" data-card-id="identity" data-card-title="👤 System Identity">
             <h2>👤 SYSTEM IDENTITY</h2>
-            <div class="data-field"><span>🖥️</span> Host: <strong id="lblHostName">Loading...</strong></div>
-            <div class="data-field"><span>🌐</span> Domain/WG: <strong id="lblWorkgroup">Loading...</strong></div>
-            <div class="data-field"><span>🪟</span> <strong id="lblOsEdition">Loading...</strong></div>
-            <div class="data-field"><span>📜</span> Build: <strong id="lblWinBuild">Loading...</strong></div>
-            <div class="data-field"><span>📅</span> Update: <strong id="lblUpdateLevel">Loading...</strong></div>
-            <div class="data-field"><span>🎮</span> DirectX: <strong id="lblDirectX">Loading...</strong></div>
-            <div class="data-field"><span>🔲</span> Virtualization: <strong id="lblVirtualization">Loading...</strong> <span class="id-inline-sep">·</span> Secure Boot: <strong id="lblSecureBoot">--</strong></div>
-            <div class="data-field"><span>❯_</span> Powershell: <strong id="lblPsVersion">Loading...</strong></div>
-            <div class="data-field java-field-row">
+            <div class="metric-group" data-metric-key="id-host">
+                <div class="data-field"><span>🖥️</span> Host: <strong id="lblHostName">Loading...</strong></div>
+                <div class="data-field"><span>🌐</span> Domain/WG: <strong id="lblWorkgroup">Loading...</strong></div>
+            </div>
+            <div class="metric-group" data-metric-key="id-os">
+                <div class="data-field"><span>🪟</span> <strong id="lblOsEdition">Loading...</strong></div>
+                <div class="data-field"><span>📜</span> Build: <strong id="lblWinBuild">Loading...</strong></div>
+                <div class="data-field"><span>📅</span> Update: <strong id="lblUpdateLevel">Loading...</strong></div>
+            </div>
+            <div class="metric-group" data-metric-key="id-runtime">
+                <div class="data-field"><span>🎮</span> DirectX: <strong id="lblDirectX">Loading...</strong></div>
+                <div class="data-field"><span>🔲</span> Virtualization: <strong id="lblVirtualization">Loading...</strong> <span class="id-inline-sep">·</span> Secure Boot: <strong id="lblSecureBoot">--</strong></div>
+                <div class="data-field"><span>❯_</span> Powershell: <strong id="lblPsVersion">Loading...</strong></div>
+            </div>
+            <div class="data-field java-field-row" data-metric-key="id-java">
                 <span>☕</span> Java:
                 <div class="java-dropdown-wrap" id="javaDropdownWrap">
                     <button type="button" id="btnJavaVersionToggle" class="java-version-trigger" onclick="ToggleJavaVersionDropdown(event)" aria-haspopup="true" aria-expanded="false" title="Click to view installed Java versions or switch primary JAVA_HOME">
@@ -195,9 +207,9 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
                     <div id="javaVersionMenu" class="java-dropdown-menu" role="menu"></div>
                 </div>
             </div>
-            <div class="data-field"><span>📡</span> Telemetry: <strong id="lblTelemetry">Loading...</strong></div>
+            <div class="data-field" data-metric-key="id-telemetry"><span>📡</span> Telemetry: <strong id="lblTelemetry">Loading...</strong></div>
             <!-- [DIAGNOSTIC ADDITION] Elevation Context, Pending Reboot & Last Unexpected Shutdown/BSOD -->
-            <div class="identity-diag-group">
+            <div class="identity-diag-group" data-metric-key="id-stability">
                 <div class="data-field"><span>🛡️</span> Privilege: <span id="lblElevation" class="diag-pill diag-neutral">Checking...</span></div>
                 <div class="data-field"><span>🔄</span> Pending Reboot: <span id="lblPendingReboot" class="diag-pill diag-ok" title="No pending reboot registry flags detected">No</span></div>
                 <div class="data-field"><span>💥</span> Last Crash/BSOD: <strong id="lblLastCrash" class="diag-crash-val" title="Kernel-Power (41) / BugCheck (1001)">None Recorded</strong></div>
@@ -205,7 +217,7 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
         </div>
 
         <!-- HARDWARE STORAGE LAYOUT ENGINE -->
-        <div class="dashboard-card">
+        <div class="dashboard-card" data-card-id="storage" data-card-title="💾 Storage">
             <h2>💾 STORAGE</h2>
             <div id="storageVolumeContainer" class="storage-dynamic-mesh-grid">
                 <div class="driver-text-node">Evaluating connected media arrays...</div>
@@ -213,17 +225,21 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
         </div>
 
         <!-- SYSTEM INFRASTRUCTURE NODE -->
-        <div class="dashboard-card">
+        <div class="dashboard-card" data-card-id="infra" data-card-title="🛠️ System Infrastructure">
             <h2>🛠️ SYSTEM INFRASTRUCTURE</h2>
-            <div class="data-field-split"><span>📟 Motherboard:</span> <strong id="lblMotherboard">Loading...</strong></div>
-            <div class="data-field-split"><span>🧬 BIOS Version:</span> <strong id="lblBiosVersion">Loading...</strong></div>
-            <div class="data-field-split"><span>⚡ Power Plan:</span> <strong id="lblPowerPlan">Loading...</strong></div>
-            <div class="data-field-split"><span>🕒 System Uptime:</span> <strong id="lblUptime">Loading...</strong></div>
-            <div class="audio-sub-deck">
+            <div class="metric-group" data-metric-key="infra-board">
+                <div class="data-field-split"><span>📟 Motherboard:</span> <strong id="lblMotherboard">Loading...</strong></div>
+                <div class="data-field-split"><span>🧬 BIOS Version:</span> <strong id="lblBiosVersion">Loading...</strong></div>
+            </div>
+            <div class="metric-group" data-metric-key="infra-power">
+                <div class="data-field-split"><span>⚡ Power Plan:</span> <strong id="lblPowerPlan">Loading...</strong></div>
+                <div class="data-field-split"><span>🕒 System Uptime:</span> <strong id="lblUptime">Loading...</strong></div>
+            </div>
+            <div class="audio-sub-deck" data-metric-key="infra-audio">
                 <div class="data-field-split"><span>🔈 Audio Output:</span> <strong id="lblAudioOutput">Resolving output...</strong></div>
                 <div class="data-field-split"><span>🎙️ Audio Input:</span> <strong id="lblAudioInput">Resolving input...</strong></div>
             </div>
-            <div class="video-sub-deck">
+            <div class="video-sub-deck" data-metric-key="infra-display">
                 <div class="video-header-row">
                     <span>🖥️ Display:</span>
                     <div class="video-picker-group">
@@ -255,7 +271,7 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
             </div>
         </div>
         <!-- NETWORK PROFILE SYSTEM -->
-        <div class="dashboard-card wide-sub-console">
+        <div class="dashboard-card wide-sub-console" data-card-id="network" data-card-title="📡 Network Profile System">
             <h2>📡 NETWORK PROFILE SYSTEM</h2>
             <div class="network-matrix-grid">
                 <div class="net-node"><span>🏠</span> Int IPv4: <strong id="lblIntIPv4" class="clickable-value" onclick="CopyDashboardValue('lblIntIPv4', 'Internal IPv4')" title="Click to copy Internal IPv4">0.0.0.0</strong></div>
@@ -271,19 +287,19 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
                 <div class="net-node"><span>📣</span> Discovery: <strong id="lblDiscovery">Off</strong></div>
                 <div class="net-node"><span>📂</span> Sharing: <strong id="lblSharing">Off</strong></div>
                 <!-- [DEFENDER TAMPER-GATED CONTROLS] T. Protection + Dependent Defender Protections -->
-                <div class="net-node"><span>🛡️</span> T. Protection: <strong id="lblTamperProtection">Unknown</strong></div>
-                <div class="net-node"><span>🧠</span> Behavior Mon: <strong id="lblBehaviorMonitor">Unknown</strong></div>
-                <div class="net-node"><span>☁️</span> Cloud Protect: <strong id="lblCloudProtection">Unknown</strong></div>
-                <div class="net-node"><span>📥</span> IOAV Scan: <strong id="lblIoavProtection">Unknown</strong></div>
+                <div class="net-node" data-metric-key="net-defender"><span>🛡️</span> T. Protection: <strong id="lblTamperProtection">Unknown</strong></div>
+                <div class="net-node" data-metric-key="net-defender"><span>🧠</span> Behavior Mon: <strong id="lblBehaviorMonitor">Unknown</strong></div>
+                <div class="net-node" data-metric-key="net-defender"><span>☁️</span> Cloud Protect: <strong id="lblCloudProtection">Unknown</strong></div>
+                <div class="net-node" data-metric-key="net-defender"><span>📥</span> IOAV Scan: <strong id="lblIoavProtection">Unknown</strong></div>
                 <!-- [DIAGNOSTIC ADDITION] Active DNS Servers (Click to Switch), DNS Resolution Check (Click to Flush/Probe) & Gateway ARP Status (Click to Refresh) -->
-                <div class="net-node net-node-span2"><span>🔎</span> DNS Servers: <strong id="lblDnsServers" class="clickable-value" onclick="TriggerQuickDnsMenu()" title="Click to quick-switch DNS presets (Auto, Cloudflare, Google, Quad9, Custom)">Resolving...</strong></div>
-                <div class="net-node"><span>🌐</span> DNS Check: <span id="lblDnsStatus" class="diag-pill diag-neutral clickable-pill" onclick="TriggerFlushAndTestDns()" title="Click to flush Windows DNS cache and run a fresh resolution probe">Checking...</span></div>
-                <div class="net-node"><span>🔗</span> ARP GW: <span id="lblArpStatus" class="diag-pill diag-neutral clickable-pill" onclick="TriggerRefreshArpGateway()" title="Click to clear & re-probe Gateway ARP entry">Checking...</span></div>
-                <div class="net-node multi-driver-row">
+                <div class="net-node net-node-span2" data-metric-key="net-dnsarp"><span>🔎</span> DNS Servers: <strong id="lblDnsServers" class="clickable-value" onclick="TriggerQuickDnsMenu()" title="Click to quick-switch DNS presets (Auto, Cloudflare, Google, Quad9, Custom)">Resolving...</strong></div>
+                <div class="net-node" data-metric-key="net-dnsarp"><span>🌐</span> DNS Check: <span id="lblDnsStatus" class="diag-pill diag-neutral clickable-pill" onclick="TriggerFlushAndTestDns()" title="Click to flush Windows DNS cache and run a fresh resolution probe">Checking...</span></div>
+                <div class="net-node" data-metric-key="net-dnsarp"><span>🔗</span> ARP GW: <span id="lblArpStatus" class="diag-pill diag-neutral clickable-pill" onclick="TriggerRefreshArpGateway()" title="Click to clear & re-probe Gateway ARP entry">Checking...</span></div>
+                <div class="net-node multi-driver-row" data-metric-key="net-drivers">
                     <span class="driver-inline-group"><span>🌐</span> Ethernet: <strong id="lblEthernet">Checking...</strong></span>
                     <span class="driver-inline-group"><span>📶</span> Wi-Fi: <strong id="lblWifi">Checking...</strong></span>
                 </div>
-                <div class="net-node multi-driver-row adapter-status-row">
+                <div class="net-node multi-driver-row adapter-status-row" data-metric-key="net-drivers">
                     <span>🔌</span> Adapter Status:
                     <div id="adapterStatusContainer" class="adapter-status-deck">
                         <span class="adapter-status-item">Checking...</span>
@@ -291,7 +307,7 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
                 </div>
             </div>
             <!-- Speedtest Mesh Panel -->
-            <div class="speedtest-wrapper-deck">
+            <div class="speedtest-wrapper-deck" data-metric-key="net-speedtest">
                 <div class="speed-metrics-panel">
                     <div class="speed-data-node">Latency: <strong id="lblNetLatency">--</strong> ms</div>
                     <!-- [DIAGNOSTIC ADDITION] Jitter & Packet Loss Readouts -->
@@ -304,7 +320,7 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
             </div>
 
             <!-- Bandwidth Pipeline Activity -->
-            <div class="net-activity-container">
+            <div class="net-activity-container" data-metric-key="net-bandwidth">
                 <div class="activity-metadata">
                     <span>📊 Transmit/Receive Data Mesh Pipeline Activity</span>
                     <div class="activity-values">
@@ -322,7 +338,7 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
         </div>
 
         <!-- LOG CONSOLE NODE -->
-        <div class="dashboard-card wide-sub-console log-console-card">
+        <div class="dashboard-card wide-sub-console log-console-card" data-card-id="console" data-card-title="📑 Log Profile Console">
             <div class="console-header-row">
                 <h2>📑 LOG PROFILE CONSOLE</h2>
                 <div style="display: flex; gap: 5px;">
@@ -800,6 +816,7 @@ VIEW 8: ULTIMADIAGX - THE ULTIMATE DIAGNOSTIC LOGGING TOOL
                         <span class="diagx-rel-pill" id="lblDiagReliability">Reliability Index: --</span>
                     </div>
                     <div id="lblDiagSynopsisText" class="diagx-synopsis-text">Initializing consolidated Windows event channels, hardware WHEA sensors, crash dumps, and external logs...</div>
+                    <div id="lblDiagScoreBreakdown" class="diagx-score-breakdown"></div>
                     <div class="tab-summary-strip" style="margin-top: 8px; margin-bottom: 0;">
                         <span class="summary-chip">Events: <strong id="sumDiagTotal">--</strong></span>
                         <span class="summary-chip chip-warn">Critical: <strong id="sumDiagCritical">--</strong></span>
@@ -807,8 +824,18 @@ VIEW 8: ULTIMADIAGX - THE ULTIMATE DIAGNOSTIC LOGGING TOOL
                         <span class="summary-chip">Warnings: <strong id="sumDiagWarnings">--</strong></span>
                         <span class="summary-chip chip-accent">External Logs: <strong id="sumDiagExternal">--</strong></span>
                         <span class="summary-chip">WER (7d): <strong id="sumDiagWer">--</strong></span>
+                        <button type="button" id="btnDiagDismissedToggle" class="summary-chip diagx-dismissed-chip" style="display: none;" onclick="ToggleDiagXDismissedDrawer()" title="View or restore solved/dismissed issues">✓ Solved: <strong id="sumDiagDismissed">0</strong></button>
                     </div>
                 </div>
+            </div>
+
+            <!-- DISMISSED / SOLVED ISSUES DRAWER (Hidden until user clicks Solved chip) -->
+            <div id="diagXDismissedSection" class="organizer-section" style="display: none;">
+                <div class="organizer-section-header">
+                    <h3>✓ Solved &amp; Dismissed Issues (Excluded from Stability Score)</h3>
+                    <button type="button" class="console-clear-btn" onclick="RestoreAllDiagXDismissed()">Restore All</button>
+                </div>
+                <div id="diagXDismissedList" class="diagx-mini-list"></div>
             </div>
 
             <!-- SUBSYSTEM HEALTH MATRIX -->
@@ -1480,6 +1507,80 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
             </div>
         </div>
     </section>
+
+    <!-- =========================================================================
+    [PHASE 2] LIVE SIDE POP-OUT TELEMETRY DOCK (Accessible from ANY tab!)
+    ========================================================================= -->
+    <button type="button" id="sideDockPullTab" class="side-dock-pull-tab" style="display: none;" onclick="ToggleSideTelemetryDock()" title="Open Side Pop-Out Telemetry Dock">◫</button>
+    <aside id="sideTelemetryDock" class="side-telemetry-dock" aria-label="Side Telemetry Dock" style="display: none;">
+        <div class="layout-drawer-header">
+            <div>
+                <strong>◫ SIDE TELEMETRY DOCK</strong>
+                <div class="layout-drawer-sub">Live docked frames — stays updated on any tab</div>
+            </div>
+            <div style="display: flex; gap: 5px;">
+                <button type="button" class="console-clear-btn" onclick="OpenLayoutCustomizer()" title="Manage which frames are in Grid, Side Dock, or Hidden">✏️ Layout</button>
+                <button type="button" class="console-clear-btn btn-accent-action" onclick="CloseSideTelemetryDock()">✕</button>
+            </div>
+        </div>
+        <div id="sideDockCardsHost" class="side-dock-cards-host"></div>
+    </aside>
+
+    <!-- =========================================================================
+    [PHASE 2] SLIDE-OVER DASHBOARD LAYOUT & WINDOW CUSTOMIZER DRAWER
+    ========================================================================= -->
+    <aside id="layoutCustomizerDrawer" class="layout-drawer" aria-label="Customize Dashboard Layout" style="display: none;">
+        <div class="layout-drawer-header">
+            <div>
+                <strong>✏️ CUSTOMIZE DASHBOARD</strong>
+                <div class="layout-drawer-sub">Drag cards on the grid or toggle frames &amp; sections below</div>
+            </div>
+            <button type="button" class="console-clear-btn btn-accent-action" onclick="CloseLayoutCustomizer()">Done</button>
+        </div>
+
+        <div class="layout-drawer-body">
+            <!-- 1-Click Layout Presets -->
+            <div class="layout-drawer-section">
+                <div class="layout-drawer-sec-title">Layout Presets</div>
+                <div class="layout-preset-grid">
+                    <button type="button" class="layout-preset-btn" data-preset="full" onclick="ApplyDashboardPreset('full')">📟 Full Diagnostic</button>
+                    <button type="button" class="layout-preset-btn" data-preset="hardware" onclick="ApplyDashboardPreset('hardware')">⚡ Hardware Bench</button>
+                    <button type="button" class="layout-preset-btn" data-preset="netops" onclick="ApplyDashboardPreset('netops')">📡 NetOps Focus</button>
+                    <button type="button" class="layout-preset-btn" data-preset="compact" onclick="ApplyDashboardPreset('compact')">🎯 Compact Strip</button>
+                </div>
+            </div>
+
+            <!-- Frames Visibility, Order & Width -->
+            <div class="layout-drawer-section">
+                <div class="layout-drawer-sec-title">Telemetry Frames (Order · Width · Visibility)</div>
+                <div id="layoutCardsChecklist" class="layout-cards-list"></div>
+            </div>
+
+            <!-- Per-Section Metric Toggles -->
+            <div class="layout-drawer-section">
+                <div class="layout-drawer-sec-title">Sections Inside Frames</div>
+                <div id="layoutMetricsChecklist" class="layout-metrics-list"></div>
+            </div>
+
+            <!-- Window Preferences (Phase 1 Controls) -->
+            <div class="layout-drawer-section">
+                <div class="layout-drawer-sec-title">Window Behavior</div>
+                <label class="org-checkbox-label" style="margin-bottom: 8px;">
+                    <input type="checkbox" id="chkWindowAlwaysOnTop" onchange="SetWindowAlwaysOnTop(this.checked)">
+                    <span>📌 Always on Top (Pin over other windows)</span>
+                </label>
+                <div class="layout-opacity-row">
+                    <span>Window Opacity:</span>
+                    <input type="range" id="rngWindowOpacity" min="70" max="100" step="2" value="100" oninput="OnWindowOpacityInput(this.value)" onchange="OnWindowOpacityCommit(this.value)">
+                    <strong id="lblWindowOpacity">100%</strong>
+                </div>
+            </div>
+
+            <div class="layout-drawer-footer">
+                <button type="button" class="console-clear-btn wsl-btn-danger" onclick="ResetDashboardLayoutToDefault()">Reset Default Layout</button>
+            </div>
+        </div>
+    </aside>
 
     <!-- =========================================================================
     CTRL+K QUICK COMMAND PALETTE OVERLAY
