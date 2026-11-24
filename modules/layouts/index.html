@@ -59,6 +59,14 @@ APP HEADER NAVIGATION DECK
                         <span class="nav-mi-icon">📦</span>
                         <span class="nav-mi-body"><strong>Installed Apps</strong><small>Software inventory, uninstall &amp; mover</small></span>
                     </button>
+                    <button type="button" id="tabAppStore" class="nav-menu-item" role="menuitem" onclick="SelectSystemMenuView('appstore')">
+                        <span class="nav-mi-icon">⬇️</span>
+                        <span class="nav-mi-body"><strong>App Installer</strong><small>Download &amp; batch-install essential apps &amp; runtimes</small></span>
+                    </button>
+                    <button type="button" id="tabDiskMap" class="nav-menu-item" role="menuitem" onclick="SelectSystemMenuView('diskmap')">
+                        <span class="nav-mi-icon">🗺️</span>
+                        <span class="nav-mi-body"><strong>Disk Map (Visual Explorer)</strong><small>WizTree-style treemap, largest files &amp; exact extensions</small></span>
+                    </button>
                     <button type="button" id="tabDevices" class="nav-menu-item" role="menuitem" onclick="SelectSystemMenuView('devices')">
                         <span class="nav-mi-icon">🧩</span>
                         <span class="nav-mi-body"><strong>Devices &amp; Drivers</strong><small>Hardware tree &amp; driver age inspector</small></span>
@@ -178,6 +186,15 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
             <div class="data-field"><span>🎮</span> DirectX: <strong id="lblDirectX">Loading...</strong></div>
             <div class="data-field"><span>🔲</span> Virtualization: <strong id="lblVirtualization">Loading...</strong> <span class="id-inline-sep">·</span> Secure Boot: <strong id="lblSecureBoot">--</strong></div>
             <div class="data-field"><span>❯_</span> Powershell: <strong id="lblPsVersion">Loading...</strong></div>
+            <div class="data-field java-field-row">
+                <span>☕</span> Java:
+                <div class="java-dropdown-wrap" id="javaDropdownWrap">
+                    <button type="button" id="btnJavaVersionToggle" class="java-version-trigger" onclick="ToggleJavaVersionDropdown(event)" aria-haspopup="true" aria-expanded="false" title="Click to view installed Java versions or switch primary JAVA_HOME">
+                        <span id="lblJavaVersion">Checking...</span> <span class="nav-caret">▾</span>
+                    </button>
+                    <div id="javaVersionMenu" class="java-dropdown-menu" role="menu"></div>
+                </div>
+            </div>
             <div class="data-field"><span>📡</span> Telemetry: <strong id="lblTelemetry">Loading...</strong></div>
             <!-- [DIAGNOSTIC ADDITION] Elevation Context, Pending Reboot & Last Unexpected Shutdown/BSOD -->
             <div class="identity-diag-group">
@@ -209,9 +226,12 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
             <div class="video-sub-deck">
                 <div class="video-header-row">
                     <span>🖥️ Display:</span>
-                    <select id="selMonitorPicker" class="infra-monitor-select" onchange="OnMonitorSelectionChange()" aria-label="Select display monitor">
-                        <option value="">Detecting monitors...</option>
-                    </select>
+                    <div class="video-picker-group">
+                        <select id="selMonitorPicker" class="infra-monitor-select" onchange="OnMonitorSelectionChange()" aria-label="Select display monitor">
+                            <option value="">Detecting monitors...</option>
+                        </select>
+                        <button type="button" id="btnIdentifyMonitors" class="infra-identify-btn" onclick="TriggerIdentifyMonitors()" title="Flash display numbers on all connected monitors (like Windows Display Settings)">Identify</button>
+                    </div>
                 </div>
                 <div class="video-metrics-grid">
                     <div class="video-metric-item"><span>Resolution:</span> <strong id="lblMonResolution">--</strong></div>
@@ -250,6 +270,11 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
                 <div class="net-node"><span>👁️</span> Realtime Protection: <strong id="lblRealtime">Unknown</strong></div>
                 <div class="net-node"><span>📣</span> Discovery: <strong id="lblDiscovery">Off</strong></div>
                 <div class="net-node"><span>📂</span> Sharing: <strong id="lblSharing">Off</strong></div>
+                <!-- [DEFENDER TAMPER-GATED CONTROLS] T. Protection + Dependent Defender Protections -->
+                <div class="net-node"><span>🛡️</span> T. Protection: <strong id="lblTamperProtection">Unknown</strong></div>
+                <div class="net-node"><span>🧠</span> Behavior Mon: <strong id="lblBehaviorMonitor">Unknown</strong></div>
+                <div class="net-node"><span>☁️</span> Cloud Protect: <strong id="lblCloudProtection">Unknown</strong></div>
+                <div class="net-node"><span>📥</span> IOAV Scan: <strong id="lblIoavProtection">Unknown</strong></div>
                 <!-- [DIAGNOSTIC ADDITION] Active DNS Servers (Click to Switch), DNS Resolution Check (Click to Flush/Probe) & Gateway ARP Status (Click to Refresh) -->
                 <div class="net-node net-node-span2"><span>🔎</span> DNS Servers: <strong id="lblDnsServers" class="clickable-value" onclick="TriggerQuickDnsMenu()" title="Click to quick-switch DNS presets (Auto, Cloudflare, Google, Quad9, Custom)">Resolving...</strong></div>
                 <div class="net-node"><span>🌐</span> DNS Check: <span id="lblDnsStatus" class="diag-pill diag-neutral clickable-pill" onclick="TriggerFlushAndTestDns()" title="Click to flush Windows DNS cache and run a fresh resolution probe">Checking...</span></div>
@@ -383,12 +408,12 @@ VIEW 2: NETWORK MANAGER + ACTIVE NETWORK TROUBLESHOOTING TOOLKIT
             </div>
 
             <!-- Live Results Output Deck -->
-            <div class="organizer-section">
+            <div class="organizer-section section-flex-fill">
                 <div class="organizer-section-header">
                     <h3 id="lblNetDiagResultTitle">📊 Diagnostic Output</h3>
                     <span id="lblNetDiagResultMeta" class="diagx-stamp-text">Ready</span>
                 </div>
-                <div id="netDiagVisualArea">
+                <div id="netDiagVisualArea" class="flex-scroll-body">
                     <div class="driver-text-node">Select a target above and click Ping, Traceroute, Test Ports, or Lookup.</div>
                 </div>
             </div>
@@ -408,22 +433,22 @@ VIEW 2: NETWORK MANAGER + ACTIVE NETWORK TROUBLESHOOTING TOOLKIT
             </div>
 
             <!-- Routing Table + ARP Table -->
-            <div class="diagx-two-col-row">
-                <div class="organizer-section">
+            <div class="diagx-two-col-row row-flex-fill">
+                <div class="organizer-section section-flex-fill">
                     <div class="organizer-section-header">
                         <h3>🗺️ IPv4 Routing Table</h3>
                         <span id="lblNetRoutesCount" class="diagx-stamp-text">0 routes</span>
                     </div>
-                    <div id="netRoutesContainer" class="tp-table-scroll" style="max-height: 280px;">
+                    <div id="netRoutesContainer" class="tp-table-scroll">
                         <div class="driver-text-node" style="padding: 8px;">Loading IPv4 routes...</div>
                     </div>
                 </div>
-                <div class="organizer-section">
+                <div class="organizer-section section-flex-fill">
                     <div class="organizer-section-header">
                         <h3>🔗 Active ARP Neighbors</h3>
                         <span id="lblNetArpCount" class="diagx-stamp-text">0 entries</span>
                     </div>
-                    <div id="netArpContainer" class="tp-table-scroll" style="max-height: 280px;">
+                    <div id="netArpContainer" class="tp-table-scroll">
                         <div class="driver-text-node" style="padding: 8px;">Loading ARP neighbors...</div>
                     </div>
                 </div>
@@ -483,7 +508,10 @@ VIEW 5: INSTALLED APPLICATIONS MANAGER
     <section id="viewInstalledAppsPanel" class="tab-view-panel sharing-panel" style="display: none;" aria-labelledby="installedAppsTitle">
         <div class="console-header-row">
             <h2 id="installedAppsTitle">📦 INSTALLED APPS</h2>
-            <button type="button" class="console-clear-btn" onclick="RequestInstalledApps()">Refresh</button>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                <button type="button" class="console-clear-btn btn-accent-action" onclick="SwitchAppLayoutView('appstore')" title="Open Curated App Downloader & Package Installer">⬇️ App Installer</button>
+                <button type="button" class="console-clear-btn" onclick="RequestInstalledApps()">Refresh</button>
+            </div>
         </div>
         <p>Inspect installed programs, installation paths, registry sources, sizes, and architecture. User-installed apps can be uninstalled or safely relocated to another directory or drive via transparent NTFS junctions (system components are protected).</p>
         <div id="installedAppsSummary" class="tab-summary-strip">
@@ -579,6 +607,8 @@ VIEW 6: SYSTEM DEVICES & DRIVERS OVERVIEW
             <button type="button" class="filter-pill" data-filter="hardware" onclick="SetSystemDevicesFilter('hardware')">PCI / USB / Audio / Net</button>
         </div>
         <div id="devicesStatus" class="sharing-status" role="status">Scanning PnP hardware &amp; signed drivers...</div>
+        <!-- AUTOMATIC DRIVER FIX CENTER (Shown whenever missing/errored drivers are detected) -->
+        <div id="devicesFixCenterBox" class="device-fix-center" style="display: none;"></div>
         <div id="systemDevicesContainer" class="device-tree-container">
             <div class="driver-text-node">Querying Windows PnP hardware tree and driver store...</div>
         </div>
@@ -1022,7 +1052,7 @@ VIEW 9: WSL — WINDOWS SUBSYSTEM FOR LINUX DEPLOYMENT & MANAGEMENT
             </div>
 
             <!-- SECTION 4: QUICK LINUX COMMAND RUNNER -->
-            <div class="organizer-section">
+            <div class="organizer-section section-flex-fill">
                 <div class="organizer-section-header">
                     <h3>💻 Quick Linux Diagnostic Shell Runner</h3>
                     <span id="lblWslCmdMeta" class="diagx-stamp-text">Ready</span>
@@ -1134,6 +1164,21 @@ VIEW 11: SECURITY POSTURE, WINDOWS REPAIR TOOLKIT & SUPPORT BUNDLE HUB
                 <span class="summary-chip">3rd-Party Tasks: <strong id="lblSecTaskCount">--</strong></span>
             </div>
 
+            <!-- Microsoft Defender & Tamper Protection Controls -->
+            <div class="organizer-section sec-defender-card">
+                <div class="organizer-section-header" style="margin-bottom: 6px;">
+                    <h3>🛡️ Microsoft Defender &amp; Tamper Protection Controls</h3>
+                    <span id="lblSecDefenderHint" class="diagx-stamp-text">Checking Defender &amp; Tamper Protection state...</span>
+                </div>
+                <div class="sec-defender-bar">
+                    <div class="sec-def-item"><span>🛡️ T. Protection:</span> <strong id="lblSecTamper">--</strong></div>
+                    <div class="sec-def-item"><span>👁️ Realtime:</span> <strong id="lblSecRealtime">--</strong></div>
+                    <div class="sec-def-item"><span>🧠 Behavior Mon:</span> <strong id="lblSecBehavior">--</strong></div>
+                    <div class="sec-def-item"><span>☁️ Cloud Protect:</span> <strong id="lblSecCloud">--</strong></div>
+                    <div class="sec-def-item"><span>📥 IOAV Scan:</span> <strong id="lblSecIoav">--</strong></div>
+                </div>
+            </div>
+
             <!-- BitLocker + Local Admins (2 Columns) -->
             <div class="diagx-two-col-row">
                 <div class="organizer-section">
@@ -1155,12 +1200,12 @@ VIEW 11: SECURITY POSTURE, WINDOWS REPAIR TOOLKIT & SUPPORT BUNDLE HUB
             </div>
 
             <!-- Non-Microsoft Scheduled Tasks Audit -->
-            <div class="organizer-section">
+            <div class="organizer-section section-flex-fill">
                 <div class="organizer-section-header">
                     <h3>⏱️ Non-Microsoft Scheduled Tasks (Persistence Audit)</h3>
                     <input type="text" id="secTaskSearchInput" class="tab-search-input" style="max-width: 260px; padding: 3px 8px; font-size: 10.5px;" placeholder="Filter tasks by name, author, or command..." oninput="RenderSecScheduledTasks()">
                 </div>
-                <div id="secTasksContainer" class="tp-table-scroll" style="max-height: 280px;">
+                <div id="secTasksContainer" class="tp-table-scroll">
                     <div class="driver-text-node" style="padding: 8px;">Loading scheduled tasks...</div>
                 </div>
             </div>
@@ -1183,34 +1228,34 @@ VIEW 11: SECURITY POSTURE, WINDOWS REPAIR TOOLKIT & SUPPORT BUNDLE HUB
             </div>
 
             <!-- Hosts File + Recent KBs (2 Columns) -->
-            <div class="diagx-two-col-row">
-                <div class="organizer-section">
+            <div class="diagx-two-col-row row-flex-fill">
+                <div class="organizer-section section-flex-fill">
                     <div class="organizer-section-header">
                         <h3>📄 Active Hosts File Overrides</h3>
                         <button type="button" class="console-clear-btn" onclick="TriggerSecOpenHostsFile()">Open in Notepad</button>
                     </div>
-                    <div id="secHostsContainer" class="tp-table-scroll" style="max-height: 210px;">
+                    <div id="secHostsContainer" class="tp-table-scroll">
                         <div class="driver-text-node" style="padding: 8px;">Loading hosts file...</div>
                     </div>
                 </div>
-                <div class="organizer-section">
+                <div class="organizer-section section-flex-fill">
                     <div class="organizer-section-header">
                         <h3>🩹 Recent Installed Updates (KBs)</h3>
                         <span id="lblSecKbCount" class="diagx-stamp-text">0 KBs</span>
                     </div>
-                    <div id="secHotfixContainer" class="tp-table-scroll" style="max-height: 210px;">
+                    <div id="secHotfixContainer" class="tp-table-scroll">
                         <div class="driver-text-node" style="padding: 8px;">Loading installed hotfixes...</div>
                     </div>
                 </div>
             </div>
 
             <!-- PATH Environment Health Validator -->
-            <div class="organizer-section">
+            <div class="organizer-section section-flex-fill">
                 <div class="organizer-section-header">
                     <h3>🛤️ System &amp; User PATH Environment Audit</h3>
                     <span id="lblSecPathSummary" class="diagx-stamp-text">--</span>
                 </div>
-                <div id="secPathContainer" class="tp-table-scroll" style="max-height: 210px;">
+                <div id="secPathContainer" class="tp-table-scroll">
                     <div class="driver-text-node" style="padding: 8px;">Validating PATH directories...</div>
                 </div>
             </div>
@@ -1284,12 +1329,154 @@ VIEW 11: SECURITY POSTURE, WINDOWS REPAIR TOOLKIT & SUPPORT BUNDLE HUB
             </div>
 
             <!-- Repair Output Console -->
-            <div class="organizer-section">
+            <div class="organizer-section section-flex-fill">
                 <div class="organizer-section-header">
                     <h3 id="lblRepairOutputTitle">📟 Toolkit Output</h3>
                     <span id="lblRepairOutputMeta" class="diagx-stamp-text">Ready</span>
                 </div>
                 <pre id="repairToolOutput" class="wsl-cmd-output">Select a repair or health check action above to view live output here.</pre>
+            </div>
+        </div>
+    </section>
+
+    <!-- =========================================================================
+VIEW 12: APP DOWNLOADER & PACKAGE INSTALLER (WINGET + OFFICIAL SOURCES)
+========================================================================= -->
+    <section id="viewAppInstallerPanel" class="tab-view-panel sharing-panel" style="display: none;" aria-labelledby="appInstallerTitle">
+        <div class="console-header-row">
+            <h2 id="appInstallerTitle">⬇️ APP DOWNLOADER &amp; PACKAGE INSTALLER</h2>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                <button type="button" class="console-clear-btn" onclick="SelectEssentialAppsPack()" title="Auto-select core runtimes, browsers & dev tools (VC++, WebView2, .NET 8, DirectX, 7-Zip, PowerShell 7, Git, VS Code)">⭐ Select Essentials</button>
+                <button type="button" class="console-clear-btn" onclick="ClearAppStoreSelection()" title="Clear all checked apps">Clear</button>
+                <button type="button" class="console-clear-btn" onclick="TriggerUpgradeAllApps()" title="Run winget upgrade --all in an elevated terminal">⬆️ Upgrade All</button>
+                <button type="button" class="console-clear-btn" onclick="RequestAppInstaller()">Refresh Status</button>
+                <button type="button" id="btnAppStoreBatchInstall" class="console-clear-btn btn-accent-action" onclick="TriggerInstallSelectedApps()" disabled>⬇️ Install Selected (0)</button>
+            </div>
+        </div>
+        <p>One-click download &amp; batch installer for essential developer tools, runtimes, browsers, gaming launchers, and system utilities via official Windows Package Manager (<code>winget</code>) with direct official website links.</p>
+
+        <div class="tab-summary-strip" style="margin-bottom: 8px;">
+            <span class="summary-chip chip-accent">Catalog: <strong id="sumStoreTotal">--</strong></span>
+            <span class="summary-chip chip-ok">Installed: <strong id="sumStoreInstalled">--</strong></span>
+            <span class="summary-chip">Updates: <strong id="sumStoreOutdated">0</strong></span>
+            <span class="summary-chip">Available: <strong id="sumStoreAvailable">--</strong></span>
+            <span class="summary-chip chip-accent">Selected: <strong id="sumStoreSelected">0</strong></span>
+            <span class="summary-chip">WinGet: <strong id="lblStoreWingetVer">Checking...</strong></span>
+        </div>
+
+        <div class="tab-filter-toolbar">
+            <input type="text" id="appStoreSearchInput" class="tab-search-input" placeholder="Filter catalog (e.g. Steam, C++, Rust, Python, ArtCraft, Prism, Hytale, Temurin)..." oninput="ApplyAppInstallerFilter()">
+            <select id="appStoreSortSelect" class="tab-sort-select" onchange="ApplyAppInstallerFilter()" aria-label="Sort catalog apps">
+                <option value="name_asc" selected>Sort: Name (A-Z)</option>
+                <option value="name_desc">Sort: Name (Z-A)</option>
+                <option value="category">Sort: Category (A-Z)</option>
+                <option value="requested">Sort: Core Picks First</option>
+                <option value="installed">Sort: Installed First</option>
+                <option value="available">Sort: Available First</option>
+            </select>
+            <form id="appStoreWingetForm" style="display: flex; gap: 6px; flex: 0 1 320px;" onsubmit="TriggerWingetLiveSearch(event)">
+                <input type="text" id="appStoreWingetQuery" class="tab-search-input" placeholder="Search any WinGet app...">
+                <button type="submit" class="console-clear-btn">🔎 WinGet</button>
+            </form>
+        </div>
+
+        <div class="tab-filter-pills" id="appStoreCategoryPills">
+            <button type="button" class="filter-pill active" data-cat="all" onclick="SetAppStoreCategory('all')">All Apps</button>
+            <button type="button" class="filter-pill" data-cat="requested" onclick="SetAppStoreCategory('requested')">★ Core Picks</button>
+            <button type="button" class="filter-pill" data-cat="ArtCraft Suite" onclick="SetAppStoreCategory('ArtCraft Suite')">🎨 ArtCraft Suite</button>
+            <button type="button" class="filter-pill" data-cat="Dev & Languages" onclick="SetAppStoreCategory('Dev & Languages')">💻 Dev &amp; Languages</button>
+            <button type="button" class="filter-pill" data-cat="Runtimes & Drivers" onclick="SetAppStoreCategory('Runtimes & Drivers')">⚙️ Runtimes &amp; Deps</button>
+            <button type="button" class="filter-pill" data-cat="Browsers & Comms" onclick="SetAppStoreCategory('Browsers & Comms')">🌐 Browsers &amp; Comms</button>
+            <button type="button" class="filter-pill" data-cat="Gaming & RGB" onclick="SetAppStoreCategory('Gaming & RGB')">🎮 Gaming &amp; RGB</button>
+            <button type="button" class="filter-pill" data-cat="Creative & Media" onclick="SetAppStoreCategory('Creative & Media')">🎬 Creative &amp; Media</button>
+            <button type="button" class="filter-pill" data-cat="SysAdmin & Network" onclick="SetAppStoreCategory('SysAdmin & Network')">🛠️ SysAdmin &amp; Net</button>
+            <button type="button" class="filter-pill" data-cat="not_installed" onclick="SetAppStoreCategory('not_installed')">Not Installed</button>
+            <button type="button" class="filter-pill" data-cat="installed" onclick="SetAppStoreCategory('installed')">Installed</button>
+        </div>
+
+        <div id="appStoreStatus" class="sharing-status" role="status">Loading curated app catalog &amp; probing installed packages...</div>
+
+        <!-- Live WinGet Custom Search Results Drawer -->
+        <div id="appStoreWingetResults" class="appstore-winget-box" style="display: none;"></div>
+
+        <!-- Full-Height Scrollable App Store Card Grid -->
+        <div id="appStoreContainer" class="appstore-grid">
+            <div class="driver-text-node">Scanning installed apps against the CoreWatch catalog...</div>
+        </div>
+    </section>
+
+    <!-- =========================================================================
+VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
+========================================================================= -->
+    <section id="viewDiskMapPanel" class="tab-view-panel sharing-panel" style="display: none;" aria-labelledby="diskMapTitle">
+        <div class="console-header-row">
+            <h2 id="diskMapTitle">🗺️ DISK MAP — VISUAL FILE &amp; STORAGE EXPLORER</h2>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                <button type="button" class="console-clear-btn" onclick="BrowseOrganizerFolder('diskmap')" title="Pick any custom folder to scan">📁 Folder...</button>
+                <button type="button" class="console-clear-btn" onclick="RequestDiskMapDrives()" title="Refresh drive capacities">Refresh Drives</button>
+                <button type="button" id="btnDiskMapScanNow" class="console-clear-btn btn-accent-action" onclick="TriggerDiskMapScanFromInput()">⚡ Scan Now</button>
+            </div>
+        </div>
+
+        <!-- Drive Selector Cards + Custom Target Path -->
+        <div class="diskmap-top-bar">
+            <div id="diskMapDriveStrip" class="diskmap-drive-strip">
+                <span class="driver-text-node">Detecting local drives...</span>
+            </div>
+            <div class="diskmap-path-row">
+                <input type="text" id="diskMapTargetPath" class="tab-search-input" value="C:\" placeholder="Drive or folder path (e.g. C:\, D:\Games, C:\Users\Admin)...">
+                <input type="text" id="diskMapFilterInput" class="tab-search-input" style="max-width: 240px;" placeholder="Filter folders, files, or .ext..." oninput="RenderDiskMapCurrentView()">
+            </div>
+        </div>
+
+        <!-- Telemetry Summary Strip -->
+        <div class="tab-summary-strip" style="margin-bottom: 6px;">
+            <span class="summary-chip chip-accent">Scanned: <strong id="sumDmSize">--</strong></span>
+            <span class="summary-chip">Files: <strong id="sumDmFiles">--</strong></span>
+            <span class="summary-chip">Folders: <strong id="sumDmDirs">--</strong></span>
+            <span class="summary-chip">Speed: <strong id="sumDmSpeed">--</strong></span>
+            <span class="summary-chip">Largest Folder: <strong id="sumDmTopDir">--</strong></span>
+            <span class="summary-chip">Largest File: <strong id="sumDmTopFile">--</strong></span>
+        </div>
+
+        <!-- Mode Pills + Breadcrumb Navigation -->
+        <div class="diskmap-nav-row">
+            <div class="tab-filter-pills" id="diskMapModePills" style="margin-bottom: 0;">
+                <button type="button" class="filter-pill active" data-dmmode="tree" onclick="SetDiskMapViewMode('tree')">📂 Directory Tree</button>
+                <button type="button" class="filter-pill" data-dmmode="files" onclick="SetDiskMapViewMode('files')">📄 Largest Files (Top 150)</button>
+                <button type="button" class="filter-pill" data-dmmode="exts" onclick="SetDiskMapViewMode('exts')">🏷️ Exact Extensions</button>
+            </div>
+            <div class="diskmap-crumbs-bar">
+                <button type="button" id="btnDmUp" class="console-clear-btn" onclick="DiskMapNavigateUp()" disabled title="Go up one folder">⬆ Up</button>
+                <button type="button" id="btnDmRoot" class="console-clear-btn" onclick="DiskMapNavigateRoot()" disabled title="Return to scan root">🏠 Root</button>
+                <div id="diskMapBreadcrumbs" class="diskmap-breadcrumbs">Select a drive above and click Scan Now</div>
+                <span id="diskMapExtFilterBadge" style="display:none;"></span>
+            </div>
+        </div>
+
+        <div id="diskMapStatus" class="sharing-status" style="margin-bottom: 6px;" role="status">Choose a drive or folder and click Scan Now to map file &amp; folder sizes visually.</div>
+
+        <!-- FULL-HEIGHT SPLIT WORKSPACE: UPPER DATA TABLE + LOWER SQUARIFIED TREEMAP CANVAS -->
+        <div class="diskmap-workspace">
+            <div id="diskMapDataPane" class="tp-table-scroll diskmap-table-pane">
+                <div class="driver-text-node" style="padding: 12px;">Ready — click any drive pill above to scan with CoreWatch's multithreaded Win32 scanner.</div>
+            </div>
+
+            <div class="diskmap-canvas-section">
+                <div class="diskmap-canvas-bar">
+                    <span id="lblDiskMapCanvasTitle" class="diskmap-canvas-title">🗺️ Visual Treemap (Double-click folder to drill down · Hover for exact path &amp; size)</span>
+                    <div id="diskMapSelectionActions" class="diskmap-sel-actions" style="display: none;">
+                        <span id="lblDiskMapSelected" class="diskmap-sel-label">--</span>
+                        <button type="button" id="btnDmSelZoom" class="console-clear-btn" onclick="DiskMapActSelected('zoom')">🔍 Zoom</button>
+                        <button type="button" class="console-clear-btn" onclick="DiskMapActSelected('explorer')">📁 Explorer</button>
+                        <button type="button" class="console-clear-btn" onclick="DiskMapActSelected('copy')">📋 Copy Path</button>
+                        <button type="button" class="console-clear-btn wsl-btn-danger" onclick="DiskMapActSelected('recycle')">🗑️ Recycle</button>
+                    </div>
+                </div>
+                <div id="diskMapCanvasWrap" class="diskmap-canvas-wrap">
+                    <canvas id="diskMapCanvas"></canvas>
+                    <div id="diskMapTooltip" class="diskmap-tooltip" style="display: none;"></div>
+                </div>
             </div>
         </div>
     </section>

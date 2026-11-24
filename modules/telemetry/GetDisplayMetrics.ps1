@@ -18,7 +18,14 @@ namespace CoreWatch {
         public int RefreshRateHz { get; set; }
         public int[] AvailableRefreshRates { get; set; }
         public string Orientation { get; set; }
+        public int OrientationCode { get; set; }
         public string Scale { get; set; }
+        public int ScalePct { get; set; }
+        public int[] AvailableScales { get; set; }
+        public int BoundsX { get; set; }
+        public int BoundsY { get; set; }
+        public int BoundsWidth { get; set; }
+        public int BoundsHeight { get; set; }
         public string ConnectionType { get; set; }
         public string HdrStatus { get; set; }
         public string ColorProfile { get; set; }
@@ -188,6 +195,23 @@ namespace CoreWatch {
             public uint value;
         }
 
+        // [DYNAMIC CONTROL] Undocumented native Windows CCD per-monitor DPI Scale structs (used by Windows Settings)
+        [StructLayout(LayoutKind.Sequential)]
+        private struct DISPLAYCONFIG_SOURCE_DPI_SCALE_GET {
+            public DISPLAYCONFIG_DEVICE_INFO_HEADER header;
+            public int minScaleRel;
+            public int curScaleRel;
+            public int maxScaleRel;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct DISPLAYCONFIG_SOURCE_DPI_SCALE_SET {
+            public DISPLAYCONFIG_DEVICE_INFO_HEADER header;
+            public int scaleRel;
+        }
+
+        private static readonly int[] StandardDpiScales = new int[] { 100, 125, 150, 175, 200, 225, 250, 300, 350, 400, 450, 500 };
+
         [StructLayout(LayoutKind.Sequential)]
         private struct POINT {
             public int X;
@@ -284,6 +308,131 @@ namespace CoreWatch {
 
         [DllImport("user32.dll")]
         private static extern int DisplayConfigSetDeviceInfo(ref DISPLAYCONFIG_SET_ADVANCED_COLOR_STATE setPacket);
+
+        [DllImport("user32.dll")]
+        private static extern int DisplayConfigGetDeviceInfo(ref DISPLAYCONFIG_SOURCE_DPI_SCALE_GET requestPacket);
+
+        [DllImport("user32.dll")]
+        private static extern int DisplayConfigSetDeviceInfo(ref DISPLAYCONFIG_SOURCE_DPI_SCALE_SET setPacket);
+
+        // [DYNAMIC CONTROL] Safely change monitor orientation (0=Landscape, 1=Portrait, 2=Landscape Flipped, 3=Portrait Flipped)
+        public static string SetMonitorOrientation(string targetDeviceName, int targetOrientation) {
+            try {
+                if (string.IsNullOrWhiteSpace(targetDeviceName)) {
+                    return "Target display device name is required.";
+                }
+                if (targetOrientation < 0 || targetOrientation > 3) {
+                    return "Invalid display orientation code (expected 0..3).";
+                }
+
+                var dm = new DEVMODE();
+                dm.dmSize = (short)Marshal.SizeOf(typeof(DEVMODE));
+                if (!EnumDisplaySettingsEx(targetDeviceName, ENUM_CURRENT_SETTINGS, ref dm, 0)) {
+                    return "Unable to query current display mode for " + targetDeviceName;
+                }
+
+                if (dm.dmDisplayOrientation == targetOrientation) {
+                    return "OK";
+                }
+
+                bool wasPortrait  = (dm.dmDisplayOrientation % 2) == 1;
+                bool wantPortrait = (targetOrientation % 2) == 1;
+                if (wasPortrait != wantPortrait) {
+                    int tmp = dm.dmPelsWidth;
+                    dm.dmPelsWidth = dm.dmPelsHeight;
+                    dm.dmPelsHeight = tmp;
+                }
+
+                dm.dmDisplayOrientation = targetOrientation;
+                dm.dmFields |= 0x00000080 | 0x00080000 | 0x00100000; // DM_DISPLAYORIENTATION | DM_PELSWIDTH | DM_PELSHEIGHT
+
+                int testRes = ChangeDisplaySettingsEx(targetDeviceName, ref dm, IntPtr.Zero, CDS_TEST, IntPtr.Zero);
+                if (testRes != DISP_CHANGE_SUCCESSFUL) {
+                    return string.Format("Windows display driver rejected orientation change during safety test (code {0}).", testRes);
+                }
+
+                int applyRes = ChangeDisplaySettingsEx(targetDeviceName, ref dm, IntPtr.Zero, CDS_UPDATEREGISTRY, IntPtr.Zero);
+                if (applyRes != DISP_CHANGE_SUCCESSFUL) {
+                    return string.Format("Windows failed to apply orientation change (code {0}).", applyRes);
+                }
+
+                return "OK";
+            } catch (Exception ex) {
+                return ex.Message;
+            }
+        }
+
+        // [DYNAMIC CONTROL] Change per-monitor Windows DPI Scale instantaneously via native CCD API
+        public static string SetMonitorScale(string targetDeviceName, int targetScalePct) {
+            try {
+                if (string.IsNullOrWhiteSpace(targetDeviceName)) {
+                    return "Target display device name is required.";
+                }
+
+                int targetIdx = Array.IndexOf(StandardDpiScales, targetScalePct);
+                if (targetIdx < 0) {
+                    return "Unsupported scale percentage: " + targetScalePct + "%";
+                }
+
+                uint pathCount, modeCount;
+                if (GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, out pathCount, out modeCount) != 0 || pathCount == 0) {
+                    return "Unable to query active Windows display configuration.";
+                }
+                var paths = new DISPLAYCONFIG_PATH_INFO[pathCount];
+                var modes = new DISPLAYCONFIG_MODE_INFO[modeCount];
+                if (QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, ref pathCount, paths, ref modeCount, modes, IntPtr.Zero) != 0) {
+                    return "QueryDisplayConfig failed.";
+                }
+
+                for (int i = 0; i < pathCount; i++) {
+                    var srcName = new DISPLAYCONFIG_SOURCE_DEVICE_NAME();
+                    srcName.header.type = 1;
+                    srcName.header.size = Marshal.SizeOf(typeof(DISPLAYCONFIG_SOURCE_DEVICE_NAME));
+                    srcName.header.adapterId = paths[i].sourceInfo.adapterId;
+                    srcName.header.id = paths[i].sourceInfo.id;
+
+                    if (DisplayConfigGetDeviceInfo(ref srcName) != 0 ||
+                        !string.Equals(srcName.viewGdiDeviceName, targetDeviceName, StringComparison.OrdinalIgnoreCase)) {
+                        continue;
+                    }
+
+                    var dpiGet = new DISPLAYCONFIG_SOURCE_DPI_SCALE_GET();
+                    dpiGet.header.type = -3; // DISPLAYCONFIG_DEVICE_INFO_GET_DPI_SCALE
+                    dpiGet.header.size = Marshal.SizeOf(typeof(DISPLAYCONFIG_SOURCE_DPI_SCALE_GET));
+                    dpiGet.header.adapterId = paths[i].sourceInfo.adapterId;
+                    dpiGet.header.id = paths[i].sourceInfo.id;
+
+                    if (DisplayConfigGetDeviceInfo(ref dpiGet) != 0) {
+                        return "Windows did not expose CCD DPI scale range for " + targetDeviceName;
+                    }
+
+                    int recIdx = Math.Abs(dpiGet.minScaleRel);
+                    int minIdx = 0;
+                    int maxIdx = Math.Min(StandardDpiScales.Length - 1, recIdx + dpiGet.maxScaleRel);
+                    if (targetIdx < minIdx || targetIdx > maxIdx) {
+                        return string.Format("Scale {0}% is outside the supported range ({1}%..{2}%) for this display.", targetScalePct, StandardDpiScales[minIdx], StandardDpiScales[maxIdx]);
+                    }
+
+                    int relVal = targetIdx - recIdx;
+                    var dpiSet = new DISPLAYCONFIG_SOURCE_DPI_SCALE_SET();
+                    dpiSet.header.type = -4; // DISPLAYCONFIG_DEVICE_INFO_SET_DPI_SCALE
+                    dpiSet.header.size = Marshal.SizeOf(typeof(DISPLAYCONFIG_SOURCE_DPI_SCALE_SET));
+                    dpiSet.header.adapterId = paths[i].sourceInfo.adapterId;
+                    dpiSet.header.id = paths[i].sourceInfo.id;
+                    dpiSet.scaleRel = relVal;
+
+                    int setRes = DisplayConfigSetDeviceInfo(ref dpiSet);
+                    if (setRes != 0) {
+                        return string.Format("Windows rejected scale change to {0}% (code {1}).", targetScalePct, setRes);
+                    }
+                    return "OK";
+                }
+
+                return "Could not match active CCD source path for " + targetDeviceName;
+            } catch (Exception ex) {
+                return ex.Message;
+            }
+        }
 
         // [DYNAMIC CONTROL] Toggle Windows HDR state on a specific monitor via CCD API
         public static bool SetHdrState(string targetDeviceName, bool enable) {
@@ -405,6 +554,7 @@ namespace CoreWatch {
 
         public static List<MonitorVideoInfo> GetMonitors() {
             var ccdMap = new Dictionary<string, Tuple<string, string, string>>(StringComparer.OrdinalIgnoreCase);
+            var scaleRangeMap = new Dictionary<string, Tuple<int, int[]>>(StringComparer.OrdinalIgnoreCase);
 
             try {
                 uint pathCount, modeCount;
@@ -421,6 +571,22 @@ namespace CoreWatch {
 
                             if (DisplayConfigGetDeviceInfo(ref srcName) != 0 || string.IsNullOrEmpty(srcName.viewGdiDeviceName)) {
                                 continue;
+                            }
+
+                            if (!scaleRangeMap.ContainsKey(srcName.viewGdiDeviceName)) {
+                                var dpiGet = new DISPLAYCONFIG_SOURCE_DPI_SCALE_GET();
+                                dpiGet.header.type = -3;
+                                dpiGet.header.size = Marshal.SizeOf(typeof(DISPLAYCONFIG_SOURCE_DPI_SCALE_GET));
+                                dpiGet.header.adapterId = paths[i].sourceInfo.adapterId;
+                                dpiGet.header.id = paths[i].sourceInfo.id;
+                                if (DisplayConfigGetDeviceInfo(ref dpiGet) == 0) {
+                                    int recIdx = Math.Abs(dpiGet.minScaleRel);
+                                    int curIdx = Math.Max(0, Math.Min(StandardDpiScales.Length - 1, recIdx + dpiGet.curScaleRel));
+                                    int maxIdx = Math.Max(0, Math.Min(StandardDpiScales.Length - 1, recIdx + dpiGet.maxScaleRel));
+                                    var avail = new List<int>();
+                                    for (int sIdx = 0; sIdx <= maxIdx; sIdx++) avail.Add(StandardDpiScales[sIdx]);
+                                    scaleRangeMap[srcName.viewGdiDeviceName] = Tuple.Create(StandardDpiScales[curIdx], avail.ToArray());
+                                }
                             }
 
                             string friendly = "";
@@ -490,17 +656,24 @@ namespace CoreWatch {
                 if (!EnumDisplaySettingsEx(dd.DeviceName, ENUM_CURRENT_SETTINGS, ref dm, 0)) continue;
 
                 bool isPrimary = (dd.StateFlags & DISPLAY_DEVICE_PRIMARY_DEVICE) != 0;
-                string scaleStr = "100%";
-                try {
-                    var pt = new POINT { X = dm.dmPositionX + 1, Y = dm.dmPositionY + 1 };
-                    IntPtr hMon = MonitorFromPoint(pt, 2);
-                    if (hMon != IntPtr.Zero) {
-                        uint dpiX, dpiY;
-                        if (GetDpiForMonitor(hMon, MDT_EFFECTIVE_DPI, out dpiX, out dpiY) == 0 && dpiX > 0) {
-                            scaleStr = ((int)Math.Round(dpiX * 100.0 / 96.0)).ToString() + "%";
+                int scalePct = 100;
+                int[] availScales = new int[] { 100, 125, 150, 175 };
+                if (scaleRangeMap.ContainsKey(dd.DeviceName)) {
+                    scalePct = scaleRangeMap[dd.DeviceName].Item1;
+                    availScales = scaleRangeMap[dd.DeviceName].Item2;
+                } else {
+                    try {
+                        var pt = new POINT { X = dm.dmPositionX + 1, Y = dm.dmPositionY + 1 };
+                        IntPtr hMon = MonitorFromPoint(pt, 2);
+                        if (hMon != IntPtr.Zero) {
+                            uint dpiX, dpiY;
+                            if (GetDpiForMonitor(hMon, MDT_EFFECTIVE_DPI, out dpiX, out dpiY) == 0 && dpiX > 0) {
+                                scalePct = (int)Math.Round(dpiX * 100.0 / 96.0);
+                            }
                         }
-                    }
-                } catch { }
+                    } catch { }
+                }
+                string scaleStr = scalePct.ToString() + "%";
 
                 string friendly = "";
                 string conn = "Unknown";
@@ -552,7 +725,14 @@ namespace CoreWatch {
                     RefreshRateHz = dm.dmDisplayFrequency,
                     AvailableRefreshRates = rateArray,
                     Orientation = MapOrientation(dm.dmDisplayOrientation),
+                    OrientationCode = dm.dmDisplayOrientation,
                     Scale = scaleStr,
+                    ScalePct = scalePct,
+                    AvailableScales = availScales,
+                    BoundsX = dm.dmPositionX,
+                    BoundsY = dm.dmPositionY,
+                    BoundsWidth = dm.dmPelsWidth,
+                    BoundsHeight = dm.dmPelsHeight,
                     ConnectionType = conn,
                     HdrStatus = hdr,
                     ColorProfile = GetColorProfileForDevice(dd.DeviceName)
@@ -900,7 +1080,15 @@ function Get-DisplayMetrics {
                 NightLightStrength    = [int]$nlStrength.StrengthPct
                 NightLightKelvin      = [int]$nlStrength.Kelvin
                 Scale                 = [string]$m.Scale
+                ScalePct              = [int]$m.ScalePct
+                AvailableScales       = @($m.AvailableScales)
                 Orientation           = [string]$m.Orientation
+                OrientationCode       = [int]$m.OrientationCode
+                BoundsX               = [int]$m.BoundsX
+                BoundsY               = [int]$m.BoundsY
+                BoundsWidth           = [int]$m.BoundsWidth
+                BoundsHeight          = [int]$m.BoundsHeight
+                DisplayNumber         = [int]$idx
             }
             $idx++
         }

@@ -39,6 +39,17 @@ namespace CoreWatch {
         [DllImport("user32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool DestroyIcon(IntPtr hIcon);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool SetProcessWorkingSetSize(IntPtr hProcess, IntPtr dwMinimumWorkingSetSize, IntPtr dwMaximumWorkingSetSize);
+
+        public static void TrimWorkingSet() {
+            try {
+                GC.Collect(1, GCCollectionMode.Optimized, false);
+                SetProcessWorkingSetSize(System.Diagnostics.Process.GetCurrentProcess().Handle, (IntPtr)(-1), (IntPtr)(-1));
+            } catch { }
+        }
     }
 }
 "@ -ErrorAction SilentlyContinue
@@ -54,44 +65,16 @@ $global:SharedData = [hashtable]::Synchronized(@{
     FastPayload  = $null
     FastVersion  = 0
     ForceRefresh = $false
+    ActiveView   = "dashboard"
+    IsMinimized  = $false
     IsRunning    = $true
 })
 
 # =========================================================================
-# BACKGROUND RUNSPACE 1: FAST 0.5s HARDWARE & NETWORK ACTIVITY PIPELINE
-# =========================================================================
-$FastRunspaceScript = {
-    param($RootPath, $SharedData)
-    $TelemetryPath = Join-Path $RootPath "modules\telemetry"
-    . (Join-Path $TelemetryPath "GetSystemMetrics.ps1")
-    . (Join-Path $TelemetryPath "GetTrafficMetrics.ps1")
-
-    Initialize-StaticSystemCache
-    $null = Get-FastHardwareMetrics
-    $null = Get-TrafficMetrics
-
-    while ($SharedData.IsRunning) {
-        $sw = [System.Diagnostics.Stopwatch]::StartNew()
-        try {
-            $FastHw  = Get-FastHardwareMetrics
-            $FastNet = Get-TrafficMetrics
-
-            $FastObject = [PSCustomObject]@{
-                type            = "FAST_TELEMETRY"
-                SystemFrame     = $FastHw
-                NetworkActivity = $FastNet
-            }
-            $SharedData.FastPayload = $FastObject | ConvertTo-Json -Compress -Depth 4
-            $SharedData.FastVersion++
-        } catch {}
-
-        $sleepMs = [int][math]::Max(50, 500 - $sw.ElapsedMilliseconds)
-        [System.Threading.Thread]::Sleep($sleepMs)
-    }
-}
-
-# =========================================================================
-# BACKGROUND RUNSPACE 2: STANDARD 1.0s FULL TELEMETRY PIPELINE
+# UNIFIED TIERED TELEMETRY PIPELINE (SINGLE RUNSPACE - CUTS CPU/RAM ~50%+)
+#   - Dashboard active: 500ms fast counters, 2000ms full mesh
+#   - Other tab active: fast loop paused, 4000ms full mesh (for Defender sync)
+#   - Minimized:        polling paused until restored (immediate wakeup)
 # =========================================================================
 $RunspaceScript = {
     param($RootPath, $SharedData)
@@ -103,84 +86,127 @@ $RunspaceScript = {
     . (Join-Path $TelemetryPath "GetSystemMetrics.ps1")
     . (Join-Path $TelemetryPath "StorageEngine.ps1")
 
+    Initialize-StaticSystemCache
+    # Prime performance counters once so first pushed frame is immediately accurate
+    $null = Get-FastHardwareMetrics
+    $null = Get-TrafficMetrics
+
+    $lastFullSample = [datetime]::MinValue
+    $lastGcTrim     = [datetime]::Now
+
     while ($SharedData.IsRunning) {
+        # When minimized, pause polling completely and wake immediately when restored
+        if ($SharedData.IsMinimized -and -not $SharedData.ForceRefresh) {
+            [System.Threading.Thread]::Sleep(250)
+            continue
+        }
+
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        $onDashboard = ($SharedData.ActiveView -eq "dashboard")
+        $forceNow    = [bool]$SharedData.ForceRefresh
+
         try {
-            # [DYNAMIC CONTROL] Immediately expire slow telemetry caches after any user toggle
-            if ($SharedData.ForceRefresh) {
+            if ($forceNow) {
                 $SharedData.ForceRefresh = $false
                 if (Get-Command Reset-NetworkMetricsCache -ErrorAction SilentlyContinue) { Reset-NetworkMetricsCache }
                 if (Get-Command Reset-SystemMetricsCache -ErrorAction SilentlyContinue)  { Reset-SystemMetricsCache }
                 if (Get-Command Reset-InfraMetricsCache -ErrorAction SilentlyContinue)   { Reset-InfraMetricsCache }
             }
 
-            $StaticNet   = Get-NetworkMetrics
-            $DynamicNet  = Get-TrafficMetrics
-            $SystemFrame = Get-SystemMetrics
+            $FastHw  = $null
+            $FastNet = $null
 
-            $MergedNetworkFrame = [PSCustomObject]@{
-                IntIPv4         = [string]($StaticNet.IntIPv4 ?? "0.0.0.0")
-                SubnetMask      = [string]($StaticNet.SubnetMask ?? "0.0.0.0")
-                Gateway         = [string]($StaticNet.Gateway ?? "N/A")
-                # [DIAGNOSTIC ADDITION] Forward DNS Servers, DNS Resolution & Gateway ARP state
-                DnsServers      = [string]($StaticNet.DnsServers ?? "Auto / None")
-                DnsStatus       = [string]($StaticNet.DnsStatus ?? "Checking")
-                DnsStatusText   = [string]($StaticNet.DnsStatusText ?? "Checking...")
-                ArpStatus       = [string]($StaticNet.ArpStatus ?? "Unresolved")
-                GatewayMac      = [string]($StaticNet.GatewayMac ?? "N/A")
-                ArpDetail       = [string]($StaticNet.ArpDetail ?? "")
-                NetworkStatus   = [string]($StaticNet.NetworkStatus ?? "Offline")
-                WlanSsid        = [string]($StaticNet.WlanSsid ?? "None")
-                ExtIPv4         = [string]($StaticNet.ExtIPv4 ?? "Resolving...")
-                LinkCap         = [string]($StaticNet.LinkCap ?? "0 Mbps")
-                Firewall        = [string]($StaticNet.Firewall ?? "Unknown")
-                Realtime        = [string]($StaticNet.Realtime ?? "Unknown")
-                Discovery       = [string]($StaticNet.Discovery ?? "Off")
-                Sharing         = [string]($StaticNet.Sharing ?? "Off")
-                lblEthDriver    = [string]($StaticNet.lblEthDriver ?? "Unknown")
-                lblWifiDriver   = [string]($StaticNet.lblWifiDriver ?? "Unknown")
-                NetAssignment   = [string]($StaticNet.NetAssignment ?? "DHCP")
-                AdapterStatuses = @($StaticNet.AdapterStatuses)
-                RxPct           = [int]($DynamicNet.RxPct ?? 0)
-                TxPct           = [int]($DynamicNet.TxPct ?? 0)
-                RxText          = [string]($DynamicNet.RxText ?? "0.00 KB/s")
-                TxText          = [string]($DynamicNet.TxText ?? "0.00 KB/s")
+            # Fast 0.5s frame runs only while Dashboard is visible (or on forced/initial refresh)
+            if ($onDashboard -or $forceNow -or $SharedData.FullVersion -eq 0) {
+                $FastHw  = Get-FastHardwareMetrics
+                $FastNet = Get-TrafficMetrics
+
+                $FastObject = [PSCustomObject]@{
+                    type            = "FAST_TELEMETRY"
+                    SystemFrame     = $FastHw
+                    NetworkActivity = $FastNet
+                }
+                $SharedData.FastPayload = $FastObject | ConvertTo-Json -Compress -Depth 4
+                $SharedData.FastVersion++
             }
 
-            $MasterObject = [PSCustomObject]@{
-                IdentityFrame  = Get-IDMetrics
-                InfraFrame     = Get-InfraMetrics
-                NetworkFrame   = $MergedNetworkFrame
-                SystemFrame    = $SystemFrame
-                StorageFrame   = Get-StorageMetrics
-                PipelineStatus = "SUCCESS"
+            $fullIntervalMs = if ($onDashboard) { 2000 } else { 4000 }
+            $elapsedSinceFull = ([datetime]::Now - $lastFullSample).TotalMilliseconds
+
+            if ($forceNow -or $elapsedSinceFull -ge $fullIntervalMs) {
+                if ($null -eq $FastHw)  { $FastHw  = Get-FastHardwareMetrics }
+                if ($null -eq $FastNet) { $FastNet = Get-TrafficMetrics }
+
+                function _nz($v, $d) { if ($null -ne $v) { $v } else { $d } }
+
+                $StaticNet   = Get-NetworkMetrics
+                $SystemFrame = Get-SystemMetrics -PrecomputedFast $FastHw
+
+                $MergedNetworkFrame = [PSCustomObject]@{
+                    IntIPv4          = [string](_nz $StaticNet.IntIPv4 "0.0.0.0")
+                    SubnetMask       = [string](_nz $StaticNet.SubnetMask "0.0.0.0")
+                    Gateway          = [string](_nz $StaticNet.Gateway "N/A")
+                    DnsServers       = [string](_nz $StaticNet.DnsServers "Auto / None")
+                    DnsStatus        = [string](_nz $StaticNet.DnsStatus "Checking")
+                    DnsStatusText    = [string](_nz $StaticNet.DnsStatusText "Checking...")
+                    ArpStatus        = [string](_nz $StaticNet.ArpStatus "Unresolved")
+                    GatewayMac       = [string](_nz $StaticNet.GatewayMac "N/A")
+                    ArpDetail        = [string](_nz $StaticNet.ArpDetail "")
+                    NetworkStatus    = [string](_nz $StaticNet.NetworkStatus "Offline")
+                    WlanSsid         = [string](_nz $StaticNet.WlanSsid "None")
+                    ExtIPv4          = [string](_nz $StaticNet.ExtIPv4 "Resolving...")
+                    LinkCap          = [string](_nz $StaticNet.LinkCap "0 Mbps")
+                    Firewall         = [string](_nz $StaticNet.Firewall "Unknown")
+                    Realtime         = [string](_nz $StaticNet.Realtime "Unknown")
+                    TamperProtection = [string](_nz $StaticNet.TamperProtection "Unknown")
+                    BehaviorMonitor  = [string](_nz $StaticNet.BehaviorMonitor "Unknown")
+                    CloudProtection  = [string](_nz $StaticNet.CloudProtection "Unknown")
+                    IoavProtection   = [string](_nz $StaticNet.IoavProtection "Unknown")
+                    Discovery        = [string](_nz $StaticNet.Discovery "Off")
+                    Sharing          = [string](_nz $StaticNet.Sharing "Off")
+                    lblEthDriver     = [string](_nz $StaticNet.lblEthDriver "Unknown")
+                    lblWifiDriver    = [string](_nz $StaticNet.lblWifiDriver "Unknown")
+                    NetAssignment    = [string](_nz $StaticNet.NetAssignment "DHCP")
+                    AdapterStatuses  = @($StaticNet.AdapterStatuses)
+                    RxPct            = [int](_nz $FastNet.RxPct 0)
+                    TxPct            = [int](_nz $FastNet.TxPct 0)
+                    RxText           = [string](_nz $FastNet.RxText "0.00 KB/s")
+                    TxText           = [string](_nz $FastNet.TxText "0.00 KB/s")
+                }
+
+                $MasterObject = [PSCustomObject]@{
+                    IdentityFrame  = Get-IDMetrics
+                    InfraFrame     = Get-InfraMetrics
+                    NetworkFrame   = $MergedNetworkFrame
+                    SystemFrame    = $SystemFrame
+                    StorageFrame   = Get-StorageMetrics
+                    PipelineStatus = "SUCCESS"
+                }
+                $SharedData.FullPayload = $MasterObject | ConvertTo-Json -Compress -Depth 5
+                $SharedData.FullVersion++
+                $lastFullSample = [datetime]::Now
             }
-            $SharedData.FullPayload = $MasterObject | ConvertTo-Json -Compress -Depth 5
-            $SharedData.FullVersion++
+
+            # Lightweight periodic GC + working-set trim every 60 seconds to prevent PowerShell Gen2 RAM creep
+            if (([datetime]::Now - $lastGcTrim).TotalSeconds -ge 60) {
+                $lastGcTrim = [datetime]::Now
+                if ("CoreWatch.Win32" -as [type]) { [CoreWatch.Win32]::TrimWorkingSet() }
+            }
         } catch {
             $SharedData.FullPayload = @{ PipelineStatus = "LOOP_CRASH: $($_.Exception.Message)" } | ConvertTo-Json -Compress
             $SharedData.FullVersion++
         }
-        $sleepMs = [int][math]::Max(100, 1000 - $sw.ElapsedMilliseconds)
-        # Wake early (every 80ms) if a dashboard toggle requested an immediate telemetry refresh
+
+        $targetCadence = if ($onDashboard) { 500 } else { 1000 }
+        $sleepMs = [int][math]::Max(80, $targetCadence - $sw.ElapsedMilliseconds)
         $slept = 0
         while ($slept -lt $sleepMs -and $SharedData.IsRunning -and -not $SharedData.ForceRefresh) {
-            $chunk = [int][math]::Min(80, $sleepMs - $slept)
+            $chunk = [int][math]::Min(100, $sleepMs - $slept)
             [System.Threading.Thread]::Sleep($chunk)
             $slept += $chunk
         }
     }
 }
-
-$FastRunspace = [runspacefactory]::CreateRunspace()
-$FastRunspace.ApartmentState = "MTA"
-$FastRunspace.ThreadOptions = "ReuseThread"
-$FastRunspace.Open()
-
-$FastPowerShellPool = [powershell]::Create()
-$FastPowerShellPool.Runspace = $FastRunspace
-$null = $FastPowerShellPool.AddScript($FastRunspaceScript).AddArgument($Global:NodeWatchRoot).AddArgument($global:SharedData)
-$null = $FastPowerShellPool.BeginInvoke()
 
 $Runspace = [runspacefactory]::CreateRunspace()
 $Runspace.ApartmentState = "STA"
@@ -195,13 +221,13 @@ $null = $PowerShellPool.BeginInvoke()
 # =========================================================================
 # CORE WINDOW FORM CONSTRUCTOR
 # =========================================================================
-$script:MaxWindowWidth  = 1080
-$script:MaxWindowHeight = 1920
+$script:MaxWindowWidth  = 2160
+$script:MaxWindowHeight = 3840
 $script:MinWindowWidth  = 640
 $script:MinWindowHeight = 720
 $ScreenWorkArea = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
-$InitWidth  = [Math]::Max($script:MinWindowWidth,  [Math]::Min($script:MaxWindowWidth,  $ScreenWorkArea.Width))
-$InitHeight = [Math]::Max($script:MinWindowHeight, [Math]::Min($script:MaxWindowHeight, $ScreenWorkArea.Height))
+$InitWidth  = [Math]::Max($script:MinWindowWidth,  [Math]::Min(1080, $ScreenWorkArea.Width))
+$InitHeight = [Math]::Max($script:MinWindowHeight, [Math]::Min(1920, $ScreenWorkArea.Height))
 
 $MainForm = New-Object System.Windows.Forms.Form
 $MainForm.Text = "CoreWatch Host Engine Dashboard Framework"
@@ -342,6 +368,14 @@ $HandleUiMessageEvent = {
             # Immediately push any already-sampled telemetry so startup is instant
             & $global:FlushTelemetryToUi
         }
+        '^Active-View:(.+)$' {
+            $viewKey = $Matches[1].Trim()
+            $global:SharedData.ActiveView = $viewKey
+            if ($viewKey -eq 'dashboard') {
+                $global:SharedData.ForceRefresh = $true
+                & $global:FlushTelemetryToUi
+            }
+        }
         '^Request-Adapters$' {
             try {
                 . (Join-Path $Global:NodeWatchRoot "modules\tabs\NetworkManager.ps1")
@@ -428,7 +462,7 @@ $HandleUiMessageEvent = {
         '^Browse-Folder:(.+)$' {
             $targetKey = $Matches[1]
             $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
-            $dialog.Description = if ($targetKey -eq "dest") { "Select destination root folder for organized files" } elseif ($targetKey -eq "diagfolder") { "Select external program log folder for UltimaDiagX" } elseif ($targetKey -eq "wslinstalldir") { "Select installation folder for WSL virtual disk (ext4.vhdx)" } else { "Select folder to include in File Organizer" }
+            $dialog.Description = if ($targetKey -eq "dest") { "Select destination root folder for organized files" } elseif ($targetKey -eq "diagfolder") { "Select external program log folder for UltimaDiagX" } elseif ($targetKey -eq "wslinstalldir") { "Select installation folder for WSL virtual disk (ext4.vhdx)" } elseif ($targetKey -eq "diskmap") { "Select folder or drive to map visually in Disk Map" } else { "Select folder to include in File Organizer" }
             $dialog.UseDescriptionForTitle = $true
             $dialog.ShowNewFolderButton = $true
             if ($dialog.ShowDialog($MainForm) -eq [System.Windows.Forms.DialogResult]::OK -and $dialog.SelectedPath) {
@@ -469,6 +503,83 @@ $HandleUiMessageEvent = {
                 $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($resp)))
             }
             $fd.Dispose()
+        }
+        '^Identify-Monitors$' {
+            try {
+                . (Join-Path $Global:NodeWatchRoot "modules\telemetry\GetDisplayMetrics.ps1")
+                $mons = @(Get-DisplayMetrics)
+
+                # Dispose any existing identify overlays cleanly
+                if ($null -ne $global:IdentifyOverlayTimer) {
+                    $global:IdentifyOverlayTimer.Stop()
+                    $global:IdentifyOverlayTimer.Dispose()
+                    $global:IdentifyOverlayTimer = $null
+                }
+                if ($null -ne $global:IdentifyOverlayForms) {
+                    foreach ($f in @($global:IdentifyOverlayForms)) { try { $f.Close(); $f.Dispose() } catch {} }
+                }
+                $global:IdentifyOverlayForms = New-Object System.Collections.ArrayList
+
+                foreach ($m in $mons) {
+                    $badge = New-Object System.Windows.Forms.Form
+                    $badge.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
+                    $badge.StartPosition   = [System.Windows.Forms.FormStartPosition]::Manual
+                    $badge.ShowInTaskbar   = $false
+                    $badge.TopMost         = $true
+                    $badge.BackColor       = [System.Drawing.Color]::FromArgb(26, 32, 44)
+                    $badge.Size            = New-Object System.Drawing.Size(220, 140)
+                    $badge.Opacity         = 0.94
+
+                    $posX = [int]$m.BoundsX + 36
+                    $posY = [int]$m.BoundsY + [int]$m.BoundsHeight - 185
+                    if ($posY -lt [int]$m.BoundsY + 20) { $posY = [int]$m.BoundsY + 20 }
+                    $badge.Location = New-Object System.Drawing.Point($posX, $posY)
+
+                    $borderPanel = New-Object System.Windows.Forms.Panel
+                    $borderPanel.Dock = "Fill"
+                    $borderPanel.BackColor = [System.Drawing.Color]::FromArgb(66, 153, 225)
+                    $borderPanel.Padding = New-Object System.Windows.Forms.Padding(2)
+
+                    $innerPanel = New-Object System.Windows.Forms.Panel
+                    $innerPanel.Dock = "Fill"
+                    $innerPanel.BackColor = [System.Drawing.Color]::FromArgb(26, 32, 44)
+
+                    $numLbl = New-Object System.Windows.Forms.Label
+                    $numLbl.Text      = [string]$m.DisplayNumber
+                    $numLbl.ForeColor = [System.Drawing.Color]::White
+                    $numLbl.Font      = New-Object System.Drawing.Font("Segoe UI", 52, [System.Drawing.FontStyle]::Bold)
+                    $numLbl.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
+                    $numLbl.Dock      = "Fill"
+
+                    $nameLbl = New-Object System.Windows.Forms.Label
+                    $nameLbl.Text      = if ($m.IsPrimary) { "$($m.FriendlyName) (Primary)" } else { [string]$m.FriendlyName }
+                    $nameLbl.ForeColor = [System.Drawing.Color]::FromArgb(144, 205, 244)
+                    $nameLbl.Font      = New-Object System.Drawing.Font("Consolas", 8.5, [System.Drawing.FontStyle]::Bold)
+                    $nameLbl.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
+                    $nameLbl.Dock      = "Bottom"
+                    $nameLbl.Height    = 24
+
+                    $innerPanel.Controls.Add($numLbl)
+                    $innerPanel.Controls.Add($nameLbl)
+                    $borderPanel.Controls.Add($innerPanel)
+                    $badge.Controls.Add($borderPanel)
+                    $badge.Show()
+                    $null = $global:IdentifyOverlayForms.Add($badge)
+                }
+
+                $global:IdentifyOverlayTimer = New-Object System.Windows.Forms.Timer
+                $global:IdentifyOverlayTimer.Interval = 2600
+                $global:IdentifyOverlayTimer.Add_Tick({
+                    $global:IdentifyOverlayTimer.Stop()
+                    $global:IdentifyOverlayTimer.Dispose()
+                    $global:IdentifyOverlayTimer = $null
+                    if ($null -ne $global:IdentifyOverlayForms) {
+                        foreach ($f in @($global:IdentifyOverlayForms)) { try { $f.Close(); $f.Dispose() } catch {} }
+                        $global:IdentifyOverlayForms.Clear()
+                    }
+                })
+                $global:IdentifyOverlayTimer.Start()
+            } catch {}
         }
         '^Execute-SpeedTest$' {
             if ($global:SpeedTestRunning) { return }
@@ -598,12 +709,32 @@ $HandleUiMessageEvent = {
                         return
                     }
 
-                    if ($Payload.command -in @('RESCAN_HARDWARE', 'OPEN_NATIVE_DEVMGMT', 'OPEN_DRIVER_INF', 'TOGGLE_DEVICE_STATE', 'RESTART_DEVICE')) {
+                    if ($Payload.command -in @('RESCAN_HARDWARE', 'OPEN_NATIVE_DEVMGMT', 'OPEN_DRIVER_INF', 'TOGGLE_DEVICE_STATE', 'RESTART_DEVICE', 'OPEN_DRIVER_URL')) {
                         Start-AsyncTabTask -FallbackType "REFRESH_SYSTEM_DEVICES" -Arguments @($Global:NodeWatchRoot, $RawMessage) -ScriptBlock {
                             param($RootPath, $RawJson)
                             . (Join-Path $RootPath "modules\tabs\DeviceManager.ps1")
                             $data = Invoke-DeviceManagerAction -Payload $RawJson
                             return ($data | ConvertTo-Json -Compress -Depth 6)
+                        }
+                        return
+                    }
+
+                    if ($Payload.command -in @('APPSTORE_LOAD', 'APPSTORE_INSTALL_ONE', 'APPSTORE_INSTALL_BATCH', 'APPSTORE_UPGRADE_ALL', 'APPSTORE_SEARCH_WINGET', 'APPSTORE_OPEN_URL')) {
+                        Start-AsyncTabTask -FallbackType "APPSTORE_NOTICE" -Arguments @($Global:NodeWatchRoot, $RawMessage) -ScriptBlock {
+                            param($RootPath, $RawJson)
+                            . (Join-Path $RootPath "modules\tabs\AppInstallerManager.ps1")
+                            $data = Invoke-AppInstallerAction -Payload $RawJson -RootPath $RootPath
+                            return ($data | ConvertTo-Json -Compress -Depth 6)
+                        }
+                        return
+                    }
+
+                    if ($Payload.command -in @('DISKMAP_LIST_DRIVES', 'DISKMAP_SCAN', 'DISKMAP_OPEN_EXPLORER', 'DISKMAP_RECYCLE')) {
+                        Start-AsyncTabTask -FallbackType "DISKMAP_NOTICE" -Arguments @($Global:NodeWatchRoot, $RawMessage) -ScriptBlock {
+                            param($RootPath, $RawJson)
+                            . (Join-Path $RootPath "modules\tabs\DiskMapper.ps1")
+                            $data = Invoke-DiskMapperAction -Payload $RawJson
+                            return ($data | ConvertTo-Json -Compress -Depth 12)
                         }
                         return
                     }
@@ -692,11 +823,13 @@ $HandleUiMessageEvent = {
                     # =========================================================================
                     if ($Payload.command -in @(
                         'TOGGLE_TELEMETRY', 'TOGGLE_FIREWALL', 'TOGGLE_REALTIME',
+                        'OPEN_TAMPER_SETTINGS', 'TOGGLE_BEHAVIOR_MONITOR', 'TOGGLE_CLOUD_PROTECTION', 'TOGGLE_IOAV_PROTECTION',
                         'TOGGLE_DISCOVERY', 'TOGGLE_SHARING', 'TOGGLE_NET_PROFILE',
                         'SET_QUICK_DNS', 'FLUSH_AND_TEST_DNS', 'REFRESH_ARP_GATEWAY',
                         'TOGGLE_HDR', 'TOGGLE_NIGHT_LIGHT', 'SET_NIGHT_LIGHT_STRENGTH',
-                        'SET_MONITOR_REFRESH_RATE', 'END_TOP_PROCESS',
-                        'TRIGGER_SYSTEM_REBOOT'
+                        'SET_MONITOR_REFRESH_RATE', 'SET_MONITOR_SCALE', 'SET_MONITOR_ORIENTATION',
+                        'END_TOP_PROCESS', 'TRIGGER_SYSTEM_REBOOT', 'INSTALL_PAWNIO', 'SET_PRIMARY_JAVA',
+                        'CHECK_PS_UPDATE', 'INSTALL_PS_UPDATE'
                     )) {
                         Start-AsyncTabTask -FallbackType "DASHBOARD_CONTROL_RESULT" -Arguments @($Global:NodeWatchRoot, $RawMessage, $global:SharedData) -ScriptBlock {
                             param($RootPath, $RawJson, $SharedData)
@@ -783,6 +916,31 @@ $global:SystemTrayIcon.Add_Click({
 })
 
 # =========================================================================
+# VISIBILITY-AWARE THROTTLING & WEBVIEW2 SUSPEND ON MINIMIZE
+# =========================================================================
+$MainForm.Add_Resize({
+    $isMin = ($MainForm.WindowState -eq [System.Windows.Forms.FormWindowState]::Minimized)
+    if ($isMin -ne $global:SharedData.IsMinimized) {
+        $global:SharedData.IsMinimized = $isMin
+        if ($isMin) {
+            if ($null -ne $global:TelemetryLoopTimer) { $global:TelemetryLoopTimer.Stop() }
+            try {
+                if ($null -ne $global:WebViewControl.CoreWebView2) {
+                    $null = $global:WebViewControl.CoreWebView2.TrySuspendAsync()
+                }
+            } catch {}
+            if ("CoreWatch.Win32" -as [type]) { [CoreWatch.Win32]::TrimWorkingSet() }
+        } else {
+            $global:SharedData.ForceRefresh = $true
+            if ($null -ne $global:TelemetryLoopTimer -and -not $global:TelemetryLoopTimer.Enabled) {
+                $global:TelemetryLoopTimer.Start()
+            }
+            & $global:FlushTelemetryToUi
+        }
+    }
+})
+
+# =========================================================================
 # TEARDOWN & LIFECYCLE DESTRUCTOR CLEANUP ROUTINES
 # =========================================================================
 $MainForm.Add_FormClosing({
@@ -798,21 +956,38 @@ $MainForm.Add_FormClosing({
         }
         $global:ActiveTabTasks.Clear()
     }
+    if ($null -ne $global:IdentifyOverlayTimer) { $global:IdentifyOverlayTimer.Stop(); $global:IdentifyOverlayTimer.Dispose() }
+    if ($null -ne $global:IdentifyOverlayForms) {
+        foreach ($f in @($global:IdentifyOverlayForms)) { try { $f.Close(); $f.Dispose() } catch {} }
+    }
+    try {
+        Get-Process -Name "CoreWatchSensorHelper" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    } catch {}
     $global:TelemetryLoopTimer.Stop()
     $global:SharedData.IsRunning = $false
-    if ($null -ne $FastPowerShellPool) { $FastPowerShellPool.Dispose() }
-    if ($null -ne $FastRunspace) { $FastRunspace.Close(); $FastRunspace.Dispose() }
     if ($null -ne $PowerShellPool) { $PowerShellPool.Dispose() }
     if ($null -ne $Runspace) { $Runspace.Close(); $Runspace.Dispose() }
 })
 
 # =========================================================================
-# WEBVIEW2 WEB ENGINE PROVISIONING AND SYSTEM APPS LAUNCH
+# WEBVIEW2 WEB ENGINE PROVISIONING AND SYSTEM APPS LAUNCH (LEAN MEMORY PROFILE)
 # =========================================================================
 $FixedRuntimePath = Join-Path $BinPath "WebView2FixedRuntime"
 $BrowserExecutableFolder = if (Test-Path $FixedRuntimePath) { [System.IO.Path]::GetFullPath($FixedRuntimePath) } else { $null }
 
-$EnvCreationTask = [Microsoft.Web.WebView2.Core.CoreWebView2Environment]::CreateAsync($BrowserExecutableFolder, $UserDataFolder)
+$WebViewBrowserArgs = "--js-flags=--max-old-space-size=96 --disable-background-networking --disable-component-update --disable-domain-reliability --disable-features=Translate,OptimizationHints,MediaRouter"
+$WebViewEnvOptions = $null
+try {
+    $WebViewEnvOptions = [Microsoft.Web.WebView2.Core.CoreWebView2EnvironmentOptions]::new($WebViewBrowserArgs, $null, $null, $false, $null)
+} catch {
+    $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = $WebViewBrowserArgs
+}
+
+$EnvCreationTask = if ($null -ne $WebViewEnvOptions) {
+    [Microsoft.Web.WebView2.Core.CoreWebView2Environment]::CreateAsync($BrowserExecutableFolder, $UserDataFolder, $WebViewEnvOptions)
+} else {
+    [Microsoft.Web.WebView2.Core.CoreWebView2Environment]::CreateAsync($BrowserExecutableFolder, $UserDataFolder)
+}
 while (-not $EnvCreationTask.IsCompleted) { [System.Windows.Forms.Application]::DoEvents(); [System.Threading.Thread]::Sleep(1) }
 $WebViewEnvironment = $EnvCreationTask.Result
 

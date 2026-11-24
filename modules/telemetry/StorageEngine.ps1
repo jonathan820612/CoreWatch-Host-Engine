@@ -127,32 +127,40 @@ function Get-DriveIoLatencySample {
 function Get-StorageMetrics {
     Update-StorageSmartHealthMap
 
-    $AllDrives = Get-CimInstance -ClassName Win32_LogicalDisk -ErrorAction SilentlyContinue
+    # Pure .NET DriveInfo enumeration (<0.1ms, zero WmiPrvSE / CIM overhead)
+    $AllDrives = @([System.IO.DriveInfo]::GetDrives())
 
     $StorageArray = foreach ($Drive in $AllDrives) {
-        if ([double]$Drive.Size -le 0) { continue }
-
-        $RawTotalBytes = [double]$Drive.Size
-        $RawFreeBytes  = [double]$Drive.FreeSpace
+        try {
+            if (-not $Drive.IsReady) { continue }
+            $RawTotalBytes = [double]$Drive.TotalSize
+            if ($RawTotalBytes -le 0) { continue }
+            $RawFreeBytes  = [double]$Drive.AvailableFreeSpace
+        } catch { continue }
 
         $DriveTotal = [math]::Round(($RawTotalBytes / 1GB), 2)
         $DriveFree  = [math]::Round(($RawFreeBytes / 1GB), 2)
         $DriveUsed  = [math]::Round(($DriveTotal - $DriveFree), 2)
 
-        $TypeDescription = switch ($Drive.DriveType) {
-            2 { "Removable" }
-            3 { "Local Volume" }
-            4 { "Network Route" }
-            5 { "Optical Compact Disc" }
-            default { "External Device" }
+        $dType = $Drive.DriveType
+        $TypeDescription = switch ($dType) {
+            ([System.IO.DriveType]::Removable) { "Removable" }
+            ([System.IO.DriveType]::Fixed)     { "Local Volume" }
+            ([System.IO.DriveType]::Network)   { "Network Route" }
+            ([System.IO.DriveType]::CDRom)     { "Optical Compact Disc" }
+            default                            { "External Device" }
         }
 
-        $CurrentLabel = if ($Drive.VolumeName) { [string]$Drive.VolumeName } else { "Local Disk" }
-        $driveId = [string]$Drive.DeviceID
+        $CurrentLabel = try { if ($Drive.VolumeLabel) { [string]$Drive.VolumeLabel } else { "Local Disk" } } catch { "Local Disk" }
+        $driveId = $Drive.Name.TrimEnd('\')
 
         # Merge SMART Health/Wear and live I/O latency metrics per drive
         $smart = if ($script:SmartHealthMap.ContainsKey($driveId)) { $script:SmartHealthMap[$driveId] } else { $null }
-        $io    = if ($Drive.DriveType -in @(2, 3)) { Get-DriveIoLatencySample -DriveLetter $driveId } else { @{ DiskActivePct = 0; DiskLatencyMs = 0.0; DiskQueueLen = 0.0 } }
+        $io    = if ($dType -eq [System.IO.DriveType]::Fixed -or $dType -eq [System.IO.DriveType]::Removable) {
+            Get-DriveIoLatencySample -DriveLetter $driveId
+        } else {
+            @{ DiskActivePct = 0; DiskLatencyMs = 0.0; DiskQueueLen = 0.0 }
+        }
 
         [PSCustomObject]@{
             MainDriveLetter = $driveId

@@ -31,6 +31,28 @@ namespace CoreWatch {
             return mem;
         }
     }
+
+    public static class CoreTempReader {
+        // Reads Core Temp shared memory ("CoreTempMappingObject") without requiring elevation
+        public static Nullable<int> TryReadCpuTempC() {
+            try {
+                using (var mmf = System.IO.MemoryMappedFiles.MemoryMappedFile.OpenExisting("CoreTempMappingObject"))
+                using (var acc = mmf.CreateViewAccessor(0, 0, System.IO.MemoryMappedFiles.MemoryMappedFileAccess.Read)) {
+                    uint coreCnt = acc.ReadUInt32(1536);
+                    if (coreCnt == 0 || coreCnt > 256) return null;
+                    byte isFahrenheit = acc.ReadByte(2820);
+                    float maxC = -1000f;
+                    for (uint i = 0; i < coreCnt; i++) {
+                        float val = acc.ReadSingle(1544 + (int)(i * 4));
+                        if (isFahrenheit != 0) val = (val - 32f) * 5f / 9f;
+                        if (val >= 15f && val <= 115f && val > maxC) maxC = val;
+                    }
+                    if (maxC >= 15f) return (int)Math.Round(maxC);
+                }
+            } catch { }
+            return null;
+        }
+    }
 }
 "@ -ErrorAction SilentlyContinue
 }
@@ -40,11 +62,20 @@ $script:CpuPerfCounter       = $null
 $script:CpuFreqPctCounter    = $null
 $script:NvidiaSmiPath        = $null
 $script:NvidiaSmiChecked     = $false
+$script:SensorHelperProc     = $null
+$script:SensorHelperInitDone = $false
+$script:PawnIoChecked        = $false
+$script:PawnIoInstalled      = $false
+$script:LhmDllPresent        = $false
 $script:LastSensorSample     = [datetime]::MinValue
+$script:LastWmiThrottleCheck = [datetime]::MinValue
+$script:CachedWmiThermalFlags = @()
+$script:CachedWmiPowerFlags   = @()
 $script:CachedGpuLoad        = 0
 $script:CachedGpuPower       = "-- W"
 $script:CachedGpuTemp        = "--"
 $script:CachedCpuTemp        = "--"
+$script:CachedCpuTempSource  = "CPU temperature sensor unavailable (Windows does not expose Ryzen/Intel die sensors natively)"
 $script:LastPowerPlanCheck   = [datetime]::MinValue
 $script:CachedPowerPlan      = "Balanced"
 $script:CachedTelemetry      = "Off"
@@ -236,162 +267,298 @@ function Update-LiveThermalAndGpuSensors {
     $thermalFlags = [System.Collections.Generic.List[string]]::new()
     $powerFlags   = [System.Collections.Generic.List[string]]::new()
 
-    # 1. Live NVIDIA GPU telemetry via nvidia-smi (Load, Temp, Power, VRAM Used/Total, Throttle Event Mask)
-    if ($script:NvidiaSmiPath) {
-        $smiLine = $null
-        foreach ($queryArgs in @(
-            "--query-gpu=utilization.gpu,temperature.gpu,power.draw,memory.used,memory.total,power.limit,clocks_event_reasons.active --format=csv,noheader,nounits",
-            "--query-gpu=utilization.gpu,temperature.gpu,power.draw,memory.used,memory.total,power.limit --format=csv,noheader,nounits"
-        )) {
-            try {
+    $resolvedCpuTemp = $null
+    $resolvedSource  = $null
+    $gpuResolvedByHelper = $false
+
+    # Detect LibreHardwareMonitorLib.dll and PawnIO kernel driver status (cached once)
+    if (-not $script:PawnIoChecked) {
+        $script:PawnIoChecked = $true
+        try {
+            $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+            $script:LhmDllPresent = (Test-Path -LiteralPath (Join-Path $repoRoot "bin\LibreHardwareMonitorLib.dll") -PathType Leaf)
+            $pawnDrv = Get-CimInstance -ClassName Win32_SystemDriver -Filter "Name='PawnIO'" -ErrorAction SilentlyContinue | Select-Object -First 1
+            $script:PawnIoInstalled = ($null -ne $pawnDrv) -or (Test-Path -LiteralPath "$env:ProgramFiles\PawnIO" -PathType Container)
+        } catch {}
+    }
+
+    # 1. Single persistent in-memory CoreWatchSensorHelper.exe (reads CPU Die Temp + GPU Load/Temp/Power/VRAM in <3ms, ZERO nvidia-smi spawns!)
+    $helperJson = $null
+    if (-not $script:SensorHelperInitDone -or ($null -ne $script:SensorHelperProc -and $script:SensorHelperProc.HasExited)) {
+        $script:SensorHelperInitDone = $true
+        $script:SensorHelperProc = $null
+        try {
+            $repoRoot  = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+            $helperExe = Join-Path $repoRoot "bin\CoreWatchSensorHelper.exe"
+            $lhmDll    = Join-Path $repoRoot "bin\LibreHardwareMonitorLib.dll"
+            if ((Test-Path -LiteralPath $helperExe -PathType Leaf) -and (Test-Path -LiteralPath $lhmDll -PathType Leaf)) {
                 $psi = New-Object System.Diagnostics.ProcessStartInfo
-                $psi.FileName = $script:NvidiaSmiPath
-                $psi.Arguments = $queryArgs
+                $psi.FileName               = $helperExe
+                $psi.WorkingDirectory       = (Join-Path $repoRoot "bin")
+                $psi.RedirectStandardInput  = $true
                 $psi.RedirectStandardOutput = $true
-                $psi.UseShellExecute = $false
-                $psi.CreateNoWindow = $true
+                $psi.UseShellExecute        = $false
+                $psi.CreateNoWindow         = $true
                 $proc = [System.Diagnostics.Process]::Start($psi)
-                if ($proc -and $proc.WaitForExit(750) -and $proc.ExitCode -eq 0) {
-                    $candidate = $proc.StandardOutput.ReadLine()
-                    if ($candidate -and $candidate -notmatch '(?i)not supported|error|invalid') {
-                        $smiLine = $candidate
+                if ($proc -and -not $proc.HasExited) {
+                    $script:SensorHelperProc = $proc
+                    $initTask = $proc.StandardOutput.ReadLineAsync()
+                    if ($initTask.Wait(1800) -and $initTask.Result) {
+                        $helperJson = $initTask.Result | ConvertFrom-Json -ErrorAction SilentlyContinue
                     }
                 }
-                if ($proc) { $proc.Dispose() }
-                if ($smiLine) { break }
+            }
+        } catch { $script:SensorHelperProc = $null }
+    } elseif ($null -ne $script:SensorHelperProc -and -not $script:SensorHelperProc.HasExited) {
+        try {
+            $script:SensorHelperProc.StandardInput.WriteLine("")
+            $script:SensorHelperProc.StandardInput.Flush()
+            $readTask = $script:SensorHelperProc.StandardOutput.ReadLineAsync()
+            if ($readTask.Wait(600) -and $readTask.Result) {
+                $helperJson = $readTask.Result | ConvertFrom-Json -ErrorAction SilentlyContinue
+            }
+        } catch {
+            try { $script:SensorHelperProc.Kill() } catch {}
+            $script:SensorHelperProc = $null
+        }
+    }
+
+    if ($helperJson) {
+        if ($null -ne $helperJson.cpuTemp) {
+            $resolvedCpuTemp = [int]$helperJson.cpuTemp
+            $resolvedSource  = if ($helperJson.sensor) { "Live CPU Die Sensor (LibreHardwareMonitor · $($helperJson.sensor))" } else { "Live CPU Die Sensor (LibreHardwareMonitor)" }
+        }
+        if ($null -ne $helperJson.gpuTemp -or $null -ne $helperJson.gpuLoad) {
+            $gpuResolvedByHelper = $true
+            if ($null -ne $helperJson.gpuLoad)  { $script:CachedGpuLoad  = [int][math]::Max(0, [math]::Min(100, [int]$helperJson.gpuLoad)) }
+            if ($null -ne $helperJson.gpuTemp)  {
+                $script:CachedGpuTemp = [int]$helperJson.gpuTemp
+                if ($script:CachedGpuTemp -ge 85) { $thermalFlags.Add("GPU High Temp ($($script:CachedGpuTemp)°C)") }
+            }
+            if ($null -ne $helperJson.gpuPower) { $script:CachedGpuPower = "$([int][math]::Round([double]$helperJson.gpuPower)) W" }
+            if ($null -ne $helperJson.gpuVramUsedMB -and $null -ne $helperJson.gpuVramTotalMB -and [double]$helperJson.gpuVramTotalMB -gt 0) {
+                $usedGB  = [double]$helperJson.gpuVramUsedMB / 1024.0
+                $totalGB = [double]$helperJson.gpuVramTotalMB / 1024.0
+                $script:CachedGpuVramPct  = [int][math]::Min(100, [math]::Max(0, [math]::Round(($usedGB / $totalGB) * 100.0)))
+                $script:CachedGpuVramText = "{0:N1} / {1:N1} GB" -f $usedGB, $totalGB
+            }
+        }
+    }
+
+    # 2. Fallback GPU telemetry via nvidia-smi / PerfCounters ONLY if CoreWatchSensorHelper did not provide GPU sensors
+    if (-not $gpuResolvedByHelper) {
+        if ($script:NvidiaSmiPath) {
+            $smiLine = $null
+            foreach ($queryArgs in @(
+                "--query-gpu=utilization.gpu,temperature.gpu,power.draw,memory.used,memory.total,power.limit,clocks_event_reasons.active --format=csv,noheader,nounits",
+                "--query-gpu=utilization.gpu,temperature.gpu,power.draw,memory.used,memory.total,power.limit --format=csv,noheader,nounits"
+            )) {
+                try {
+                    $psi = New-Object System.Diagnostics.ProcessStartInfo
+                    $psi.FileName = $script:NvidiaSmiPath
+                    $psi.Arguments = $queryArgs
+                    $psi.RedirectStandardOutput = $true
+                    $psi.UseShellExecute = $false
+                    $psi.CreateNoWindow = $true
+                    $proc = [System.Diagnostics.Process]::Start($psi)
+                    if ($proc -and $proc.WaitForExit(750) -and $proc.ExitCode -eq 0) {
+                        $candidate = $proc.StandardOutput.ReadLine()
+                        if ($candidate -and $candidate -notmatch '(?i)not supported|error|invalid') {
+                            $smiLine = $candidate
+                        }
+                    }
+                    if ($proc) { $proc.Dispose() }
+                    if ($smiLine) { break }
+                } catch {}
+            }
+
+            if ($smiLine) {
+                $parts = $smiLine -split ','
+                $inv = [System.Globalization.CultureInfo]::InvariantCulture
+                $loadVal = 0; $tempVal = 0; $pwrVal = 0.0; $memUsed = 0.0; $memTotal = 0.0; $pwrLimit = 0.0
+
+                if ($parts.Count -ge 3) {
+                    if ([int]::TryParse($parts[0].Trim(), [ref]$loadVal)) {
+                        $script:CachedGpuLoad = [math]::Max(0, [math]::Min(100, $loadVal))
+                    }
+                    if ([int]::TryParse($parts[1].Trim(), [ref]$tempVal)) {
+                        $script:CachedGpuTemp = $tempVal
+                    }
+                    if ([double]::TryParse($parts[2].Trim(), [System.Globalization.NumberStyles]::Float, $inv, [ref]$pwrVal)) {
+                        $script:CachedGpuPower = "$([int][math]::Round($pwrVal)) W"
+                    }
+                }
+
+                if ($parts.Count -ge 5) {
+                    if ([double]::TryParse($parts[3].Trim(), [System.Globalization.NumberStyles]::Float, $inv, [ref]$memUsed) -and
+                        [double]::TryParse($parts[4].Trim(), [System.Globalization.NumberStyles]::Float, $inv, [ref]$memTotal) -and
+                        $memTotal -gt 0) {
+                        $usedGB  = $memUsed / 1024.0
+                        $totalGB = $memTotal / 1024.0
+                        $script:CachedGpuVramPct  = [int][math]::Min(100, [math]::Max(0, [math]::Round(($usedGB / $totalGB) * 100.0)))
+                        $script:CachedGpuVramText = "{0:N1} / {1:N1} GB" -f $usedGB, $totalGB
+                    }
+                }
+
+                if ($parts.Count -ge 6) {
+                    $null = [double]::TryParse($parts[5].Trim(), [System.Globalization.NumberStyles]::Float, $inv, [ref]$pwrLimit)
+                }
+
+                $gpuMaskParsed = $false
+                if ($parts.Count -ge 7) {
+                    $maskStr = $parts[6].Trim()
+                    if ($maskStr -match '^0x([0-9a-fA-F]+)$') {
+                        try {
+                            $mask = [Convert]::ToUInt64($Matches[1], 16)
+                            $gpuMaskParsed = $true
+                            if (($mask -band 0x60) -ne 0) { $thermalFlags.Add("GPU Thermal Slowdown ($($script:CachedGpuTemp)°C)") }
+                            if (($mask -band 0x84) -ne 0) { $powerFlags.Add("GPU Power Cap ($($script:CachedGpuPower))") }
+                            if (($mask -band 0x08) -ne 0 -and ($mask -band 0xE4) -eq 0) {
+                                if ($tempVal -ge 82) { $thermalFlags.Add("GPU HW Thermal Slowdown ($tempVal°C)") }
+                                else { $powerFlags.Add("GPU HW Power Slowdown") }
+                            }
+                        } catch {}
+                    }
+                }
+                if (-not $gpuMaskParsed) {
+                    if ($tempVal -ge 85) { $thermalFlags.Add("GPU High Temp ($tempVal°C)") }
+                    if ($pwrLimit -gt 0 -and $pwrVal -ge ($pwrLimit * 0.98) -and $loadVal -ge 85) {
+                        $powerFlags.Add("GPU Power Limit ($([int]$pwrVal)/$([int]$pwrLimit)W)")
+                    }
+                }
+            }
+        } else {
+            try {
+                $gpuSamples = (Get-Counter '\GPU Engine(*engtype_3D)\Utilization Percentage' -ErrorAction SilentlyContinue).CounterSamples
+                if ($gpuSamples) {
+                    $sumLoad = ($gpuSamples | Measure-Object -Property CookedValue -Sum).Sum
+                    $script:CachedGpuLoad = [int][math]::Min(100, [math]::Max(0, [math]::Round($sumLoad)))
+                }
+            } catch {}
+
+            try {
+                $vramRows = Get-CimInstance -ClassName Win32_PerfFormattedData_GPUPerformanceCounters_GPUAdapterMemory -ErrorAction SilentlyContinue
+                if ($vramRows) {
+                    $dedUsedBytes = ($vramRows | Measure-Object -Property DedicatedUsage -Maximum).Maximum
+                    $totalBytes   = if ($script:StaticSystemCache) { [double]$script:StaticSystemCache.GpuVramTotalBytes } else { 0.0 }
+                    if ($totalBytes -gt 0) {
+                        $usedGB  = $dedUsedBytes / 1GB
+                        $totalGB = $totalBytes / 1GB
+                        $script:CachedGpuVramPct  = [int][math]::Min(100, [math]::Max(0, [math]::Round(($usedGB / $totalGB) * 100.0)))
+                        $script:CachedGpuVramText = "{0:N1} / {1:N1} GB" -f $usedGB, $totalGB
+                    }
+                }
             } catch {}
         }
+    }
 
-        if ($smiLine) {
-            $parts = $smiLine -split ','
-            $inv = [System.Globalization.CultureInfo]::InvariantCulture
-            $loadVal = 0; $tempVal = 0; $pwrVal = 0.0; $memUsed = 0.0; $memTotal = 0.0; $pwrLimit = 0.0
-
-            if ($parts.Count -ge 3) {
-                if ([int]::TryParse($parts[0].Trim(), [ref]$loadVal)) {
-                    $script:CachedGpuLoad = [math]::Max(0, [math]::Min(100, $loadVal))
+    # 3. Fallback CPU temp providers ONLY when CoreWatchSensorHelper didn't return a CPU temp
+    if ($null -eq $resolvedCpuTemp) {
+        foreach ($wmiNs in @("root\LibreHardwareMonitor", "root\OpenHardwareMonitor")) {
+            try {
+                $sensors = @(Get-CimInstance -Namespace $wmiNs -ClassName Sensor -Filter "SensorType='Temperature'" -ErrorAction Stop)
+                if ($sensors.Count -gt 0) {
+                    $cpuSensor = $sensors | Where-Object {
+                        $_.Identifier -match '(?i)(cpu|amdcpu|intelcpu)' -and
+                        $_.Name -match '(?i)(Tctl/Tdie|CPU Package|Core \(Tctl|Tdie|Core Average|Core Max|Package)'
+                    } | Select-Object -First 1
+                    if (-not $cpuSensor) {
+                        $cpuSensor = $sensors | Where-Object { $_.Identifier -match '(?i)(cpu|amdcpu|intelcpu)' } | Select-Object -First 1
+                    }
+                    if ($cpuSensor -and $cpuSensor.Value -ge 20 -and $cpuSensor.Value -le 115) {
+                        $resolvedCpuTemp = [int][math]::Round([double]$cpuSensor.Value)
+                        $resolvedSource  = "Live CPU Die Sensor ($($wmiNs.Split('\')[1]) · $($cpuSensor.Name))"
+                        break
+                    }
                 }
-                if ([int]::TryParse($parts[1].Trim(), [ref]$tempVal)) {
-                    $script:CachedGpuTemp = $tempVal
-                }
-                if ([double]::TryParse($parts[2].Trim(), [System.Globalization.NumberStyles]::Float, $inv, [ref]$pwrVal)) {
-                    $script:CachedGpuPower = "$([int][math]::Round($pwrVal)) W"
-                }
-            }
-
-            # [DIAGNOSTIC ADDITION] GPU VRAM Allocation (MiB -> GB)
-            if ($parts.Count -ge 5) {
-                if ([double]::TryParse($parts[3].Trim(), [System.Globalization.NumberStyles]::Float, $inv, [ref]$memUsed) -and
-                    [double]::TryParse($parts[4].Trim(), [System.Globalization.NumberStyles]::Float, $inv, [ref]$memTotal) -and
-                    $memTotal -gt 0) {
-                    $usedGB  = $memUsed / 1024.0
-                    $totalGB = $memTotal / 1024.0
-                    $script:CachedGpuVramPct  = [int][math]::Min(100, [math]::Max(0, [math]::Round(($usedGB / $totalGB) * 100.0)))
-                    $script:CachedGpuVramText = "{0:N1} / {1:N1} GB" -f $usedGB, $totalGB
-                }
-            }
-
-            if ($parts.Count -ge 6) {
-                $null = [double]::TryParse($parts[5].Trim(), [System.Globalization.NumberStyles]::Float, $inv, [ref]$pwrLimit)
-            }
-
-            # [DIAGNOSTIC ADDITION] NVIDIA Clocks Throttle/Event Reason Bitmask Decoding
-            $gpuMaskParsed = $false
-            if ($parts.Count -ge 7) {
-                $maskStr = $parts[6].Trim()
-                if ($maskStr -match '^0x([0-9a-fA-F]+)$') {
-                    try {
-                        $mask = [Convert]::ToUInt64($Matches[1], 16)
-                        $gpuMaskParsed = $true
-                        # NVML bitmask: 0x04=SwPowerCap, 0x08=HwSlowdown, 0x20=SwThermal, 0x40=HwThermal, 0x80=HwPowerBrake
-                        if (($mask -band 0x60) -ne 0) { $thermalFlags.Add("GPU Thermal Slowdown ($($script:CachedGpuTemp)°C)") }
-                        if (($mask -band 0x84) -ne 0) { $powerFlags.Add("GPU Power Cap ($($script:CachedGpuPower))") }
-                        if (($mask -band 0x08) -ne 0 -and ($mask -band 0xE4) -eq 0) {
-                            if ($tempVal -ge 82) { $thermalFlags.Add("GPU HW Thermal Slowdown ($tempVal°C)") }
-                            else { $powerFlags.Add("GPU HW Power Slowdown") }
-                        }
-                    } catch {}
-                }
-            }
-            if (-not $gpuMaskParsed) {
-                if ($tempVal -ge 85) { $thermalFlags.Add("GPU High Temp ($tempVal°C)") }
-                if ($pwrLimit -gt 0 -and $pwrVal -ge ($pwrLimit * 0.98) -and $loadVal -ge 85) {
-                    $powerFlags.Add("GPU Power Limit ($([int]$pwrVal)/$([int]$pwrLimit)W)")
-                }
-            }
+            } catch {}
         }
-    } else {
-        # Fallback GPU Load + VRAM via Windows GPU Performance Counters (AMD / Intel / non-NVIDIA)
+    }
+
+    if ($null -eq $resolvedCpuTemp) {
         try {
-            $gpuSamples = (Get-Counter '\GPU Engine(*engtype_3D)\Utilization Percentage' -ErrorAction SilentlyContinue).CounterSamples
-            if ($gpuSamples) {
-                $sumLoad = ($gpuSamples | Measure-Object -Property CookedValue -Sum).Sum
-                $script:CachedGpuLoad = [int][math]::Min(100, [math]::Max(0, [math]::Round($sumLoad)))
+            $ctTemp = [CoreWatch.CoreTempReader]::TryReadCpuTempC()
+            if ($null -ne $ctTemp) {
+                $resolvedCpuTemp = [int]$ctTemp
+                $resolvedSource  = "Live CPU Die Sensor (Core Temp)"
             }
         } catch {}
+    }
 
+    if ($null -eq $resolvedCpuTemp) {
         try {
-            $vramRows = Get-CimInstance -ClassName Win32_PerfFormattedData_GPUPerformanceCounters_GPUAdapterMemory -ErrorAction SilentlyContinue
-            if ($vramRows) {
-                $dedUsedBytes = ($vramRows | Measure-Object -Property DedicatedUsage -Maximum).Maximum
-                $totalBytes   = if ($script:StaticSystemCache) { [double]$script:StaticSystemCache.GpuVramTotalBytes } else { 0.0 }
-                if ($totalBytes -gt 0) {
-                    $usedGB  = $dedUsedBytes / 1GB
-                    $totalGB = $totalBytes / 1GB
-                    $script:CachedGpuVramPct  = [int][math]::Min(100, [math]::Max(0, [math]::Round(($usedGB / $totalGB) * 100.0)))
-                    $script:CachedGpuVramText = "{0:N1} / {1:N1} GB" -f $usedGB, $totalGB
+            $tz = Get-CimInstance -Namespace "root\WMI" -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($tz -and $tz.CurrentTemperature -gt 2732) {
+                $c = [int][math]::Round(($tz.CurrentTemperature / 10.0) - 273.15)
+                if ($c -ge 23 -and $c -le 115) {
+                    $resolvedCpuTemp = $c
+                    $resolvedSource  = "Windows ACPI Thermal Zone"
                 }
             }
         } catch {}
     }
 
-    # 2. Live CPU / ACPI Thermal Zone sensor + CPU Thermal/Power Throttling Flags
-    $resolvedCpuTemp = $null
-    try {
-        $tz = Get-CimInstance -Namespace "root\WMI" -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($tz -and $tz.CurrentTemperature -gt 2732) {
-            $c = [int][math]::Round(($tz.CurrentTemperature / 10.0) - 273.15)
-            if ($c -ge 23 -and $c -le 115) { $resolvedCpuTemp = $c }
-        }
-    } catch {}
+    # Throttle WMI ThermalZone & ProcessorInformation limit-flag queries to every 4 seconds to minimize WmiPrvSE CPU
+    if (([datetime]::Now - $script:LastWmiThrottleCheck).TotalSeconds -ge 4 -or $null -eq $resolvedCpuTemp) {
+        $script:LastWmiThrottleCheck = [datetime]::Now
+        $wmiTherm = [System.Collections.Generic.List[string]]::new()
+        $wmiPwr   = [System.Collections.Generic.List[string]]::new()
 
-    try {
-        $tzPerfs = @(Get-CimInstance -ClassName Win32_PerfFormattedData_Counters_ThermalZoneInformation -ErrorAction SilentlyContinue)
-        foreach ($tzPerf in $tzPerfs) {
-            if ($null -eq $resolvedCpuTemp -and ($tzPerf.HighPrecisionTemperature -gt 2732 -or $tzPerf.Temperature -gt 273)) {
-                $c = if ($tzPerf.HighPrecisionTemperature -gt 2732) {
-                    [int][math]::Round(($tzPerf.HighPrecisionTemperature / 10.0) - 273.15)
-                } else {
-                    [int]($tzPerf.Temperature - 273)
+        try {
+            $tzPerfs = @(Get-CimInstance -ClassName Win32_PerfFormattedData_Counters_ThermalZoneInformation -ErrorAction SilentlyContinue)
+            foreach ($tzPerf in $tzPerfs) {
+                $zoneTempC = $null
+                if ($tzPerf.HighPrecisionTemperature -gt 2732) {
+                    $zoneTempC = [int][math]::Round(($tzPerf.HighPrecisionTemperature / 10.0) - 273.15)
+                } elseif ($tzPerf.Temperature -gt 273) {
+                    $zoneTempC = [int]($tzPerf.Temperature - 273)
                 }
-                if ($c -ge 23 -and $c -le 115) { $resolvedCpuTemp = $c }
+                if ($null -eq $resolvedCpuTemp -and $null -ne $zoneTempC -and $zoneTempC -ge 23 -and $zoneTempC -le 115) {
+                    $resolvedCpuTemp = $zoneTempC
+                    $resolvedSource  = "Windows ACPI Thermal Zone ($($tzPerf.Name))"
+                }
+                if ($tzPerf.ThrottleReasons -gt 0 -and $null -ne $zoneTempC -and $zoneTempC -ge 60) {
+                    $wmiTherm.Add("ACPI Thermal Zone Throttled ($($tzPerf.Name) · ${zoneTempC}°C)")
+                }
             }
-            if ($tzPerf.ThrottleReasons -gt 0) {
-                $thermalFlags.Add("ACPI Thermal Zone Throttled ($($tzPerf.Name))")
+        } catch {}
+
+        try {
+            $procInfo = Get-CimInstance -ClassName Win32_PerfFormattedData_Counters_ProcessorInformation -Filter "Name='_Total'" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($procInfo) {
+                $flags = [int]$procInfo.PerformanceLimitFlags
+                $limitPct = [int]$procInfo.PercentPerformanceLimit
+                if ($limitPct -gt 0 -and $limitPct -lt 100) {
+                    if (($flags -band 2) -ne 0) { $wmiTherm.Add("CPU Thermal Limit ($limitPct% cap)") }
+                    if (($flags -band 1) -ne 0) { $wmiPwr.Add("CPU Power Limit ($limitPct% cap)") }
+                    if ($flags -eq 0 -and $limitPct -le 85) { $wmiPwr.Add("CPU Perf Capped ($limitPct%)") }
+                }
             }
-        }
-    } catch {}
+        } catch {}
+
+        $script:CachedWmiThermalFlags = @($wmiTherm)
+        $script:CachedWmiPowerFlags   = @($wmiPwr)
+    }
+
+    foreach ($f in $script:CachedWmiThermalFlags) { $thermalFlags.Add($f) }
+    foreach ($f in $script:CachedWmiPowerFlags)   { $powerFlags.Add($f) }
 
     if ($null -ne $resolvedCpuTemp) {
-        $script:CachedCpuTemp = $resolvedCpuTemp
+        $script:CachedCpuTemp       = $resolvedCpuTemp
+        $script:CachedCpuTempSource = $resolvedSource
         if ($resolvedCpuTemp -ge 92) {
             $thermalFlags.Add("CPU High Temp ($resolvedCpuTemp°C)")
         }
-    }
-
-    # [DIAGNOSTIC ADDITION] CPU Performance Limit Flags (Thermal / Power Limit)
-    try {
-        $procInfo = Get-CimInstance -ClassName Win32_PerfFormattedData_Counters_ProcessorInformation -Filter "Name='_Total'" -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($procInfo) {
-            $flags = [int]$procInfo.PerformanceLimitFlags
-            $limitPct = [int]$procInfo.PercentPerformanceLimit
-            if ($limitPct -gt 0 -and $limitPct -lt 100) {
-                if (($flags -band 2) -ne 0) { $thermalFlags.Add("CPU Thermal Limit ($limitPct% cap)") }
-                if (($flags -band 1) -ne 0) { $powerFlags.Add("CPU Power Limit ($limitPct% cap)") }
-                if ($flags -eq 0 -and $limitPct -le 85) { $powerFlags.Add("CPU Perf Capped ($limitPct%)") }
-            }
+    } else {
+        $script:CachedCpuTemp = "--"
+        if ($script:LhmDllPresent -and -not $script:PawnIoInstalled) {
+            $script:CachedCpuTempSource = "PawnIO kernel driver is required by LibreHardwareMonitor for live Ryzen/Intel CPU die temps — Click to install PawnIO (pawnio.eu)."
+        } elseif ($script:LhmDllPresent -and $script:PawnIoInstalled) {
+            $script:CachedCpuTempSource = "LibreHardwareMonitor + PawnIO detected — Run CoreWatch as Administrator to read live CPU die temps."
+        } else {
+            $script:CachedCpuTempSource = "Windows does not expose Ryzen/Intel CPU die temp natively. Install PawnIO + LibreHardwareMonitorLib.dll in bin\ (Admin), or run LibreHardwareMonitor / Core Temp."
         }
-    } catch {}
+    }
 
     if ($thermalFlags.Count -eq 0 -and $powerFlags.Count -eq 0) {
         if ($script:LastCpuLoadSample -ge 85 -and $script:LastCpuPerfPct -gt 5 -and $script:LastCpuPerfPct -lt 75) {
@@ -485,6 +652,9 @@ function Get-FastHardwareMetrics {
         CpuLoad           = $cpuLoad
         CpuClock          = $clockStr
         CpuTemp           = $script:CachedCpuTemp
+        CpuTempSource     = $script:CachedCpuTempSource
+        PawnIoInstalled   = [bool]$script:PawnIoInstalled
+        LhmBundled        = [bool]$script:LhmDllPresent
         ThrottleState     = $script:CachedThrottleState
         ThrottleDetail    = $script:CachedThrottleDetail
         RamPercent        = $ramPct
@@ -510,14 +680,18 @@ function Reset-SystemMetricsCache {
 }
 
 function Get-SystemMetrics {
-    Initialize-StaticSystemCache
-    $fast = Get-FastHardwareMetrics
+    param($PrecomputedFast)
 
-    # Refresh PowerPlan & Telemetry service status every 5 seconds instead of every tick
-    if (([datetime]::Now - $script:LastPowerPlanCheck).TotalSeconds -ge 5) {
+    Initialize-StaticSystemCache
+    $fast = if ($null -ne $PrecomputedFast) { $PrecomputedFast } else { Get-FastHardwareMetrics }
+
+    # Refresh Telemetry service & active power plan every 15 seconds (zero powercfg.exe subprocess spawn!)
+    if (([datetime]::Now - $script:LastPowerPlanCheck).TotalSeconds -ge 15) {
         try {
-            $ActivePlan = powercfg /getactivescheme
-            if ($ActivePlan -match '\((.*)\)') { $script:CachedPowerPlan = $Matches[1] }
+            if ("CoreWatch.PowerPlanProbe" -as [type]) {
+                $nativePlan = [CoreWatch.PowerPlanProbe]::GetActiveSchemeName()
+                if ($nativePlan) { $script:CachedPowerPlan = $nativePlan }
+            }
         } catch {}
         try {
             $TelService = Get-Service -Name DiagTrack -ErrorAction SilentlyContinue
@@ -530,6 +704,9 @@ function Get-SystemMetrics {
         CpuLoad           = $fast.CpuLoad
         CpuClock          = $fast.CpuClock
         CpuTemp           = $fast.CpuTemp
+        CpuTempSource     = $fast.CpuTempSource
+        PawnIoInstalled   = [bool]$fast.PawnIoInstalled
+        LhmBundled        = [bool]$fast.LhmBundled
         ThrottleState     = $fast.ThrottleState
         ThrottleDetail    = $fast.ThrottleDetail
         CacheMatrix       = $script:StaticSystemCache.CacheMatrix

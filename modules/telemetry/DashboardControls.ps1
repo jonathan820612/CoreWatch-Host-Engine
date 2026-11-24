@@ -102,20 +102,63 @@ function Invoke-DashboardControlAction {
             }
 
             # -----------------------------------------------------------------
-            # 3. DEFENDER REAL-TIME PROTECTION (On <-> Off)
+            # 3. DEFENDER TAMPER PROTECTION & GATED DEFENDER TOGGLES
             # -----------------------------------------------------------------
+            "OPEN_TAMPER_SETTINGS" {
+                Start-Process "windowsdefender://threatsettings"
+                return [PSCustomObject]@{ type = "DASHBOARD_CONTROL_RESULT"; ok = $true; control = $cmd; message = "Opened Windows Security (Virus & threat protection settings) to toggle Tamper Protection." }
+            }
+
             "TOGGLE_REALTIME" {
                 if (-not (Test-IsRunningElevated)) { throw "Requires Administrator privileges to toggle Real-Time Protection." }
+                $mpPre = Get-MpComputerStatus -ErrorAction SilentlyContinue
+                if ($mpPre -and $mpPre.IsTamperProtected) {
+                    throw "Blocked: Turn OFF Tamper Protection in Windows Security first (click T. Protection)."
+                }
                 $disableBool = -not $wantOn
                 Set-MpPreference -DisableRealtimeMonitoring $disableBool -ErrorAction Stop
                 Start-Sleep -Milliseconds 250
                 $actual = $null
                 try { $actual = (Get-MpComputerStatus -ErrorAction SilentlyContinue).RealTimeProtectionEnabled } catch {}
                 if ($null -ne $actual -and ([bool]$actual -ne $wantOn)) {
-                    throw "Blocked by Windows Security Tamper Protection. Disable Tamper Protection in Windows Security to toggle via API."
+                    throw "Blocked by Windows Security Tamper Protection. Turn OFF Tamper Protection in Windows Security first."
                 }
                 $label = if ($wantOn) { "On" } else { "Off" }
                 return [PSCustomObject]@{ type = "DASHBOARD_CONTROL_RESULT"; ok = $true; control = $cmd; state = $label; message = "Defender Real-Time Protection turned $label." }
+            }
+
+            "TOGGLE_BEHAVIOR_MONITOR" {
+                if (-not (Test-IsRunningElevated)) { throw "Requires Administrator privileges to toggle Behavior Monitoring." }
+                $mpPre = Get-MpComputerStatus -ErrorAction SilentlyContinue
+                if ($mpPre -and $mpPre.IsTamperProtected) {
+                    throw "Blocked: Turn OFF Tamper Protection in Windows Security first."
+                }
+                Set-MpPreference -DisableBehaviorMonitoring (-not $wantOn) -ErrorAction Stop
+                $label = if ($wantOn) { "On" } else { "Off" }
+                return [PSCustomObject]@{ type = "DASHBOARD_CONTROL_RESULT"; ok = $true; control = $cmd; state = $label; message = "Defender Behavior Monitoring turned $label." }
+            }
+
+            "TOGGLE_CLOUD_PROTECTION" {
+                if (-not (Test-IsRunningElevated)) { throw "Requires Administrator privileges to toggle Cloud-Delivered Protection." }
+                $mpPre = Get-MpComputerStatus -ErrorAction SilentlyContinue
+                if ($mpPre -and $mpPre.IsTamperProtected) {
+                    throw "Blocked: Turn OFF Tamper Protection in Windows Security first."
+                }
+                $mapsVal = if ($wantOn) { 2 } else { 0 }
+                Set-MpPreference -MAPSReporting $mapsVal -ErrorAction Stop
+                $label = if ($wantOn) { "On" } else { "Off" }
+                return [PSCustomObject]@{ type = "DASHBOARD_CONTROL_RESULT"; ok = $true; control = $cmd; state = $label; message = "Defender Cloud-Delivered Protection turned $label." }
+            }
+
+            "TOGGLE_IOAV_PROTECTION" {
+                if (-not (Test-IsRunningElevated)) { throw "Requires Administrator privileges to toggle Downloads/Attachments (IOAV) Scan." }
+                $mpPre = Get-MpComputerStatus -ErrorAction SilentlyContinue
+                if ($mpPre -and $mpPre.IsTamperProtected) {
+                    throw "Blocked: Turn OFF Tamper Protection in Windows Security first."
+                }
+                Set-MpPreference -DisableIOAVProtection (-not $wantOn) -ErrorAction Stop
+                $label = if ($wantOn) { "On" } else { "Off" }
+                return [PSCustomObject]@{ type = "DASHBOARD_CONTROL_RESULT"; ok = $true; control = $cmd; state = $label; message = "Defender Download & Attachment Scan (IOAV) turned $label." }
             }
 
             # -----------------------------------------------------------------
@@ -283,6 +326,48 @@ function Invoke-DashboardControlAction {
             }
 
             # -----------------------------------------------------------------
+            # 11d. PER-MONITOR DISPLAY SCALE SWITCHER (NATIVE WINDOWS CCD API)
+            # -----------------------------------------------------------------
+            "SET_MONITOR_SCALE" {
+                . (Join-Path $RootPath "modules\telemetry\GetDisplayMetrics.ps1")
+                $devName  = [string]($payload.deviceName ?? "")
+                $scalePct = [int]($payload.scalePct ?? 100)
+                $status   = [CoreWatch.DisplayProbe]::SetMonitorScale($devName, $scalePct)
+                if ($status -ne "OK") { throw $status }
+                return [PSCustomObject]@{
+                    type    = "DASHBOARD_CONTROL_RESULT"
+                    ok      = $true
+                    control = $cmd
+                    state   = "${scalePct}%"
+                    message = "Display scale updated to ${scalePct}% ($devName)."
+                }
+            }
+
+            # -----------------------------------------------------------------
+            # 11e. SAFE MONITOR ORIENTATION SWITCHER (CDS_TEST PRE-VALIDATED)
+            # -----------------------------------------------------------------
+            "SET_MONITOR_ORIENTATION" {
+                . (Join-Path $RootPath "modules\telemetry\GetDisplayMetrics.ps1")
+                $devName = [string]($payload.deviceName ?? "")
+                $oriCode = [int]($payload.orientationCode ?? 0)
+                $status  = [CoreWatch.DisplayProbe]::SetMonitorOrientation($devName, $oriCode)
+                if ($status -ne "OK") { throw $status }
+                $oriLabel = switch ($oriCode) {
+                    1 { "Portrait" }
+                    2 { "Landscape (Flipped)" }
+                    3 { "Portrait (Flipped)" }
+                    default { "Landscape" }
+                }
+                return [PSCustomObject]@{
+                    type    = "DASHBOARD_CONTROL_RESULT"
+                    ok      = $true
+                    control = $cmd
+                    state   = $oriLabel
+                    message = "Display orientation switched to $oriLabel ($devName)."
+                }
+            }
+
+            # -----------------------------------------------------------------
             # 12. TERMINATE RUNAWAY TOP PROCESS (WITH CRITICAL OS GUARD)
             # -----------------------------------------------------------------
             "END_TOP_PROCESS" {
@@ -304,6 +389,141 @@ function Invoke-DashboardControlAction {
             "TRIGGER_SYSTEM_REBOOT" {
                 Restart-Computer -Force -ErrorAction Stop
                 return [PSCustomObject]@{ type = "DASHBOARD_CONTROL_RESULT"; ok = $true; control = $cmd; message = "System reboot initiated..." }
+            }
+
+            # -----------------------------------------------------------------
+            # 14. INSTALL PAWNIO KERNEL DRIVER (REQUIRED FOR LIBREHARDWAREMONITOR)
+            # -----------------------------------------------------------------
+            "INSTALL_PAWNIO" {
+                $winget = Get-Command "winget.exe" -ErrorAction SilentlyContinue
+                if ($winget) {
+                    Start-Process -FilePath "cmd.exe" -ArgumentList "/k winget install --id namazso.PawnIO --source winget --accept-package-agreements --accept-source-agreements" -Verb RunAs -ErrorAction Stop
+                    return [PSCustomObject]@{ type = "DASHBOARD_CONTROL_RESULT"; ok = $true; control = $cmd; message = "Launched PawnIO installer via winget. Restart CoreWatch after installation completes." }
+                } else {
+                    Start-Process "https://pawnio.eu/"
+                    return [PSCustomObject]@{ type = "DASHBOARD_CONTROL_RESULT"; ok = $true; control = $cmd; message = "Opened pawnio.eu to download the signed PawnIO driver installer." }
+                }
+            }
+
+            # -----------------------------------------------------------------
+            # 15. SWITCH PRIMARY JAVA RUNTIME (JAVA_HOME + SYSTEM PATH)
+            # -----------------------------------------------------------------
+            "SET_PRIMARY_JAVA" {
+                if (-not (Test-IsRunningElevated)) { throw "Requires Administrator privileges to switch System JAVA_HOME and PATH." }
+                $javaHome = ([string]($payload.javaHome ?? "")).Trim().TrimEnd('\')
+                if (-not $javaHome -or -not (Test-Path -LiteralPath (Join-Path $javaHome "bin\java.exe") -PathType Leaf)) {
+                    throw "Selected Java directory does not contain bin\java.exe: $javaHome"
+                }
+
+                # Update Machine + User JAVA_HOME and current process environment
+                [Environment]::SetEnvironmentVariable("JAVA_HOME", $javaHome, "Machine")
+                if ([Environment]::GetEnvironmentVariable("JAVA_HOME", "User")) {
+                    [Environment]::SetEnvironmentVariable("JAVA_HOME", $javaHome, "User")
+                }
+                $env:JAVA_HOME = $javaHome
+
+                # Update Machine PATH cleanly (preserving REG_EXPAND_SZ)
+                $envRegPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment"
+                $rawPath = (Get-ItemProperty -Path $envRegPath -Name Path -ErrorAction Stop).Path
+                $newBin = Join-Path $javaHome "bin"
+
+                $javaDirPattern = '(?i)(^%JAVA_HOME%\\bin$|\\(Eclipse Adoptium|Java|AdoptOpenJDK|Zulu|Amazon Corretto|BellSoft|Semeru|Oracle\\Java)\\.*|Microsoft\\jdk-[^\\]+\\bin)'
+                $kept = New-Object System.Collections.Generic.List[string]
+                $kept.Add($newBin)
+                foreach ($entry in ($rawPath -split ';')) {
+                    $e = $entry.Trim()
+                    if (-not $e) { continue }
+                    if ($e.TrimEnd('\').Equals($newBin, [System.StringComparison]::OrdinalIgnoreCase)) { continue }
+                    if ($e -match $javaDirPattern) { continue }
+                    $kept.Add($e)
+                }
+                $updatedPath = $kept -join ';'
+                Set-ItemProperty -Path $envRegPath -Name Path -Value $updatedPath -Type ExpandString -ErrorAction Stop
+
+                # Broadcast WM_SETTINGCHANGE so Explorer & new terminals immediately pick up the new primary Java
+                if (-not ("CoreWatch.EnvBroadcast" -as [type])) {
+                    Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+namespace CoreWatch {
+    public static class EnvBroadcast {
+        [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+        public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);
+    }
+}
+"@ -ErrorAction SilentlyContinue
+                }
+                try {
+                    [UIntPtr]$resPtr = [UIntPtr]::Zero
+                    $null = [CoreWatch.EnvBroadcast]::SendMessageTimeout([IntPtr]0xffff, 0x001A, [UIntPtr]::Zero, "Environment", 2, 3000, [ref]$resPtr)
+                } catch {}
+
+                $label = [string]($payload.label ?? (Split-Path -Path $javaHome -Leaf))
+                return [PSCustomObject]@{
+                    type    = "DASHBOARD_CONTROL_RESULT"
+                    ok      = $true
+                    control = $cmd
+                    state   = $label
+                    message = "Primary Java switched to $label ($javaHome). New terminals will use this version."
+                }
+            }
+
+            # -----------------------------------------------------------------
+            # 16. POWERSHELL LIVE UPDATE CHECK & 1-CLICK INSTALLER
+            # -----------------------------------------------------------------
+            "CHECK_PS_UPDATE" {
+                . (Join-Path $RootPath "modules\telemetry\GetInfraMetrics.ps1")
+                $info = Get-PowerShellUpdateStatus -Force
+                return [PSCustomObject]@{
+                    type    = "DASHBOARD_CONTROL_RESULT"
+                    ok      = $true
+                    control = $cmd
+                    state   = $info.tier
+                    message = $info.detail
+                }
+            }
+
+            "INSTALL_PS_UPDATE" {
+                $wg = Get-Command winget -ErrorAction SilentlyContinue
+                if ($wg) {
+                    $runnerPath = Join-Path $env:TEMP ("CoreWatch-PsUpdate-{0}.ps1" -f ([guid]::NewGuid().ToString('N').Substring(0,8)))
+                    $psRunner = @"
+`$Host.UI.RawUI.WindowTitle = 'CoreWatch PowerShell Updater'
+Write-Host '============================================================' -ForegroundColor Cyan
+Write-Host '  CoreWatch PowerShell 7 Update Installer' -ForegroundColor Cyan
+Write-Host '============================================================' -ForegroundColor Cyan
+Write-Host 'Refreshing WinGet sources...' -ForegroundColor DarkCyan
+& winget source update --disable-interactivity 2>`$null | Out-Null
+Write-Host '`nUpgrading Microsoft.PowerShell...' -ForegroundColor Green
+& winget upgrade --id Microsoft.PowerShell -e --source winget --accept-package-agreements --accept-source-agreements
+if (`$LASTEXITCODE -eq -1978335215) {
+    Write-Host 'Hash mismatch (-1978335215) — opening official GitHub PowerShell Releases page...' -ForegroundColor Yellow
+    Start-Process 'https://github.com/PowerShell/PowerShell/releases/latest'
+} elseif (`$LASTEXITCODE -ne 0 -and `$LASTEXITCODE -ne -1978335189) {
+    Write-Host 'Trying winget install Microsoft.PowerShell...' -ForegroundColor Yellow
+    & winget install --id Microsoft.PowerShell -e --source winget --accept-package-agreements --accept-source-agreements
+}
+Write-Host '`nUpdate step finished. Restart CoreWatch to run on the updated PowerShell runtime.' -ForegroundColor Green
+Read-Host 'Press Enter to close'
+Remove-Item -LiteralPath '$runnerPath' -Force -ErrorAction SilentlyContinue
+"@
+                    Set-Content -LiteralPath $runnerPath -Value $psRunner -Encoding UTF8
+                    Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$runnerPath`"") -ErrorAction Stop
+                    return [PSCustomObject]@{
+                        type    = "DASHBOARD_CONTROL_RESULT"
+                        ok      = $true
+                        control = $cmd
+                        message = "Launched PowerShell 7 updater via WinGet. Restart CoreWatch after upgrade finishes."
+                    }
+                } else {
+                    Start-Process "https://github.com/PowerShell/PowerShell/releases/latest"
+                    return [PSCustomObject]@{
+                        type    = "DASHBOARD_CONTROL_RESULT"
+                        ok      = $true
+                        control = $cmd
+                        message = "Opened official PowerShell GitHub Releases page."
+                    }
+                }
             }
 
             default {

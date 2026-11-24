@@ -116,8 +116,8 @@ function Get-TasksPortsSnapshot {
         }
     }
 
-    # Sort by RAM desc initially, cap to top 160 active processes for fast WebView rendering
-    $sortedProcs = @($processes | Sort-Object -Property @{ Expression = "cpuPct"; Descending = $true }, @{ Expression = "ramBytes"; Descending = $true } | Select-Object -First 180)
+    # Sort by CPU/RAM desc, allow up to 350 active processes for complete visibility
+    $sortedProcs = @($processes | Sort-Object -Property @{ Expression = "cpuPct"; Descending = $true }, @{ Expression = "ramBytes"; Descending = $true } | Select-Object -First 350)
 
     # -------------------------------------------------------------------------
     # 2. WINDOWS SERVICES (State, StartMode, Failed-Auto detection, PID, Path)

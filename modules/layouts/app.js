@@ -1,13 +1,21 @@
 // =========================================================================
 // APPLICATION TAB NAVIGATION AND VIEW-SWITCHING CONTROLLER (GLOBAL BIND)
 // =========================================================================
+window._activeViewKey = 'dashboard';
+
 window.SwitchAppLayoutView = function(targetViewId) {
+    window._activeViewKey = targetViewId || 'dashboard';
+    if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage(`Active-View:${window._activeViewKey}`);
+    }
     const panels = {
         dashboard: document.getElementById('viewDashboardGrid'),
         netmanager: document.getElementById('viewNetworkManagerPanel'),
         startup: document.getElementById('viewStartupPanel'),
         sharing: document.getElementById('viewSharingPanel'),
         apps: document.getElementById('viewInstalledAppsPanel'),
+        appstore: document.getElementById('viewAppInstallerPanel'),
+        diskmap: document.getElementById('viewDiskMapPanel'),
         devices: document.getElementById('viewSystemDevicesPanel'),
         organizer: document.getElementById('viewFileOrganizerPanel'),
         diagx: document.getElementById('viewUltimaDiagXPanel'),
@@ -22,6 +30,8 @@ window.SwitchAppLayoutView = function(targetViewId) {
         startup: document.getElementById('tabStartup'),
         sharing: document.getElementById('tabSharing'),
         apps: document.getElementById('tabInstalledApps'),
+        appstore: document.getElementById('tabAppStore'),
+        diskmap: document.getElementById('tabDiskMap'),
         devices: document.getElementById('tabDevices'),
         organizer: document.getElementById('tabOrganizer'),
         diagx: document.getElementById('tabUltimaDiagX'),
@@ -52,6 +62,8 @@ window.SwitchAppLayoutView = function(targetViewId) {
         startup: '🚀 Startup',
         sharing: '📂 Sharing',
         apps: '📦 Apps',
+        appstore: '⬇️ App Store',
+        diskmap: '🗺️ Disk Map',
         devices: '🧩 Devices',
         organizer: '🗂️ Organizer'
     };
@@ -83,6 +95,18 @@ window.SwitchAppLayoutView = function(targetViewId) {
         if (!window._installedAppsLoaded) {
             RequestInstalledApps();
         }
+    }
+    else if (targetViewId === 'appstore') {
+        if (panels.appstore) panels.appstore.style.display = 'flex';
+        if (buttons.appstore) buttons.appstore.classList.add('active');
+        if (!window._appStoreLoaded) {
+            RequestAppInstaller();
+        }
+    }
+    else if (targetViewId === 'diskmap') {
+        if (panels.diskmap) panels.diskmap.style.display = 'flex';
+        if (buttons.diskmap) buttons.diskmap.classList.add('active');
+        InitDiskMapTab();
     }
     else if (targetViewId === 'devices') {
         if (panels.devices) panels.devices.style.display = 'flex';
@@ -235,6 +259,32 @@ const msgType = stats.type || stats.Type;
     }
     else if (msgType === "REFRESH_SYSTEM_DEVICES") {
         RenderSystemDevicesData(stats);
+    }
+    else if (msgType === "DEVICE_LINK_NOTICE") {
+        const st = document.getElementById('devicesStatus');
+        if (st && stats.message) {
+            st.classList.toggle('sharing-error', !stats.ok);
+            st.textContent = stats.message;
+        }
+        if (stats.message) AppendConsoleLogEntry(`[DEVICES] ${stats.message}`);
+    }
+    else if (msgType === "REFRESH_APP_INSTALLER") {
+        RenderAppInstallerData(stats);
+    }
+    else if (msgType === "APPSTORE_SEARCH_RESULTS") {
+        RenderAppStoreWingetResults(stats);
+    }
+    else if (msgType === "APPSTORE_NOTICE") {
+        HandleAppStoreNotice(stats);
+    }
+    else if (msgType === "DISKMAP_DRIVES") {
+        RenderDiskMapDrives(stats.drives || []);
+    }
+    else if (msgType === "DISKMAP_SCAN_RESULT") {
+        RenderDiskMapScanResult(stats);
+    }
+    else if (msgType === "DISKMAP_NOTICE") {
+        HandleDiskMapNotice(stats);
     }
     else if (msgType === "FILE_ORGANIZER_STATE") {
         RenderFileOrganizerState(stats);
@@ -645,8 +695,92 @@ function ApplySelectedMonitorMetrics() {
     }
 
     SetDomText('lblMonConnection',  mon.ConnectionType || '--');
-    SetDomText('lblMonScale',       mon.Scale || '--');
-    SetDomText('lblMonOrientation', mon.Orientation || '--');
+
+    // [DYNAMIC CONTROL] Per-Monitor Display Scale Selector (Native Windows CCD API)
+    const scaleEl = document.getElementById('lblMonScale');
+    if (scaleEl) {
+        const scales = Array.isArray(mon.AvailableScales)
+            ? mon.AvailableScales.map(Number).filter(n => Number.isFinite(n) && n >= 100)
+            : [];
+        const curScale = Number(mon.ScalePct || parseInt(mon.Scale, 10) || 100);
+        const existingScaleSel = scaleEl.querySelector('select.infra-refresh-select');
+
+        if (scales.length > 1) {
+            const sig = `${mon.Id}|scale|${scales.join(',')}`;
+            const isBusy = IsControlPending('SET_MONITOR_SCALE');
+            const isFocused = existingScaleSel && document.activeElement === existingScaleSel;
+
+            if (!isFocused) {
+                if (!existingScaleSel || existingScaleSel.dataset.sig !== sig) {
+                    const sel = document.createElement('select');
+                    sel.className = 'infra-refresh-select';
+                    sel.dataset.sig = sig;
+                    sel.dataset.device = mon.Id || '';
+                    sel.setAttribute('aria-label', 'Select display scale percentage');
+                    sel.title = 'Change Windows DPI scale for this monitor immediately';
+                    scales.forEach(pct => {
+                        const opt = document.createElement('option');
+                        opt.value = String(pct);
+                        opt.textContent = `${pct}%`;
+                        if (pct === curScale) opt.selected = true;
+                        sel.appendChild(opt);
+                    });
+                    sel.disabled = isBusy;
+                    sel.addEventListener('change', (e) => {
+                        TriggerScaleChange(sel.dataset.device, Number(e.target.value), curScale);
+                    });
+                    scaleEl.replaceChildren(sel);
+                } else {
+                    existingScaleSel.disabled = isBusy;
+                    if (!isBusy && curScale >= 100) existingScaleSel.value = String(curScale);
+                }
+            }
+        } else {
+            scaleEl.textContent = mon.Scale || '--';
+        }
+    }
+
+    // [DYNAMIC CONTROL] Safe Monitor Orientation Selector (CDS_TEST pre-validated)
+    const oriEl = document.getElementById('lblMonOrientation');
+    if (oriEl) {
+        const curOri = Number.isFinite(Number(mon.OrientationCode)) ? Number(mon.OrientationCode) : 0;
+        const existingOriSel = oriEl.querySelector('select.infra-refresh-select');
+        const sig = `${mon.Id}|orient`;
+        const isBusy = IsControlPending('SET_MONITOR_ORIENTATION');
+        const isFocused = existingOriSel && document.activeElement === existingOriSel;
+        const oriOptions = [
+            { code: 0, label: 'Landscape' },
+            { code: 1, label: 'Portrait' },
+            { code: 2, label: 'Landscape (Flip)' },
+            { code: 3, label: 'Portrait (Flip)' }
+        ];
+
+        if (!isFocused) {
+            if (!existingOriSel || existingOriSel.dataset.sig !== sig) {
+                const sel = document.createElement('select');
+                sel.className = 'infra-refresh-select';
+                sel.dataset.sig = sig;
+                sel.dataset.device = mon.Id || '';
+                sel.setAttribute('aria-label', 'Select display orientation');
+                sel.title = 'Rotate display orientation (validated via Windows CDS_TEST)';
+                oriOptions.forEach(o => {
+                    const opt = document.createElement('option');
+                    opt.value = String(o.code);
+                    opt.textContent = o.label;
+                    if (o.code === curOri) opt.selected = true;
+                    sel.appendChild(opt);
+                });
+                sel.disabled = isBusy;
+                sel.addEventListener('change', (e) => {
+                    TriggerOrientationChange(sel.dataset.device, Number(e.target.value), curOri);
+                });
+                oriEl.replaceChildren(sel);
+            } else {
+                existingOriSel.disabled = isBusy;
+                if (!isBusy) existingOriSel.value = String(curOri);
+            }
+        }
+    }
 
     const hdrEl = document.getElementById('lblMonHdr');
     if (hdrEl) {
@@ -722,7 +856,7 @@ function RenderAdapterStatusDeck(adapterStatuses) {
         return;
     }
 
-    container.innerHTML = list.map(adapter => {
+    const html = list.map(adapter => {
         const rawState = (adapter.Status || '').trim();
         const icon = adapter.Type === 'Wi-Fi' ? '📶' : (adapter.Type === 'Ethernet' ? '🌐' : '🔌');
         const safeName = (adapter.Name || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
@@ -742,6 +876,7 @@ function RenderAdapterStatusDeck(adapterStatuses) {
 
         return `<span class="adapter-status-item"><span>${icon}</span> <span class="adapter-name">${adapter.Name}:</span> ${badgeHtml}</span>`;
     }).join('');
+    SetDomHtml(container, html);
 }
 
 // =========================================================================
@@ -792,7 +927,7 @@ function ApplyHardwareDiagnosticsUi(sys) {
 }
 
 function updateFastTelemetryMesh(stats) {
-    if (!stats) return;
+    if (!stats || window._activeViewKey !== 'dashboard') return;
 
     const sys = stats.SystemFrame;
     if (sys) {
@@ -806,6 +941,10 @@ function updateFastTelemetryMesh(stats) {
             if (cpuBadge) {
                 cpuBadge.classList.toggle('therm-hot', Number.isFinite(cpuTempNum) && cpuTempNum >= 75);
                 cpuBadge.classList.toggle('therm-cool', !Number.isFinite(cpuTempNum) || cpuTempNum < 75);
+                if (sys.CpuTempSource) cpuBadge.title = sys.CpuTempSource;
+                const needsPawnIo = !Number.isFinite(cpuTempNum) && sys.LhmBundled === true && sys.PawnIoInstalled === false;
+                cpuBadge.style.cursor = needsPawnIo ? 'pointer' : '';
+                cpuBadge.onclick = needsPawnIo ? TriggerInstallPawnIo : null;
             }
         }
 
@@ -858,10 +997,10 @@ function updateDashboardUiMesh(stats) {
         const workElem = document.getElementById('lblWorkgroup');
         
         if (hostElem) {
-            hostElem.innerHTML = `<span style="cursor:pointer; text-decoration:underline dotted;" onclick="TriggerHostRename('${id.HostName}')">${id.HostName}</span>`;
+            SetDomHtml(hostElem, `<span style="cursor:pointer; text-decoration:underline dotted;" onclick="TriggerHostRename('${id.HostName}')">${id.HostName}</span>`);
         }
         if (workElem) {
-            workElem.innerHTML = `<span style="cursor:pointer; text-decoration:underline dotted;" onclick="TriggerWorkgroupRename('${id.Workgroup}')">${id.Workgroup}</span>`;
+            SetDomHtml(workElem, `<span style="cursor:pointer; text-decoration:underline dotted;" onclick="TriggerWorkgroupRename('${id.Workgroup}')">${id.Workgroup}</span>`);
         }
         SetDomText('lblCpuModel', id.CpuModel);
 
@@ -891,7 +1030,8 @@ function updateDashboardUiMesh(stats) {
         SetDomText('lblDirectX',        infra.DirectX);
         SetDomText('lblVirtualization', infra.Virtualization);
         SetDomText('lblSecureBoot',     infra.SecureBoot || '--');
-        SetDomText('lblPsVersion',      infra.PsVersion);
+        RenderPowerShellVersionControl(infra);
+        RenderJavaVersionControl(infra);
         SetDomText('lblMotherboard',    infra.Motherboard);
         SetDomText('lblBiosVersion',    infra.BiosVersion);
         SetDomText('lblPowerPlan',      infra.PowerPlan);
@@ -902,7 +1042,7 @@ function updateDashboardUiMesh(stats) {
         const plan = stats.SystemFrame?.PowerPlan || infra.PowerPlan || "Unknown";
         const powerPlanHtml = `<span style="cursor:pointer; text-decoration:underline dotted;" onclick="TriggerPowerPlanMenu()">${plan}</span>`;
         const planElem = document.getElementById('lblPowerPlan');
-        if (planElem) planElem.innerHTML = powerPlanHtml;
+        if (planElem) SetDomHtml(planElem, powerPlanHtml);
 
         // [DIAGNOSTIC ADDITION] Pending Reboot Flag Pill (Clickable to trigger confirmed reboot when Yes)
         const rebootElem = document.getElementById('lblPendingReboot');
@@ -967,6 +1107,10 @@ function updateDashboardUiMesh(stats) {
         if (cpuBadge) {
             cpuBadge.classList.toggle('therm-hot', Number.isFinite(cpuTempNum) && cpuTempNum >= 75);
             cpuBadge.classList.toggle('therm-cool', !Number.isFinite(cpuTempNum) || cpuTempNum < 75);
+            if (sys.CpuTempSource) cpuBadge.title = sys.CpuTempSource;
+            const needsPawnIo = !Number.isFinite(cpuTempNum) && sys.LhmBundled === true && sys.PawnIoInstalled === false;
+            cpuBadge.style.cursor = needsPawnIo ? 'pointer' : '';
+            cpuBadge.onclick = needsPawnIo ? TriggerInstallPawnIo : null;
         }
 
         SetDomText('lblGpuLoad',        `${sys.GpuLoad}%`);
@@ -1034,18 +1178,66 @@ function updateDashboardUiMesh(stats) {
             }
         }
 
-        // [DYNAMIC CONTROL] Realtime Protection On <-> Off Toggle Pill
-        const rtElem = document.getElementById('lblRealtime');
-        if (rtElem) {
-            const rt = String(net.Realtime || 'Unknown');
-            if (IsControlPending('TOGGLE_REALTIME')) {
-                rtElem.innerHTML = `<button type="button" class="toggle-pill-btn is-busy" disabled>...</button>`;
-            } else if (rt.toLowerCase() === 'on') {
-                rtElem.innerHTML = `<button type="button" class="toggle-pill-btn state-on" onclick="TriggerRealtimeToggle('Off')" title="Defender Real-Time Protection is On — Click to turn Off">On</button>`;
-            } else if (rt.toLowerCase() === 'off') {
-                rtElem.innerHTML = `<button type="button" class="toggle-pill-btn state-off" onclick="TriggerRealtimeToggle('On')" title="Defender Real-Time Protection is Off — Click to turn On">Off</button>`;
+        // [DYNAMIC CONTROL] Microsoft Defender Tamper Protection + Gated Protection Toggles
+        const tamperRaw   = String(net.TamperProtection || 'Unknown');
+        const tamperLow   = tamperRaw.toLowerCase();
+        const isTamperOn  = (tamperLow === 'on');
+
+        const buildTamperPillHtml = () => {
+            if (IsControlPending('OPEN_TAMPER_SETTINGS')) {
+                return `<button type="button" class="toggle-pill-btn is-busy" disabled>...</button>`;
+            }
+            if (tamperLow === 'on') {
+                return `<button type="button" class="toggle-pill-btn state-on" onclick="TriggerOpenTamperSettings()" title="Tamper Protection is ON (locks Realtime, Behavior, Cloud & IOAV toggles). Click to open Windows Security settings to turn it Off">On ↗</button>`;
+            }
+            if (tamperLow === 'off') {
+                return `<button type="button" class="toggle-pill-btn state-off" onclick="TriggerOpenTamperSettings()" title="Tamper Protection is OFF (Defender toggles unlocked). Click to open Windows Security settings to re-enable it">Off ↗</button>`;
+            }
+            return `<button type="button" class="toggle-pill-btn state-info" onclick="TriggerOpenTamperSettings()" title="Click to view Tamper Protection in Windows Security">${tamperRaw} ↗</button>`;
+        };
+
+        const buildGatedDefenderPillHtml = (rawVal, cmdName, fnName, label) => {
+            const st = String(rawVal || 'Unknown');
+            const low = st.toLowerCase();
+            if (IsControlPending(cmdName)) {
+                return `<button type="button" class="toggle-pill-btn is-busy" disabled>...</button>`;
+            }
+            if (isTamperOn && (low === 'on' || low === 'off')) {
+                const safeLbl = label.replace(/'/g, "\\'");
+                return `<button type="button" class="toggle-pill-btn state-locked" aria-disabled="true" onclick="NotifyTamperLocked('${safeLbl}')" title="${label} is ${st} — Locked while Tamper Protection is ON. Turn Tamper Protection Off in Windows Security first.">🔒 ${st}</button>`;
+            }
+            if (low === 'on') {
+                return `<button type="button" class="toggle-pill-btn state-on" onclick="${fnName}('Off')" title="${label} is On (Tamper Protection Off) — Click to turn Off">On</button>`;
+            }
+            if (low === 'off') {
+                return `<button type="button" class="toggle-pill-btn state-off" onclick="${fnName}('On')" title="${label} is Off — Click to turn On">Off</button>`;
+            }
+            return st;
+        };
+
+        const tamperHtml   = buildTamperPillHtml();
+        const realtimeHtml = buildGatedDefenderPillHtml(net.Realtime,        'TOGGLE_REALTIME',         'TriggerRealtimeToggle', 'Real-Time Protection');
+        const behaviorHtml = buildGatedDefenderPillHtml(net.BehaviorMonitor, 'TOGGLE_BEHAVIOR_MONITOR', 'TriggerBehaviorToggle', 'Behavior Monitoring');
+        const cloudHtml    = buildGatedDefenderPillHtml(net.CloudProtection, 'TOGGLE_CLOUD_PROTECTION', 'TriggerCloudToggle',    'Cloud-Delivered Protection');
+        const ioavHtml     = buildGatedDefenderPillHtml(net.IoavProtection,  'TOGGLE_IOAV_PROTECTION',  'TriggerIoavToggle',     'Download / IOAV Scan');
+
+        ['lblTamperProtection', 'lblSecTamper'].forEach(id => SetDomHtml(id, tamperHtml));
+        ['lblRealtime',         'lblSecRealtime'].forEach(id => SetDomHtml(id, realtimeHtml));
+        ['lblBehaviorMonitor',  'lblSecBehavior'].forEach(id => SetDomHtml(id, behaviorHtml));
+        ['lblCloudProtection',  'lblSecCloud'].forEach(id => SetDomHtml(id, cloudHtml));
+        ['lblIoavProtection',   'lblSecIoav'].forEach(id => SetDomHtml(id, ioavHtml));
+
+        const secDefHint = document.getElementById('lblSecDefenderHint');
+        if (secDefHint) {
+            if (isTamperOn) {
+                secDefHint.textContent = '🔒 Tamper Protection is ON — turn it Off via T. Protection ↗ to unlock Defender toggles';
+                secDefHint.style.color = '#ecc94b';
+            } else if (tamperLow === 'off') {
+                secDefHint.textContent = '🔓 Tamper Protection is OFF — Realtime, Behavior, Cloud & IOAV toggles are unlocked';
+                secDefHint.style.color = '#68d391';
             } else {
-                rtElem.textContent = rt;
+                secDefHint.textContent = 'Defender status synced from Windows Security';
+                secDefHint.style.color = '#a0aec0';
             }
         }
 
@@ -1053,26 +1245,30 @@ function updateDashboardUiMesh(stats) {
         const discElem = document.getElementById('lblDiscovery');
         if (discElem) {
             const disc = String(net.Discovery || 'Off');
+            let discHtml = '';
             if (IsControlPending('TOGGLE_DISCOVERY')) {
-                discElem.innerHTML = `<button type="button" class="toggle-pill-btn is-busy" disabled>...</button>`;
+                discHtml = `<button type="button" class="toggle-pill-btn is-busy" disabled>...</button>`;
             } else if (disc.toLowerCase() === 'on') {
-                discElem.innerHTML = `<button type="button" class="toggle-pill-btn state-on" onclick="TriggerDiscoveryToggle('Off')" title="Network Discovery is On — Click to turn Off">On</button>`;
+                discHtml = `<button type="button" class="toggle-pill-btn state-on" onclick="TriggerDiscoveryToggle('Off')" title="Network Discovery is On — Click to turn Off">On</button>`;
             } else {
-                discElem.innerHTML = `<button type="button" class="toggle-pill-btn state-off" onclick="TriggerDiscoveryToggle('On')" title="Network Discovery is Off — Click to turn On">Off</button>`;
+                discHtml = `<button type="button" class="toggle-pill-btn state-off" onclick="TriggerDiscoveryToggle('On')" title="Network Discovery is Off — Click to turn On">Off</button>`;
             }
+            SetDomHtml(discElem, discHtml);
         }
 
         // [DYNAMIC CONTROL] File & Printer Sharing On <-> Off Toggle Pill
         const shareElem = document.getElementById('lblSharing');
         if (shareElem) {
             const sh = String(net.Sharing || 'Off');
+            let shareHtml = '';
             if (IsControlPending('TOGGLE_SHARING')) {
-                shareElem.innerHTML = `<button type="button" class="toggle-pill-btn is-busy" disabled>...</button>`;
+                shareHtml = `<button type="button" class="toggle-pill-btn is-busy" disabled>...</button>`;
             } else if (sh.toLowerCase() === 'on') {
-                shareElem.innerHTML = `<button type="button" class="toggle-pill-btn state-on" onclick="TriggerSharingToggle('Off')" title="File & Printer Sharing (SMB) is On — Click to turn Off">On</button>`;
+                shareHtml = `<button type="button" class="toggle-pill-btn state-on" onclick="TriggerSharingToggle('Off')" title="File & Printer Sharing (SMB) is On — Click to turn Off">On</button>`;
             } else {
-                shareElem.innerHTML = `<button type="button" class="toggle-pill-btn state-off" onclick="TriggerSharingToggle('On')" title="File & Printer Sharing (SMB) is Off — Click to turn On">Off</button>`;
+                shareHtml = `<button type="button" class="toggle-pill-btn state-off" onclick="TriggerSharingToggle('On')" title="File & Printer Sharing (SMB) is Off — Click to turn On">Off</button>`;
             }
+            SetDomHtml(shareElem, shareHtml);
         }
 
         SetDomText('lblEthernet',       net.lblEthDriver);
@@ -1119,11 +1315,14 @@ function updateDashboardUiMesh(stats) {
         SetDomStyleWidth('barNetTx', `${txHalfPct}%`);
     }
 
-    // --- StorageFrame Mapping ---
+    // --- StorageFrame Mapping (Skip DOM rebuild if drive snapshot hasn't changed) ---
     const storage = stats.StorageFrame;
-    if (storage) {
+    if (storage && window._activeViewKey === 'dashboard') {
         const container = document.getElementById('storageVolumeContainer');
         if (container) {
+            const storageSig = JSON.stringify(storage);
+            if (container._lastSig === storageSig) return;
+            container._lastSig = storageSig;
             container.innerHTML = '';
             let drives = Array.isArray(storage) ? storage : [storage];
             
@@ -1185,6 +1384,7 @@ function updateDashboardUiMesh(stats) {
                         <div class="storage-diag-footer">
                             <div class="driver-tag tight-tag">${drive.DriveType}${mediaSuffix}</div>
                             <div class="storage-diag-badges">
+                                <button type="button" class="storage-map-btn" onclick="OpenDriveInDiskMap('${drive.MainDriveLetter}\\')" title="Scan ${drive.MainDriveLetter}\\ visually in Disk Map (WizTree-style)">🗺️ Map</button>
                                 <span class="diag-pill ${smartClass}" title="${safeSmartTip}">${smartLabel}</span>
                                 <span class="diag-pill ${ioClass}" title="${ioTip}">IO: ${activePct}% · ${latMs.toFixed(1)}ms</span>
                             </div>
@@ -1616,18 +1816,30 @@ function RenderStartupAppRows(data) {
     });
 }
 // =========================================================================
-// GENERAL CORE GRAPHICS OBJECT SHORTCUTS
+// GENERAL CORE GRAPHICS OBJECT SHORTCUTS (DIFF-GUARDED TO PREVENT REFLOWS)
 // =========================================================================
 function SetDomText(elementId, textValue) {
     const element = document.getElementById(elementId);
-    if (element) {
-        element.innerText = textValue !== undefined && textValue !== null ? textValue : "Loading...";
+    if (!element) return;
+    const next = textValue !== undefined && textValue !== null ? String(textValue) : "Loading...";
+    if (element.textContent !== next) {
+        element.textContent = next;
+    }
+}
+
+function SetDomHtml(elementOrId, htmlValue) {
+    const element = (typeof elementOrId === 'string') ? document.getElementById(elementOrId) : elementOrId;
+    if (!element) return;
+    const next = htmlValue !== undefined && htmlValue !== null ? String(htmlValue) : "";
+    if (element._lastHtml !== next) {
+        element._lastHtml = next;
+        element.innerHTML = next;
     }
 }
 
 function SetDomStyleWidth(elementId, widthValue) {
     const element = document.getElementById(elementId);
-    if (element) {
+    if (element && element.style.width !== widthValue) {
         element.style.width = widthValue;
     }
 }
@@ -1945,11 +2157,47 @@ window.TriggerFirewallToggle = function(targetState) {
     DispatchDashboardControl('TOGGLE_FIREWALL', { targetState }, `Setting Windows Firewall -> ${targetState}...`, 'lblFirewall');
 };
 
+window.TriggerOpenTamperSettings = function() {
+    DispatchDashboardControl('OPEN_TAMPER_SETTINGS', {}, 'Opening Windows Security -> Virus & threat protection settings (Tamper Protection)...', 'lblTamperProtection');
+};
+
+window.NotifyTamperLocked = function(featureName) {
+    const openNow = confirm(
+        `${featureName} cannot be changed while Windows Defender Tamper Protection is ON.\n\n` +
+        `Windows requires Tamper Protection to be toggled manually inside Windows Security.\n\n` +
+        `Open Windows Security -> Tamper Protection settings now?`
+    );
+    if (openNow) {
+        window.TriggerOpenTamperSettings();
+    }
+};
+
 window.TriggerRealtimeToggle = function(targetState) {
     if (targetState === 'Off') {
-        if (!confirm("Turn OFF Microsoft Defender Real-Time Protection?\n(Requires Tamper Protection to be disabled in Windows Security.)")) return;
+        if (!confirm("Turn OFF Microsoft Defender Real-Time Protection?\n(Tamper Protection is Off — you can turn this back On anytime.)")) return;
     }
     DispatchDashboardControl('TOGGLE_REALTIME', { targetState }, `Setting Real-Time Protection -> ${targetState}...`, 'lblRealtime');
+};
+
+window.TriggerBehaviorToggle = function(targetState) {
+    if (targetState === 'Off') {
+        if (!confirm("Turn OFF Microsoft Defender Behavior Monitoring?")) return;
+    }
+    DispatchDashboardControl('TOGGLE_BEHAVIOR_MONITOR', { targetState }, `Setting Behavior Monitoring -> ${targetState}...`, 'lblBehaviorMonitor');
+};
+
+window.TriggerCloudToggle = function(targetState) {
+    if (targetState === 'Off') {
+        if (!confirm("Turn OFF Microsoft Defender Cloud-Delivered Protection (MAPS)?")) return;
+    }
+    DispatchDashboardControl('TOGGLE_CLOUD_PROTECTION', { targetState }, `Setting Cloud-Delivered Protection -> ${targetState}...`, 'lblCloudProtection');
+};
+
+window.TriggerIoavToggle = function(targetState) {
+    if (targetState === 'Off') {
+        if (!confirm("Turn OFF Microsoft Defender Download / Attachment (IOAV) Scanning?")) return;
+    }
+    DispatchDashboardControl('TOGGLE_IOAV_PROTECTION', { targetState }, `Setting Download / IOAV Scan -> ${targetState}...`, 'lblIoavProtection');
 };
 
 window.TriggerDiscoveryToggle = function(targetState) {
@@ -2002,6 +2250,42 @@ window.TriggerRefreshRateChange = function(deviceName, targetHz, previousHz) {
     const sel = document.querySelector('#lblMonRefresh select.infra-refresh-select');
     if (sel) sel.disabled = true;
     DispatchDashboardControl('SET_MONITOR_REFRESH_RATE', { deviceName, refreshRate: targetHz }, `Switching display refresh rate -> ${targetHz} Hz...`);
+};
+
+window.TriggerIdentifyMonitors = function() {
+    if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage('Identify-Monitors');
+        AppendConsoleLogEntry('[DISPLAY] Flashing monitor identification numbers across all connected screens...');
+    }
+};
+
+window.TriggerInstallPawnIo = function() {
+    if (!confirm("Install the Microsoft-signed PawnIO kernel driver (required by LibreHardwareMonitor for live Ryzen/Intel CPU temperatures)?\n\nThis will run 'winget install namazso.PawnIO' (or open pawnio.eu).")) {
+        return;
+    }
+    DispatchDashboardControl('INSTALL_PAWNIO', {}, 'Launching PawnIO driver installation...');
+};
+
+window.TriggerScaleChange = function(deviceName, targetPct, previousPct) {
+    if (!deviceName || !Number.isFinite(targetPct) || targetPct < 100) return;
+    if (previousPct && targetPct === previousPct) return;
+    const sel = document.querySelector('#lblMonScale select.infra-refresh-select');
+    if (sel) sel.disabled = true;
+    DispatchDashboardControl('SET_MONITOR_SCALE', { deviceName, scalePct: targetPct }, `Applying Windows display scale -> ${targetPct}%...`);
+};
+
+window.TriggerOrientationChange = function(deviceName, targetCode, previousCode) {
+    if (!deviceName || !Number.isFinite(targetCode) || targetCode < 0 || targetCode > 3) return;
+    if (Number.isFinite(previousCode) && targetCode === previousCode) return;
+    const labels = ['Landscape', 'Portrait', 'Landscape (Flipped)', 'Portrait (Flipped)'];
+    const label = labels[targetCode] || 'Landscape';
+    const sel = document.querySelector('#lblMonOrientation select.infra-refresh-select');
+    if (!confirm(`Rotate display (${deviceName}) to ${label}?`)) {
+        if (sel && Number.isFinite(previousCode)) sel.value = String(previousCode);
+        return;
+    }
+    if (sel) sel.disabled = true;
+    DispatchDashboardControl('SET_MONITOR_ORIENTATION', { deviceName, orientationCode: targetCode }, `Rotating display orientation -> ${label}...`);
 };
 
 window.TriggerQuickDnsMenu = function() {
@@ -2507,7 +2791,95 @@ function RenderSystemDevicesData(data) {
     if (data.message) AppendConsoleLogEntry(`[DEVICES] ${data.message}`);
     if (data.error) AppendConsoleLogEntry(`[DEVICES ERROR] ${data.error}`);
 
+    RenderDeviceDriverFixCenter(devices);
     ApplySystemDevicesFilter();
+}
+
+window.OpenDeviceDriverUrl = function(url, label) {
+    if (!url) return;
+    const st = document.getElementById('devicesStatus');
+    if (st) {
+        st.classList.remove('sharing-error');
+        st.textContent = `Opening ${label || 'driver support page'}...`;
+    }
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'OPEN_DRIVER_URL', url }));
+};
+
+function RenderDeviceDriverFixCenter(devices) {
+    const box = document.getElementById('devicesFixCenterBox');
+    if (!box) return;
+
+    const issueDevs = (devices || []).filter(d => d.status === 'Error');
+    if (!issueDevs.length) {
+        box.style.display = 'none';
+        box.replaceChildren();
+        return;
+    }
+
+    box.style.display = 'flex';
+    box.replaceChildren();
+
+    const header = document.createElement('div');
+    header.className = 'device-fix-banner-title';
+    header.innerHTML = `<span>⚠️ ${issueDevs.length} Missing / Problematic Driver${issueDevs.length > 1 ? 's' : ''} Detected — Quick Download &amp; Fix Links</span><span style="font-weight:400; color:#cbd5e0;">Click any official portal below</span>`;
+    box.appendChild(header);
+
+    issueDevs.forEach(dev => {
+        const item = document.createElement('div');
+        item.className = 'device-fix-item';
+
+        const head = document.createElement('div');
+        head.className = 'device-fix-head';
+        const title = document.createElement('strong');
+        title.textContent = `${dev.name}${dev.hardwareId ? ` (${dev.hardwareId})` : ''}`;
+        const badge = document.createElement('span');
+        badge.className = 'sharing-badge badge-danger';
+        badge.textContent = dev.problemText || `Code ${dev.problemCode}`;
+        head.append(title, badge);
+        item.appendChild(head);
+
+        if (dev.fixHint) {
+            const hint = document.createElement('div');
+            hint.className = 'device-fix-hint';
+            hint.textContent = dev.fixHint;
+            item.appendChild(hint);
+        }
+
+        const linksRow = document.createElement('div');
+        linksRow.className = 'device-fix-links';
+
+        if (dev.vendorDownloadUrl) {
+            const vBtn = document.createElement('button');
+            vBtn.type = 'button';
+            vBtn.className = 'device-link-btn primary-vendor';
+            vBtn.textContent = `⬇️ ${dev.vendorDownloadName || 'Official Vendor Drivers'} ↗`;
+            vBtn.title = dev.vendorDownloadUrl;
+            vBtn.addEventListener('click', () => OpenDeviceDriverUrl(dev.vendorDownloadUrl, dev.vendorDownloadName));
+            linksRow.appendChild(vBtn);
+        }
+
+        if (dev.catalogSearchUrl) {
+            const cBtn = document.createElement('button');
+            cBtn.type = 'button';
+            cBtn.className = 'device-link-btn';
+            cBtn.textContent = '🔎 MS Update Catalog ↗';
+            cBtn.title = `Search Microsoft Update Catalog for ${dev.hardwareId || dev.name}`;
+            cBtn.addEventListener('click', () => OpenDeviceDriverUrl(dev.catalogSearchUrl, 'Microsoft Update Catalog'));
+            linksRow.appendChild(cBtn);
+        }
+
+        if (dev.webSearchUrl) {
+            const wBtn = document.createElement('button');
+            wBtn.type = 'button';
+            wBtn.className = 'device-link-btn';
+            wBtn.textContent = '🌐 Driver Lookup ↗';
+            wBtn.addEventListener('click', () => OpenDeviceDriverUrl(dev.webSearchUrl, 'Driver Web Search'));
+            linksRow.appendChild(wBtn);
+        }
+
+        item.appendChild(linksRow);
+        box.appendChild(item);
+    });
 }
 
 window.ApplySystemDevicesFilter = function() {
@@ -2608,8 +2980,14 @@ window.ApplySystemDevicesFilter = function() {
                 if (dev.status === 'Error') statusBadge = `<span class="sharing-badge badge-danger">ERR ${dev.problemCode}</span>`;
                 else if (dev.status === 'Disabled') statusBadge = '<span class="sharing-badge badge-purple">Disabled</span>';
 
+                let ageTierCls = '';
+                if (dev.driverAgeDays >= 0) {
+                    if (dev.driverAgeDays > 1460) ageTierCls = ' ver-critical';
+                    else if (dev.driverAgeDays > 545) ageTierCls = ' ver-update';
+                    else ageTierCls = ' ver-uptodate';
+                }
                 const ageBadge = dev.driverAgeText
-                    ? `<span class="device-age-tag${dev.driverAgeDays > 1095 ? ' age-old' : ''}" title="Driver Date: ${dev.driverDate}">${dev.driverAgeText}</span>`
+                    ? `<span class="device-age-tag${ageTierCls}" title="Driver Date: ${dev.driverDate} (Green: Current · Purple: Update Recommended · Red: >4yr Outdated)">${dev.driverAgeText}</span>`
                     : '';
 
                 const leftSpan = document.createElement('span');
@@ -2675,8 +3053,44 @@ window.ApplySystemDevicesFilter = function() {
                     });
                     drawer.appendChild(grid);
 
+                    if (dev.fixHint) {
+                        const hintBox = document.createElement('div');
+                        hintBox.className = 'device-drawer-hint';
+                        hintBox.textContent = `💡 Fix Guidance: ${dev.fixHint}`;
+                        drawer.appendChild(hintBox);
+                    }
+
                     const actions = document.createElement('div');
                     actions.className = 'sharing-actions';
+
+                    if (dev.vendorDownloadUrl) {
+                        const vendorBtn = document.createElement('button');
+                        vendorBtn.type = 'button';
+                        vendorBtn.className = 'device-link-btn primary-vendor';
+                        vendorBtn.textContent = `⬇️ ${dev.vendorDownloadName || 'Official Vendor Drivers'} ↗`;
+                        vendorBtn.title = dev.vendorDownloadUrl;
+                        vendorBtn.addEventListener('click', () => OpenDeviceDriverUrl(dev.vendorDownloadUrl, dev.vendorDownloadName));
+                        actions.appendChild(vendorBtn);
+                    }
+
+                    if (dev.catalogSearchUrl) {
+                        const catBtn = document.createElement('button');
+                        catBtn.type = 'button';
+                        catBtn.className = 'device-link-btn';
+                        catBtn.textContent = '🔎 MS Update Catalog ↗';
+                        catBtn.title = `Search Microsoft Update Catalog for ${dev.hardwareId || dev.name}`;
+                        catBtn.addEventListener('click', () => OpenDeviceDriverUrl(dev.catalogSearchUrl, 'Microsoft Update Catalog'));
+                        actions.appendChild(catBtn);
+                    }
+
+                    if (dev.status === 'Error' && dev.webSearchUrl) {
+                        const webBtn = document.createElement('button');
+                        webBtn.type = 'button';
+                        webBtn.className = 'device-link-btn';
+                        webBtn.textContent = '🌐 Driver Search ↗';
+                        webBtn.addEventListener('click', () => OpenDeviceDriverUrl(dev.webSearchUrl, 'Driver Web Search'));
+                        actions.appendChild(webBtn);
+                    }
 
                     if (dev.hardwareId) {
                         const copyBtn = document.createElement('button');
@@ -2840,6 +3254,10 @@ function HandleBrowseFolderResult(data) {
     } else if (data.target === 'wslinstalldir') {
         const inp = document.getElementById('wslImportInstallDir');
         if (inp) inp.value = data.path;
+    } else if (data.target === 'diskmap') {
+        const inp = document.getElementById('diskMapTargetPath');
+        if (inp) inp.value = data.path;
+        TriggerDiskMapScan(data.path);
     } else {
         const inp = document.getElementById('orgCustomFolderInput');
         if (inp) inp.value = data.path;
@@ -4582,7 +5000,7 @@ window.RenderCurrentTasksPortsView = function() {
             return;
         }
 
-        const rows = list.slice(0, 260).map(s => {
+        const rows = list.map(s => {
             const safeSvc = String(s.name || '').replace(/'/g, "\\'");
             const isRun = s.state === 'Running';
             const badgeCls = isRun ? 'badge-success' : (s.isAutoStopped ? 'badge-danger' : 'badge-neutral');
@@ -4607,6 +5025,7 @@ window.RenderCurrentTasksPortsView = function() {
             </tr>`;
         }).join('');
 
+        SetTpStatus(`Showing ${list.length} of ${(data.services || []).length} Windows services.`);
         container.innerHTML = `<table class="tp-data-table">
             <thead><tr><th>Service / Account</th><th>State</th><th>Startup</th><th style="text-align:right">PID</th><th>Control</th></tr></thead>
             <tbody>${rows}</tbody>
@@ -4637,7 +5056,7 @@ window.RenderCurrentTasksPortsView = function() {
             return;
         }
 
-        const rows = list.slice(0, 300).map(x => {
+        const rows = list.map(x => {
             const localEp = `${x.localAddress}:${x.localPort}`;
             const remoteEp = x.protocol === 'UDP' ? '*:*' : `${x.remoteAddress}:${x.remotePort}`;
             const stCls = x.state === 'Listen' ? 'badge-info' : (x.state === 'Established' ? 'badge-success' : 'badge-neutral');
@@ -4723,6 +5142,12 @@ document.addEventListener('click', (e) => {
         const trigger = document.getElementById('tabSystemMenu');
         if (trigger) trigger.setAttribute('aria-expanded', 'false');
     }
+    const javaDd = document.getElementById('javaDropdownWrap');
+    if (javaDd && javaDd.classList.contains('open') && !javaDd.contains(e.target)) {
+        javaDd.classList.remove('open');
+        const jTrig = document.getElementById('btnJavaVersionToggle');
+        if (jTrig) jTrig.setAttribute('aria-expanded', 'false');
+    }
 });
 
 document.addEventListener('keydown', (e) => {
@@ -4733,8 +5158,180 @@ document.addEventListener('keydown', (e) => {
             const trigger = document.getElementById('tabSystemMenu');
             if (trigger) trigger.setAttribute('aria-expanded', 'false');
         }
+        const javaDd = document.getElementById('javaDropdownWrap');
+        if (javaDd && javaDd.classList.contains('open')) {
+            javaDd.classList.remove('open');
+            const jTrig = document.getElementById('btnJavaVersionToggle');
+            if (jTrig) jTrig.setAttribute('aria-expanded', 'false');
+        }
     }
 });
+
+// =========================================================================
+// POWERSHELL INTERACTIVE VERSION / UPDATE TOGGLE & JAVA SWITCHER
+// Universal 3-Tier Colors: Green=Up-to-Date, Purple=1-5 Missed, Red=>5 Missed
+// =========================================================================
+function RenderPowerShellVersionControl(infra) {
+    const el = document.getElementById('lblPsVersion');
+    if (!el || !infra) return;
+
+    const ver    = String(infra.PsVersion || '--');
+    const latest = String(infra.PsLatestVersion || '');
+    const missed = Number(infra.PsMissedUpdates || 0);
+    const tier   = String(infra.PsVersionTier || 'uptodate');
+    const detail = String(infra.PsUpdateDetail || 'Click to check for PowerShell updates').replace(/"/g, '&quot;');
+
+    const isBusy = IsControlPending('CHECK_PS_UPDATE') || IsControlPending('INSTALL_PS_UPDATE');
+    if (isBusy) {
+        SetDomHtml(el, `<button type="button" class="toggle-pill-btn is-busy" disabled>Checking...</button>`);
+        return;
+    }
+
+    let cls = 'ver-uptodate';
+    let label = `${ver} ✓`;
+    if (tier === 'critical' || missed > 5) {
+        cls = 'ver-critical';
+        label = latest ? `${ver} ⚠ ${latest} (+${missed})` : `${ver} ⚠ Outdated`;
+    } else if (tier === 'update' || missed > 0) {
+        cls = 'ver-update';
+        label = latest ? `${ver} ⬆ ${latest}` : `${ver} ⬆ Update`;
+    }
+
+    const safeLatest = latest.replace(/'/g, "\\'");
+    const safeVer = ver.replace(/'/g, "\\'");
+    SetDomHtml(el, `<button type="button" class="toggle-pill-btn ${cls}" onclick="TriggerPowerShellUpdateToggle('${safeVer}', '${safeLatest}', ${missed})" title="${detail}">${label}</button>`);
+}
+
+window.TriggerPowerShellUpdateToggle = function(curVer, latestVer, missed) {
+    if (missed > 0) {
+        const action = confirm(
+            `PowerShell update available: ${curVer} → ${latestVer || 'Latest'} (${missed} release${missed > 1 ? 's' : ''} behind).\n\n` +
+            `Click OK to install the PowerShell 7 update via WinGet now.\n` +
+            `(Click Cancel to re-check GitHub releases without installing.)`
+        );
+        if (action) {
+            DispatchDashboardControl('INSTALL_PS_UPDATE', {}, `Launching PowerShell 7 updater (${curVer} -> ${latestVer || 'Latest'})...`, 'lblPsVersion');
+        } else {
+            DispatchDashboardControl('CHECK_PS_UPDATE', {}, 'Checking GitHub for latest PowerShell release...', 'lblPsVersion');
+        }
+    } else {
+        DispatchDashboardControl('CHECK_PS_UPDATE', {}, 'Checking GitHub for PowerShell updates...', 'lblPsVersion');
+    }
+};
+
+window._javaVersionsCache = [];
+window._javaPrimaryPath = '';
+
+function RenderJavaVersionControl(infra) {
+    const lbl = document.getElementById('lblJavaVersion');
+    const trigger = document.getElementById('btnJavaVersionToggle');
+    const menu = document.getElementById('javaVersionMenu');
+    if (!lbl || !trigger || !menu) return;
+
+    const versions = Array.isArray(infra.JavaVersions) ? infra.JavaVersions : (infra.JavaVersions ? [infra.JavaVersions] : []);
+    window._javaVersionsCache = versions;
+    window._javaPrimaryPath = infra.JavaPrimaryPath || '';
+
+    const primaryText = infra.JavaPrimaryText || (versions.length ? versions[0].label : 'Not Installed');
+    const isBusy = IsControlPending('SET_PRIMARY_JAVA');
+    const countHint = versions.length > 1 ? ` (+${versions.length - 1})` : '';
+    const jTier = String(infra.JavaVersionTier || 'none');
+
+    const nextText = isBusy ? 'Switching...' : `${primaryText}${countHint}`;
+    if (lbl.textContent !== nextText) lbl.textContent = nextText;
+    trigger.classList.toggle('is-missing', versions.length === 0);
+    trigger.classList.toggle('ver-uptodate', jTier === 'uptodate');
+    trigger.classList.toggle('ver-update', jTier === 'update');
+    trigger.classList.toggle('ver-critical', jTier === 'critical');
+    trigger.title = versions.length > 0
+        ? `Primary Java: ${primaryText} (${window._javaPrimaryPath || 'PATH'}) — Click to view ${versions.length} installed runtime(s) or switch primary`
+        : 'No Java runtime detected — Click to install Eclipse Temurin 25+';
+
+    // Only rebuild dropdown DOM when menu isn't currently hovered/active OR content changed
+    const sig = JSON.stringify(versions.map(v => `${v.path}|${v.isPrimary}`));
+    if (menu.dataset.sig === sig) return;
+    menu.dataset.sig = sig;
+    menu.replaceChildren();
+
+    const hdr = document.createElement('div');
+    hdr.className = 'java-menu-header';
+    hdr.innerHTML = `<span>Installed Java Runtimes</span><span>${versions.length} found</span>`;
+    menu.appendChild(hdr);
+
+    if (!versions.length) {
+        const empty = document.createElement('div');
+        empty.className = 'driver-text-node';
+        empty.style.padding = '4px 4px 6px';
+        empty.textContent = 'No JDK/JRE found in Program Files or JAVA_HOME.';
+        menu.appendChild(empty);
+    } else {
+        versions.forEach(v => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = `java-menu-item${v.isPrimary ? ' is-primary' : ''}`;
+            btn.setAttribute('role', 'menuitem');
+            const badge = v.isPrimary
+                ? '<span class="sharing-badge badge-success">Primary</span>'
+                : '<span class="sharing-badge badge-info">Set Primary</span>';
+            btn.innerHTML = `
+                <div class="java-mi-top">
+                    <span>☕ ${EscapeHtmlTp(v.label || v.version)}</span>
+                    ${badge}
+                </div>
+                <div class="java-mi-path" title="${EscapeHtmlTp(v.path)}">${EscapeHtmlTp(v.path)}</div>
+            `;
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (v.isPrimary) {
+                    const wrap = document.getElementById('javaDropdownWrap');
+                    if (wrap) wrap.classList.remove('open');
+                    return;
+                }
+                TriggerSwitchPrimaryJava(v.path, v.label || v.version);
+            });
+            menu.appendChild(btn);
+        });
+    }
+
+    const instBtn = document.createElement('button');
+    instBtn.type = 'button';
+    instBtn.className = 'java-menu-footer-btn';
+    instBtn.textContent = '⬇️ Install Eclipse Temurin 25+ in App Installer';
+    instBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        JumpToInstallJava();
+    });
+    menu.appendChild(instBtn);
+}
+
+window.ToggleJavaVersionDropdown = function(e) {
+    if (e) e.stopPropagation();
+    const wrap = document.getElementById('javaDropdownWrap');
+    const trigger = document.getElementById('btnJavaVersionToggle');
+    if (!wrap) return;
+    const isOpen = wrap.classList.toggle('open');
+    if (trigger) trigger.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+};
+
+window.TriggerSwitchPrimaryJava = function(javaHome, label) {
+    const wrap = document.getElementById('javaDropdownWrap');
+    if (wrap) wrap.classList.remove('open');
+    if (!confirm(`Set primary system Java (JAVA_HOME & System PATH) to:\n\n${label}\n${javaHome}\n\nNew terminals and apps will immediately use this Java version.`)) {
+        return;
+    }
+    DispatchDashboardControl('SET_PRIMARY_JAVA', { javaHome, label }, `Switching primary Java -> ${label}...`, 'lblJavaVersion');
+};
+
+window.JumpToInstallJava = function() {
+    const wrap = document.getElementById('javaDropdownWrap');
+    if (wrap) wrap.classList.remove('open');
+    SwitchAppLayoutView('appstore');
+    const inp = document.getElementById('appStoreSearchInput');
+    if (inp) {
+        inp.value = 'Temurin';
+        ApplyAppInstallerFilter();
+    }
+};
 
 // =========================================================================
 // ACTIVE NETWORK TROUBLESHOOTING TOOLKIT & WI-FI / ROUTING CONTROLLER
@@ -4893,7 +5490,7 @@ function RenderNetDiagResult(data) {
             </tr>`;
         }).join('');
 
-        area.innerHTML = `<div class="tp-table-scroll" style="max-height:280px;"><table class="tp-data-table">
+        area.innerHTML = `<div class="tp-table-scroll"><table class="tp-data-table">
             <thead><tr><th style="text-align:right">Hop</th><th>Hop IP</th><th>Reverse Hostname</th><th style="text-align:right">RTT</th><th>Status</th></tr></thead>
             <tbody>${rows}</tbody>
         </table></div>`;
@@ -5385,7 +5982,9 @@ const COREWATCH_PALETTE_ITEMS = [
     { label: '🚀 Startup Apps Manager', cat: 'Tab', run: () => SwitchAppLayoutView('startup') },
     { label: '📂 SMB Sharing Center', cat: 'Tab', run: () => SwitchAppLayoutView('sharing') },
     { label: '📦 Installed Applications Manager', cat: 'Tab', run: () => SwitchAppLayoutView('apps') },
-    { label: '🧩 System Devices & Drivers Tree', cat: 'Tab', run: () => SwitchAppLayoutView('devices') },
+    { label: '⬇️ App Downloader & Package Installer (Steam, VS Code, Python, Rust, C++)', cat: 'Tab', run: () => SwitchAppLayoutView('appstore') },
+    { label: '🗺️ Disk Map — Visual Storage Explorer & Treemap (WizTree-style)', cat: 'Tab', run: () => SwitchAppLayoutView('diskmap') },
+    { label: '🧩 System Devices & Drivers Tree (with Official Driver Links)', cat: 'Tab', run: () => SwitchAppLayoutView('devices') },
     { label: '🗂️ File Organizer', cat: 'Tab', run: () => SwitchAppLayoutView('organizer') },
     { label: '🌐 Flush DNS Cache & Probe Resolution', cat: 'Action', run: () => TriggerFlushAndTestDns() },
     { label: '🚀 Run Speed / Jitter / Packet Loss Test', cat: 'Action', run: () => { SwitchAppLayoutView('dashboard'); TriggerNetworkSpeedAnalysis(); } }
@@ -5476,3 +6075,1055 @@ document.addEventListener('DOMContentLoaded', () => {
         TriggerCodeTranslation(code);
     });
 });
+
+// =========================================================================
+// VIEW 12: APP DOWNLOADER & PACKAGE INSTALLER CONTROLLER
+// =========================================================================
+window._appStoreLoaded = false;
+window._appStoreApps = [];
+window._appStoreCategory = 'all';
+window._appStoreSelectedIds = new Set();
+window._appStoreWingetAvailable = true;
+
+window.RequestAppInstaller = function() {
+    const st = document.getElementById('appStoreStatus');
+    if (st) {
+        st.classList.remove('sharing-error');
+        st.textContent = 'Scanning installed packages and syncing CoreWatch App Catalog...';
+    }
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'APPSTORE_LOAD' }));
+};
+
+function RenderAppInstallerData(data) {
+    window._appStoreLoaded = true;
+    window._appStoreWingetAvailable = !!data.wingetAvailable;
+    const apps = Array.isArray(data.apps) ? data.apps : (data.apps ? [data.apps] : []);
+    window._appStoreApps = apps;
+
+    const sum = data.summary || {};
+    SetDomText('sumStoreTotal',     sum.total ?? apps.length);
+    SetDomText('sumStoreInstalled', sum.installed ?? apps.filter(a => a.installed).length);
+    SetDomText('sumStoreOutdated',  sum.outdated ?? apps.filter(a => a.versionTier === 'update' || a.versionTier === 'critical').length);
+    SetDomText('sumStoreAvailable', sum.available ?? apps.filter(a => !a.installed).length);
+    SetDomText('lblStoreWingetVer', data.wingetAvailable ? (data.wingetVersion || 'Ready') : 'Not Installed');
+
+    const st = document.getElementById('appStoreStatus');
+    if (st) {
+        st.classList.toggle('sharing-error', !!data.error);
+        if (data.error) {
+            st.textContent = data.error;
+        } else if (!data.wingetAvailable) {
+            st.textContent = 'WinGet was not detected — you can still open Official Download pages for any app below.';
+        } else {
+            st.textContent = `${apps.length} curated apps ready (${sum.installed ?? 0} detected installed). Check multiple apps to batch-install or click Install on any card.`;
+        }
+    }
+
+    UpdateAppStoreBatchButton();
+    ApplyAppInstallerFilter();
+}
+
+window.SetAppStoreCategory = function(catKey) {
+    window._appStoreCategory = catKey;
+    document.querySelectorAll('#appStoreCategoryPills .filter-pill').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.cat === catKey);
+    });
+    ApplyAppInstallerFilter();
+};
+
+function UpdateAppStoreBatchButton() {
+    const count = window._appStoreSelectedIds.size;
+    SetDomText('sumStoreSelected', count);
+    const btn = document.getElementById('btnAppStoreBatchInstall');
+    if (btn) {
+        btn.textContent = `⬇️ Install Selected (${count})`;
+        btn.disabled = (count === 0);
+    }
+}
+
+window.ToggleAppStoreSelect = function(pkgId, checked) {
+    if (checked) window._appStoreSelectedIds.add(pkgId);
+    else window._appStoreSelectedIds.delete(pkgId);
+    UpdateAppStoreBatchButton();
+    ApplyAppInstallerFilter();
+};
+
+window.SelectEssentialAppsPack = function() {
+    window._appStoreApps.forEach(a => {
+        if (a.essential && !a.installed) {
+            window._appStoreSelectedIds.add(a.id);
+        }
+    });
+    UpdateAppStoreBatchButton();
+    ApplyAppInstallerFilter();
+    const st = document.getElementById('appStoreStatus');
+    if (st) st.textContent = `Selected ${window._appStoreSelectedIds.size} missing essential runtime(s) & tool(s). Click 'Install Selected' to deploy.`;
+};
+
+window.ClearAppStoreSelection = function() {
+    window._appStoreSelectedIds.clear();
+    UpdateAppStoreBatchButton();
+    ApplyAppInstallerFilter();
+};
+
+window.ApplyAppInstallerFilter = function() {
+    const container = document.getElementById('appStoreContainer');
+    if (!container) return;
+
+    const q = (document.getElementById('appStoreSearchInput')?.value || '').trim().toLowerCase();
+    const sortBy = document.getElementById('appStoreSortSelect')?.value || 'name_asc';
+    const cat = window._appStoreCategory || 'all';
+
+    const list = window._appStoreApps.filter(app => {
+        if (cat === 'requested' && !app.requested) return false;
+        else if (cat === 'installed' && !app.installed) return false;
+        else if (cat === 'not_installed' && app.installed) return false;
+        else if (cat !== 'all' && cat !== 'requested' && cat !== 'installed' && cat !== 'not_installed' && app.category !== cat) return false;
+
+        if (q) {
+            const hay = `${app.name} ${app.id} ${app.category} ${app.desc}`.toLowerCase();
+            if (!hay.includes(q)) return false;
+        }
+        return true;
+    });
+
+    list.sort((a, b) => {
+        const cmpName = String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' });
+        if (sortBy === 'name_desc') return -cmpName;
+        if (sortBy === 'category') return String(a.category || '').localeCompare(String(b.category || '')) || cmpName;
+        if (sortBy === 'requested') return (Number(!!b.requested) - Number(!!a.requested)) || cmpName;
+        if (sortBy === 'installed') return (Number(!!b.installed) - Number(!!a.installed)) || cmpName;
+        if (sortBy === 'available') return (Number(!!a.installed) - Number(!!b.installed)) || cmpName;
+        return cmpName; // Default: Name A-Z
+    });
+
+    container.replaceChildren();
+    if (!list.length) {
+        container.innerHTML = '<div class="driver-text-node" style="padding:10px;">No apps match the current filter. Try the WinGet Search box above to install any Windows package.</div>';
+        return;
+    }
+
+    const frag = document.createDocumentFragment();
+    list.forEach(app => {
+        const isSel = window._appStoreSelectedIds.has(app.id);
+        const card = document.createElement('article');
+        card.className = `appstore-card${isSel ? ' is-selected' : ''}${app.installed ? ' is-installed' : ''}`;
+
+        const head = document.createElement('div');
+        head.className = 'appstore-card-head';
+
+        const titleLabel = document.createElement('label');
+        titleLabel.className = 'appstore-card-title-wrap';
+        const chk = document.createElement('input');
+        chk.type = 'checkbox';
+        chk.checked = isSel;
+        chk.addEventListener('change', () => ToggleAppStoreSelect(app.id, chk.checked));
+        const titleSpan = document.createElement('span');
+        titleSpan.className = 'appstore-card-title';
+        titleSpan.textContent = app.name;
+        titleSpan.title = app.name;
+        titleLabel.append(chk, titleSpan);
+
+        const badges = document.createElement('div');
+        badges.className = 'card-badge-group';
+        if (app.installed) {
+            const tier = app.versionTier || 'uptodate';
+            const verTxt = app.version && app.version !== 'Detected' ? app.version : 'Installed';
+            if (tier === 'critical') {
+                const tip = `Severely outdated (${verTxt} -> ${app.availableVersion || 'newer'}, >5 updates behind)`;
+                badges.innerHTML += `<span class="sharing-badge ver-critical" title="${EscapeHtmlTp(tip)}">⚠ Outdated ${EscapeHtmlTp(app.availableVersion || '')}</span>`;
+            } else if (tier === 'update') {
+                const tip = `Update available: ${verTxt} -> ${app.availableVersion || 'newer'}`;
+                badges.innerHTML += `<span class="sharing-badge ver-update" title="${EscapeHtmlTp(tip)}">⬆ ${EscapeHtmlTp(app.availableVersion || 'Update')}</span>`;
+            } else {
+                badges.innerHTML += `<span class="sharing-badge ver-uptodate" title="Up to date (${EscapeHtmlTp(verTxt)})">✓ Up to Date</span>`;
+            }
+        } else {
+            badges.innerHTML += '<span class="sharing-badge badge-info">Available</span>';
+        }
+        if (app.requested) {
+            badges.innerHTML += '<span class="sharing-badge badge-purple" title="Core Requested App">★</span>';
+        }
+        head.append(titleLabel, badges);
+        card.appendChild(head);
+
+        const desc = document.createElement('div');
+        desc.className = 'appstore-card-desc';
+        desc.textContent = app.desc;
+        card.appendChild(desc);
+
+        const meta = document.createElement('div');
+        meta.className = 'appstore-card-meta';
+        meta.innerHTML = `<span class="appstore-card-id" title="Package ID: ${EscapeHtmlTp(app.id)}">${EscapeHtmlTp(app.id)}</span><span>${EscapeHtmlTp(app.category)}</span>`;
+        card.appendChild(meta);
+
+        const actions = document.createElement('div');
+        actions.className = 'appstore-card-actions';
+
+        const mainBtn = document.createElement('button');
+        mainBtn.type = 'button';
+        if (app.installed && app.customType !== 'pawnio') {
+            mainBtn.className = 'btn-store-upgrade';
+            mainBtn.textContent = '⬆️ Upgrade';
+            mainBtn.title = `Upgrade ${app.name} via WinGet`;
+            mainBtn.addEventListener('click', () => TriggerInstallOneApp(app.id, app.name, 'upgrade'));
+        } else {
+            mainBtn.className = 'btn-store-install';
+            mainBtn.textContent = app.installed ? '↻ Reinstall' : '⬇️ Install';
+            mainBtn.title = `Download & install ${app.name}`;
+            mainBtn.addEventListener('click', () => TriggerInstallOneApp(app.id, app.name, 'install'));
+        }
+        actions.appendChild(mainBtn);
+
+        if (app.url) {
+            const siteBtn = document.createElement('button');
+            siteBtn.type = 'button';
+            siteBtn.textContent = '🌐 Official Site ↗';
+            siteBtn.title = app.url;
+            siteBtn.addEventListener('click', () => OpenAppOfficialUrl(app.url, app.name));
+            actions.appendChild(siteBtn);
+        }
+
+        card.appendChild(actions);
+        frag.appendChild(card);
+    });
+
+    container.appendChild(frag);
+};
+
+window.TriggerInstallOneApp = function(pkgId, appName, mode = 'install') {
+    const verb = mode === 'upgrade' ? 'Upgrade' : 'Download & Install';
+    if (!confirm(`${verb} [ ${appName} ] (${pkgId})?\n\nAn elevated installer progress window will launch.`)) return;
+    const st = document.getElementById('appStoreStatus');
+    if (st) {
+        st.classList.remove('sharing-error');
+        st.textContent = `Launching ${verb.toLowerCase()} terminal for ${appName}...`;
+    }
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'APPSTORE_INSTALL_ONE', id: pkgId, mode }));
+};
+
+window.TriggerInstallSelectedApps = function() {
+    const ids = Array.from(window._appStoreSelectedIds);
+    if (!ids.length) return;
+    if (!confirm(`Batch-install ${ids.length} selected app(s)?\n\n${ids.join('\n')}\n\nAn elevated installer window will install them sequentially.`)) return;
+    const st = document.getElementById('appStoreStatus');
+    if (st) {
+        st.classList.remove('sharing-error');
+        st.textContent = `Launching batch installer for ${ids.length} package(s)...`;
+    }
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'APPSTORE_INSTALL_BATCH', ids }));
+};
+
+window.TriggerUpgradeAllApps = function() {
+    if (!confirm("Launch elevated 'winget upgrade --all' to update all installed WinGet packages?")) return;
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'APPSTORE_UPGRADE_ALL' }));
+};
+
+window.OpenAppOfficialUrl = function(url, name) {
+    const st = document.getElementById('appStoreStatus');
+    if (st) st.textContent = `Opening official download page for ${name}...`;
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'APPSTORE_OPEN_URL', url }));
+};
+
+window.TriggerWingetLiveSearch = function(e) {
+    if (e) e.preventDefault();
+    const q = (document.getElementById('appStoreWingetQuery')?.value || '').trim();
+    if (q.length < 2) return;
+    const st = document.getElementById('appStoreStatus');
+    if (st) {
+        st.classList.remove('sharing-error');
+        st.textContent = `Searching WinGet repository for '${q}'...`;
+    }
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'APPSTORE_SEARCH_WINGET', query: q }));
+};
+
+function RenderAppStoreWingetResults(data) {
+    const box = document.getElementById('appStoreWingetResults');
+    const st = document.getElementById('appStoreStatus');
+    if (st && data.message) {
+        st.classList.toggle('sharing-error', !data.ok);
+        st.textContent = data.message;
+    }
+    if (!box) return;
+
+    const results = Array.isArray(data.results) ? data.results : [];
+    if (!results.length) {
+        box.style.display = 'block';
+        box.innerHTML = `<div style="display:flex; justify-content:space-between; align-items:center;"><span class="driver-text-node">No WinGet packages found matching '${EscapeHtmlTp(data.query || '')}'.</span><button type="button" class="console-clear-btn" onclick="document.getElementById('appStoreWingetResults').style.display='none'">Close</button></div>`;
+        return;
+    }
+
+    box.style.display = 'block';
+    const rows = results.map(r => {
+        const safeId = String(r.id || '').replace(/'/g, "\\'");
+        const safeName = String(r.name || '').replace(/'/g, "\\'");
+        return `<tr>
+            <td class="tp-cell-primary">${EscapeHtmlTp(r.name)}</td>
+            <td style="color:#90cdf4; user-select:text;">${EscapeHtmlTp(r.id)}</td>
+            <td style="color:#a0aec0;">${EscapeHtmlTp(r.version)}</td>
+            <td><div class="tp-row-actions"><button type="button" class="btn-accent-action" onclick="TriggerInstallOneApp('${safeId}', '${safeName}', 'install')">⬇️ Install</button></div></td>
+        </tr>`;
+    }).join('');
+
+    box.innerHTML = `
+        <div class="organizer-section-header" style="margin-bottom:6px;">
+            <h3>🔎 Live WinGet Search: "${EscapeHtmlTp(data.query || '')}" (${results.length})</h3>
+            <button type="button" class="console-clear-btn" onclick="document.getElementById('appStoreWingetResults').style.display='none'">Close Results</button>
+        </div>
+        <table class="tp-data-table">
+            <thead><tr><th>Package Name</th><th>WinGet ID</th><th>Version</th><th>Action</th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table>
+    `;
+}
+
+function HandleAppStoreNotice(data) {
+    const st = document.getElementById('appStoreStatus');
+    const msg = data.error || data.message || '';
+    if (st) {
+        st.classList.toggle('sharing-error', !!data.error || data.ok === false);
+        st.textContent = msg;
+    }
+    if (data.message) AppendConsoleLogEntry(`[APP STORE] ${data.message}`);
+    if (data.error) AppendConsoleLogEntry(`[APP STORE ERROR] ${data.error}`);
+}
+
+// =========================================================================
+// VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
+// =========================================================================
+window._dmInitialized = false;
+window._dmScanning = false;
+window._dmDrives = [];
+window._dmScanData = null;
+window._dmNavStack = [];       // Stack of DiskEntryDto folder nodes for instant zoom/back
+window._dmViewMode = 'tree';   // 'tree' | 'files' | 'exts'
+window._dmHighlightExt = '';   // Optional exact extension filter/highlight (e.g. '.pak')
+window._dmSelectedItem = null; // Currently selected file/folder
+window._dmRects = [];          // Hit-testable treemap rectangles rendered on canvas
+window._dmHoveredRect = null;
+window._dmResizeObs = null;
+
+function FormatDiskBytes(bytes) {
+    const n = Number(bytes || 0);
+    if (n >= 1099511627776) return `${(n / 1099511627776).toFixed(2)} TB`;
+    if (n >= 1073741824) return `${(n / 1073741824).toFixed(2)} GB`;
+    if (n >= 1048576) return `${(n / 1048576).toFixed(1)} MB`;
+    if (n >= 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${n} B`;
+}
+
+// Deterministic, distinct color palette grouped by exact file extension category
+function GetDiskExtColor(ext, isDir) {
+    if (isDir) return '#2b4c7e';
+    const e = String(ext || '').toLowerCase();
+    if (['.mp4', '.mkv', '.mov', '.avi', '.webm', '.wmv', '.m4v', '.ts'].includes(e)) return '#e53e3e'; // Video (Crimson)
+    if (['.vhdx', '.vhd', '.iso', '.img', '.vmdk', '.vdi', '.wim', '.esd'].includes(e)) return '#dd6b20'; // Virtual Disks / ISOs (Orange)
+    if (['.pak', '.vpk', '.cas', '.bsa', '.ba2', '.uasset', '.ucas', '.rpf', '.forge', '.wad'].includes(e)) return '#d69e2e'; // Game Assets (Gold)
+    if (['.zip', '.7z', '.rar', '.tar', '.gz', '.xz', '.bz2', '.cab', '.zst'].includes(e)) return '#805ad5'; // Archives (Purple)
+    if (['.exe', '.dll', '.msi', '.msix', '.sys', '.so', '.bin', '.ocx'].includes(e)) return '#3182ce'; // Binaries & Libraries (Blue)
+    if (['.psd', '.blend', '.fbx', '.obj', '.png', '.jpg', '.jpeg', '.webp', '.tif', '.tiff', '.exr', '.raw', '.cr2'].includes(e)) return '#319795'; // Creative / 3D / Images (Teal)
+    if (['.wav', '.flac', '.mp3', '.ogg', '.aac', '.m4a', '.aiff', '.opus'].includes(e)) return '#d53f8c'; // Audio (Magenta)
+    if (['.dmp', '.log', '.etl', '.tmp', '.bak', '.old', '.cache'].includes(e)) return '#e53e78'; // Logs / Crash Dumps (Rose)
+    if (['.pdb', '.lib', '.obj', '.a', '.rlib', '.jar', '.whl', '.nupkg', '.db', '.sqlite', '.mdf'].includes(e)) return '#38a169'; // Dev / Symbols / Databases (Green)
+    // Deterministic HSL fallback for every unique extension so distinct types stay distinguishable
+    let hash = 0;
+    for (let i = 0; i < e.length; i++) hash = ((hash << 5) - hash) + e.charCodeAt(i);
+    const hue = Math.abs(hash) % 360;
+    return `hsl(${hue}, 48%, 42%)`;
+}
+
+window.OpenDriveInDiskMap = function(drivePath) {
+    SwitchAppLayoutView('diskmap');
+    const inp = document.getElementById('diskMapTargetPath');
+    if (inp) inp.value = drivePath;
+    TriggerDiskMapScan(drivePath);
+};
+
+function InitDiskMapTab() {
+    if (!window._dmInitialized) {
+        window._dmInitialized = true;
+        SetupDiskMapCanvasEvents();
+        RequestDiskMapDrives();
+    } else if (window._dmScanData) {
+        setTimeout(() => DrawDiskMapTreemap(), 30);
+    }
+}
+
+window.RequestDiskMapDrives = function() {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'DISKMAP_LIST_DRIVES' }));
+};
+
+function RenderDiskMapDrives(drives) {
+    window._dmDrives = Array.isArray(drives) ? drives : [];
+    const strip = document.getElementById('diskMapDriveStrip');
+    if (!strip) return;
+    strip.replaceChildren();
+
+    const activePath = (document.getElementById('diskMapTargetPath')?.value || '').trim().toLowerCase();
+    window._dmDrives.forEach(d => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `diskmap-drive-pill${activePath.startsWith(d.path.toLowerCase()) ? ' active' : ''}`;
+        const fillColor = d.usedPct >= 90 ? '#f56565' : (d.usedPct >= 75 ? '#ecc94b' : '#4299e1');
+        btn.innerHTML = `
+            <strong>${EscapeHtmlTp(d.letter)}</strong>
+            <span style="color:#a0aec0;">${EscapeHtmlTp(d.label)}</span>
+            <span class="diskmap-drive-mini-bar"><span class="diskmap-drive-mini-fill" style="width:${d.usedPct}%; background:${fillColor}; display:block;"></span></span>
+            <span style="font-size:10px; color:#cbd5e0;">${d.usedGB}/${d.totalGB} GB</span>
+        `;
+        btn.title = `Scan ${d.path} (${d.format}) — ${d.freeGB} GB free`;
+        btn.addEventListener('click', () => {
+            const inp = document.getElementById('diskMapTargetPath');
+            if (inp) inp.value = d.path;
+            TriggerDiskMapScan(d.path);
+        });
+        strip.appendChild(btn);
+    });
+}
+
+window.TriggerDiskMapScanFromInput = function() {
+    const target = (document.getElementById('diskMapTargetPath')?.value || 'C:\\').trim();
+    if (!target) return;
+    TriggerDiskMapScan(target);
+};
+
+window.TriggerDiskMapScan = function(targetPath) {
+    if (window._dmScanning) return;
+    window._dmScanning = true;
+    const scanBtn = document.getElementById('btnDiskMapScanNow');
+    if (scanBtn) { scanBtn.disabled = true; scanBtn.textContent = 'Scanning...'; }
+
+    const st = document.getElementById('diskMapStatus');
+    if (st) {
+        st.classList.remove('sharing-error');
+        st.textContent = `Scanning ${targetPath} with multithreaded Win32 FastDiskScanner...`;
+    }
+    AppendConsoleLogEntry(`[DISK MAP] Starting visual scan of ${targetPath}...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'DISKMAP_SCAN', path: targetPath }));
+};
+
+function RenderDiskMapScanResult(data) {
+    window._dmScanning = false;
+    const scanBtn = document.getElementById('btnDiskMapScanNow');
+    if (scanBtn) { scanBtn.disabled = false; scanBtn.textContent = '⚡ Scan Now'; }
+
+    if (Array.isArray(data.drives)) RenderDiskMapDrives(data.drives);
+    window._dmScanData = data;
+    window._dmNavStack = data.tree ? [data.tree] : [];
+    window._dmHighlightExt = '';
+    window._dmSelectedItem = null;
+    UpdateDiskMapSelectedBar();
+
+    const inp = document.getElementById('diskMapTargetPath');
+    if (inp && data.rootPath) inp.value = data.rootPath;
+
+    const elapsedSec = Math.max(0.01, (data.elapsedMs || 1) / 1000);
+    const filesPerSec = Math.round((data.totalFiles || 0) / elapsedSec);
+    const topDir = (data.tree && Array.isArray(data.tree.children))
+        ? data.tree.children.find(c => c.isDir)
+        : null;
+    const topFile = (Array.isArray(data.largestFiles) && data.largestFiles.length) ? data.largestFiles[0] : null;
+
+    SetDomText('sumDmSize',    FormatDiskBytes(data.totalBytes));
+    SetDomText('sumDmFiles',   (data.totalFiles || 0).toLocaleString());
+    SetDomText('sumDmDirs',    (data.totalDirs || 0).toLocaleString());
+    SetDomText('sumDmSpeed',   `${elapsedSec.toFixed(2)}s (${filesPerSec.toLocaleString()}/s)`);
+    SetDomText('sumDmTopDir',  topDir ? `${topDir.name} (${FormatDiskBytes(topDir.size)})` : '--');
+    SetDomText('sumDmTopFile', topFile ? `${topFile.name} (${FormatDiskBytes(topFile.size)})` : '--');
+
+    const st = document.getElementById('diskMapStatus');
+    if (st) {
+        st.classList.remove('sharing-error');
+        const deniedNote = data.accessDenied > 0 ? ` · ${data.accessDenied} protected system folder(s) skipped` : '';
+        st.textContent = `Mapped ${data.rootPath} — ${FormatDiskBytes(data.totalBytes)} across ${(data.totalFiles || 0).toLocaleString()} files in ${elapsedSec.toFixed(2)}s${deniedNote}.`;
+    }
+    AppendConsoleLogEntry(`[DISK MAP] Mapped ${data.rootPath}: ${FormatDiskBytes(data.totalBytes)} (${(data.totalFiles || 0).toLocaleString()} files in ${elapsedSec.toFixed(2)}s)`);
+
+    RenderDiskMapBreadcrumbs();
+    RenderDiskMapCurrentView();
+    setTimeout(() => DrawDiskMapTreemap(), 20);
+}
+
+window.SetDiskMapViewMode = function(mode) {
+    window._dmViewMode = mode;
+    document.querySelectorAll('#diskMapModePills .filter-pill').forEach(b => {
+        b.classList.toggle('active', b.dataset.dmmode === mode);
+    });
+    RenderDiskMapCurrentView();
+};
+
+function GetDiskMapCurrentNode() {
+    if (!window._dmNavStack.length) return null;
+    return window._dmNavStack[window._dmNavStack.length - 1];
+}
+
+function RenderDiskMapBreadcrumbs() {
+    const box = document.getElementById('diskMapBreadcrumbs');
+    const upBtn = document.getElementById('btnDmUp');
+    const rootBtn = document.getElementById('btnDmRoot');
+    if (!box) return;
+
+    const stack = window._dmNavStack;
+    if (upBtn) upBtn.disabled = stack.length <= 1;
+    if (rootBtn) rootBtn.disabled = stack.length <= 1;
+
+    box.replaceChildren();
+    if (!stack.length) {
+        box.textContent = 'Select a drive above and click Scan Now';
+        return;
+    }
+
+    stack.forEach((node, idx) => {
+        if (idx > 0) {
+            const sep = document.createElement('span');
+            sep.textContent = '▸';
+            sep.style.color = '#4a5568';
+            box.appendChild(sep);
+        }
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'diskmap-crumb-btn';
+        btn.textContent = `${node.name} (${FormatDiskBytes(node.size)})`;
+        btn.addEventListener('click', () => {
+            window._dmNavStack = window._dmNavStack.slice(0, idx + 1);
+            RenderDiskMapBreadcrumbs();
+            RenderDiskMapCurrentView();
+            DrawDiskMapTreemap();
+        });
+        box.appendChild(btn);
+    });
+
+    const extBadge = document.getElementById('diskMapExtFilterBadge');
+    if (extBadge) {
+        if (window._dmHighlightExt) {
+            extBadge.style.display = 'inline-flex';
+            extBadge.innerHTML = `<button type="button" class="toggle-pill-btn ver-update" onclick="ClearDiskMapExtFilter()" title="Click to clear extension filter">Filter: ${EscapeHtmlTp(window._dmHighlightExt)} ✕</button>`;
+        } else {
+            extBadge.style.display = 'none';
+            extBadge.innerHTML = '';
+        }
+    }
+}
+
+window.ClearDiskMapExtFilter = function() {
+    window._dmHighlightExt = '';
+    RenderDiskMapBreadcrumbs();
+    RenderDiskMapCurrentView();
+    DrawDiskMapTreemap();
+};
+
+window.DiskMapNavigateUp = function() {
+    if (window._dmNavStack.length <= 1) return;
+    window._dmNavStack.pop();
+    window._dmSelectedItem = null;
+    UpdateDiskMapSelectedBar();
+    RenderDiskMapBreadcrumbs();
+    RenderDiskMapCurrentView();
+    DrawDiskMapTreemap();
+};
+
+window.DiskMapNavigateRoot = function() {
+    if (window._dmNavStack.length <= 1) return;
+    window._dmNavStack = [window._dmNavStack[0]];
+    window._dmSelectedItem = null;
+    UpdateDiskMapSelectedBar();
+    RenderDiskMapBreadcrumbs();
+    RenderDiskMapCurrentView();
+    DrawDiskMapTreemap();
+};
+
+window.DiskMapZoomIntoNode = function(node) {
+    if (!node || !node.isDir) return;
+    if (Array.isArray(node.children) && node.children.length > 0) {
+        window._dmNavStack.push(node);
+        window._dmSelectedItem = null;
+        UpdateDiskMapSelectedBar();
+        RenderDiskMapBreadcrumbs();
+        RenderDiskMapCurrentView();
+        DrawDiskMapTreemap();
+    } else if (node.path) {
+        // Folder is deeper than cached 4-level tree — run an instant deep sub-scan of that exact subfolder!
+        TriggerDiskMapScan(node.path);
+    }
+};
+
+window.RenderDiskMapCurrentView = function() {
+    const pane = document.getElementById('diskMapDataPane');
+    const data = window._dmScanData;
+    if (!pane || !data) return;
+
+    const q = (document.getElementById('diskMapFilterInput')?.value || '').trim().toLowerCase();
+    const extFlt = (window._dmHighlightExt || '').toLowerCase();
+
+    if (window._dmViewMode === 'tree') {
+        const cur = GetDiskMapCurrentNode();
+        const children = (cur && Array.isArray(cur.children)) ? cur.children : [];
+        const parentTotal = Math.max(1, cur ? cur.size : data.totalBytes || 1);
+
+        let list = children.filter(c => {
+            if (extFlt && !c.isDir && String(c.ext || '').toLowerCase() !== extFlt) return false;
+            if (q) {
+                const hay = `${c.name} ${c.path} ${c.ext || ''}`.toLowerCase();
+                if (!hay.includes(q)) return false;
+            }
+            return true;
+        });
+
+        if (!list.length) {
+            pane.innerHTML = '<div class="driver-text-node" style="padding:10px;">No entries match the current filter in this folder.</div>';
+            return;
+        }
+
+        const rows = list.map((c, idx) => {
+            const pct = Math.min(100, (c.size / parentTotal) * 100);
+            const color = GetDiskExtColor(c.ext, c.isDir);
+            const icon = c.isDir ? '📁' : '📄';
+            const selCls = (window._dmSelectedItem && window._dmSelectedItem.path === c.path) ? ' diskmap-row-selected' : '';
+            const safePath = String(c.path || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+            const zoomBtn = c.isDir ? `<button type="button" onclick="event.stopPropagation(); DiskMapZoomByIndex(${idx})">Zoom</button>` : '';
+            return `<tr class="diskmap-row-clickable${selCls}" onclick="DiskMapSelectFromTree(${idx})" ondblclick="DiskMapDoubleClickTree(${idx})">
+                <td><span class="tp-cell-primary">${icon} ${EscapeHtmlTp(c.name)}</span><span class="tp-cell-sub" title="${EscapeHtmlTp(c.path)}">${c.isDir ? `${(c.files || 0).toLocaleString()} files · ${(c.dirs || 0).toLocaleString()} folders` : `${EscapeHtmlTp(c.ext || 'file')}${c.modified ? ' · ' + c.modified : ''}`}</span></td>
+                <td class="tp-cell-num" style="font-weight:700; color:#edf2f7;">${FormatDiskBytes(c.size)}</td>
+                <td style="white-space:nowrap;"><span class="diskmap-pct-bar"><span class="diskmap-pct-fill" style="width:${pct.toFixed(1)}%; background:${color}; display:block;"></span></span><span style="color:#a0aec0; font-size:10px;">${pct.toFixed(1)}%</span></td>
+                <td><div class="tp-row-actions">${zoomBtn}<button type="button" onclick="event.stopPropagation(); DiskMapOpenInExplorer('${safePath}')">Explorer</button><button type="button" class="wsl-btn-danger" onclick="event.stopPropagation(); DiskMapRecyclePath('${safePath}')">Recycle</button></div></td>
+            </tr>`;
+        }).join('');
+
+        window._dmRenderedTreeList = list;
+        pane.innerHTML = `<table class="tp-data-table">
+            <thead><tr><th>Name / Details</th><th style="text-align:right">Size</th><th>% of Folder</th><th>Actions</th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table>`;
+        return;
+    }
+
+    if (window._dmViewMode === 'files') {
+        let list = Array.isArray(data.largestFiles) ? [...data.largestFiles] : [];
+        const totalBytes = Math.max(1, data.totalBytes || 1);
+        list = list.filter(f => {
+            if (extFlt && String(f.ext || '').toLowerCase() !== extFlt) return false;
+            if (q) {
+                const hay = `${f.name} ${f.path} ${f.ext || ''}`.toLowerCase();
+                if (!hay.includes(q)) return false;
+            }
+            return true;
+        });
+
+        if (!list.length) {
+            pane.innerHTML = '<div class="driver-text-node" style="padding:10px;">No large files match your current filter.</div>';
+            return;
+        }
+
+        const rows = list.map(f => {
+            const pct = (f.size / totalBytes) * 100;
+            const color = GetDiskExtColor(f.ext, false);
+            const safePath = String(f.path || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+            return `<tr>
+                <td><span class="tp-cell-primary"><span class="diskmap-ext-dot" style="background:${color};"></span>${EscapeHtmlTp(f.name)}</span><span class="tp-cell-sub" title="${EscapeHtmlTp(f.path)}">${EscapeHtmlTp(f.dir || f.path)}</span></td>
+                <td><span class="sharing-badge badge-neutral" style="border-color:${color}; color:#edf2f7;">${EscapeHtmlTp(f.ext || '')}</span></td>
+                <td class="tp-cell-num" style="font-weight:700; color:#edf2f7;">${FormatDiskBytes(f.size)}</td>
+                <td class="tp-cell-num" style="color:#a0aec0;">${pct.toFixed(2)}%</td>
+                <td style="color:#a0aec0; white-space:nowrap;">${EscapeHtmlTp(f.modified || '--')}</td>
+                <td><div class="tp-row-actions"><button type="button" onclick="DiskMapOpenInExplorer('${safePath}')">Explorer</button><button type="button" onclick="CopyRawText('${safePath}', 'Path')">Copy</button><button type="button" class="wsl-btn-danger" onclick="DiskMapRecyclePath('${safePath}')">Recycle</button></div></td>
+            </tr>`;
+        }).join('');
+
+        pane.innerHTML = `<table class="tp-data-table">
+            <thead><tr><th>Exact File / Folder Path</th><th>Ext</th><th style="text-align:right">Size</th><th style="text-align:right">% Scan</th><th>Modified</th><th>Actions</th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table>`;
+        return;
+    }
+
+    if (window._dmViewMode === 'exts') {
+        let list = Array.isArray(data.extensions) ? [...data.extensions] : [];
+        const totalBytes = Math.max(1, data.totalBytes || 1);
+        if (q) list = list.filter(e => String(e.ext || '').toLowerCase().includes(q) || String(e.topFile || '').toLowerCase().includes(q));
+
+        if (!list.length) {
+            pane.innerHTML = '<div class="driver-text-node" style="padding:10px;">No file extensions match your filter.</div>';
+            return;
+        }
+
+        const rows = list.map(e => {
+            const pct = Math.min(100, (e.size / totalBytes) * 100);
+            const color = GetDiskExtColor(e.ext, false);
+            const safeExt = String(e.ext || '').replace(/'/g, "\\'");
+            const isAct = (extFlt === String(e.ext || '').toLowerCase());
+            return `<tr class="diskmap-row-clickable${isAct ? ' diskmap-row-selected' : ''}" onclick="ToggleDiskMapExtFilter('${safeExt}')" title="Click to highlight ${EscapeHtmlTp(e.ext)} files in Treemap & Largest Files">
+                <td><span class="tp-cell-primary"><span class="diskmap-ext-dot" style="background:${color};"></span>${EscapeHtmlTp(e.ext)}</span></td>
+                <td class="tp-cell-num" style="font-weight:700; color:#edf2f7;">${FormatDiskBytes(e.size)}</td>
+                <td style="white-space:nowrap;"><span class="diskmap-pct-bar"><span class="diskmap-pct-fill" style="width:${pct.toFixed(1)}%; background:${color}; display:block;"></span></span><span style="color:#a0aec0; font-size:10px;">${pct.toFixed(1)}%</span></td>
+                <td class="tp-cell-num">${(e.count || 0).toLocaleString()}</td>
+                <td><span class="tp-cell-sub" style="max-width:340px;" title="${EscapeHtmlTp(e.topFile || '')}">${EscapeHtmlTp(e.topFile || '--')} (${FormatDiskBytes(e.topFileSize || 0)})</span></td>
+            </tr>`;
+        }).join('');
+
+        pane.innerHTML = `<table class="tp-data-table">
+            <thead><tr><th>Exact Extension</th><th style="text-align:right">Total Size</th><th>% Scan</th><th style="text-align:right">Files</th><th>Largest File of Type</th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table>`;
+    }
+};
+
+window.ToggleDiskMapExtFilter = function(ext) {
+    window._dmHighlightExt = (window._dmHighlightExt.toLowerCase() === String(ext).toLowerCase()) ? '' : ext;
+    RenderDiskMapBreadcrumbs();
+    RenderDiskMapCurrentView();
+    DrawDiskMapTreemap();
+};
+
+window.DiskMapSelectFromTree = function(idx) {
+    const item = (window._dmRenderedTreeList || [])[idx];
+    if (!item) return;
+    window._dmSelectedItem = item;
+    UpdateDiskMapSelectedBar();
+    RenderDiskMapCurrentView();
+    DrawDiskMapTreemap();
+};
+
+window.DiskMapDoubleClickTree = function(idx) {
+    const item = (window._dmRenderedTreeList || [])[idx];
+    if (!item) return;
+    if (item.isDir) DiskMapZoomIntoNode(item);
+    else DiskMapOpenInExplorer(item.path);
+};
+
+window.DiskMapZoomByIndex = function(idx) {
+    const item = (window._dmRenderedTreeList || [])[idx];
+    if (item && item.isDir) DiskMapZoomIntoNode(item);
+};
+
+function UpdateDiskMapSelectedBar() {
+    const bar = document.getElementById('diskMapSelectionActions');
+    const lbl = document.getElementById('lblDiskMapSelected');
+    const zBtn = document.getElementById('btnDmSelZoom');
+    const item = window._dmSelectedItem;
+    if (!bar || !lbl) return;
+    if (!item) {
+        bar.style.display = 'none';
+        return;
+    }
+    bar.style.display = 'inline-flex';
+    lbl.textContent = `${item.name} (${FormatDiskBytes(item.size)})`;
+    lbl.title = item.path || '';
+    if (zBtn) zBtn.style.display = item.isDir ? 'inline-block' : 'none';
+}
+
+window.DiskMapActSelected = function(action) {
+    const item = window._dmSelectedItem;
+    if (!item) return;
+    if (action === 'zoom' && item.isDir) DiskMapZoomIntoNode(item);
+    else if (action === 'explorer') DiskMapOpenInExplorer(item.path);
+    else if (action === 'copy') CopyRawText(item.path, 'Path');
+    else if (action === 'recycle') DiskMapRecyclePath(item.path);
+};
+
+window.DiskMapOpenInExplorer = function(path) {
+    if (!path) return;
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'DISKMAP_OPEN_EXPLORER', path }));
+};
+
+window.DiskMapRecyclePath = function(path) {
+    if (!path) return;
+    if (!confirm(`Move to Windows Recycle Bin?\n\n${path}\n\n(Protected OS system folders are automatically blocked.)`)) return;
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'DISKMAP_RECYCLE', path }));
+};
+
+function HandleDiskMapNotice(data) {
+    const st = document.getElementById('diskMapStatus');
+    const msg = data.error || data.message || '';
+    if (st) {
+        st.classList.toggle('sharing-error', !data.ok || !!data.error);
+        st.textContent = msg;
+    }
+    if (data.message) AppendConsoleLogEntry(`[DISK MAP] ${data.message}`);
+    if (data.error) AppendConsoleLogEntry(`[DISK MAP ERROR] ${data.error}`);
+    if (data.recycled && window._dmScanData && window._dmScanData.rootPath) {
+        // Trigger clean rescan after recycling so sizes stay accurate
+        setTimeout(() => TriggerDiskMapScan(window._dmScanData.rootPath), 400);
+    }
+}
+
+// =========================================================================
+// SQUARIFIED TREEMAP LAYOUT & HIDPI CANVAS RENDERER (WIZTREE-STYLE)
+// =========================================================================
+function ComputeSquarifiedLayout(items, x, y, w, h) {
+    const out = [];
+    const valid = items.filter(it => it.size > 0);
+    if (!valid.length || w <= 2 || h <= 2) return out;
+
+    const total = valid.reduce((s, it) => s + it.size, 0);
+    if (total <= 0) return out;
+
+    let rx = x, ry = y, rw = w, rh = h;
+    let remaining = valid.map(it => ({ item: it, area: (it.size / total) * (w * h) }));
+
+    const worstAspect = (row, sideLen) => {
+        if (!row.length || sideLen <= 0) return Infinity;
+        const sumA = row.reduce((s, r) => s + r.area, 0);
+        let maxA = 0, minA = Infinity;
+        for (const r of row) {
+            if (r.area > maxA) maxA = r.area;
+            if (r.area < minA) minA = r.area;
+        }
+        if (minA <= 0) return Infinity;
+        const s2 = sideLen * sideLen;
+        return Math.max((s2 * maxA) / (sumA * sumA), (sumA * sumA) / (s2 * minA));
+    };
+
+    let idx = 0;
+    while (idx < remaining.length && rw > 1 && rh > 1) {
+        const horiz = rw >= rh;
+        const side = horiz ? rh : rw;
+        const row = [remaining[idx++]];
+        let best = worstAspect(row, side);
+
+        while (idx < remaining.length) {
+            const candidate = [...row, remaining[idx]];
+            const score = worstAspect(candidate, side);
+            if (score <= best) {
+                row.push(remaining[idx++]);
+                best = score;
+            } else {
+                break;
+            }
+        }
+
+        const rowArea = row.reduce((s, r) => s + r.area, 0);
+        const stripThick = side > 0 ? (rowArea / side) : 0;
+
+        let offset = 0;
+        for (const r of row) {
+            const len = stripThick > 0 ? (r.area / stripThick) : 0;
+            if (horiz) {
+                out.push({ item: r.item, x: rx, y: ry + offset, w: stripThick, h: len });
+            } else {
+                out.push({ item: r.item, x: rx + offset, y: ry, w: len, h: stripThick });
+            }
+            offset += len;
+        }
+
+        if (horiz) { rx += stripThick; rw -= stripThick; }
+        else { ry += stripThick; rh -= stripThick; }
+    }
+    return out;
+}
+
+function DrawDiskMapTreemap() {
+    const wrap = document.getElementById('diskMapCanvasWrap');
+    const canvas = document.getElementById('diskMapCanvas');
+    const cur = GetDiskMapCurrentNode();
+    if (!wrap || !canvas) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const cssW = Math.max(100, wrap.clientWidth);
+    const cssH = Math.max(100, wrap.clientHeight);
+    if (canvas.width !== Math.round(cssW * dpr) || canvas.height !== Math.round(cssH * dpr)) {
+        canvas.width = Math.round(cssW * dpr);
+        canvas.height = Math.round(cssH * dpr);
+    }
+
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = '#10151e';
+    ctx.fillRect(0, 0, cssW, cssH);
+
+    window._dmRects = [];
+    if (!cur || !Array.isArray(cur.children) || !cur.children.length) {
+        ctx.fillStyle = '#718096';
+        ctx.font = '12px Consolas, monospace';
+        ctx.fillText('Run a scan above to render the interactive file & folder treemap.', 16, 28);
+        return;
+    }
+
+    const extFlt = (window._dmHighlightExt || '').toLowerCase();
+    const topRects = ComputeSquarifiedLayout(cur.children, 2, 2, cssW - 4, cssH - 4);
+    const hitRects = [];
+
+    for (const r of topRects) {
+        if (r.w < 2 || r.h < 2) continue;
+        const item = r.item;
+        const isSel = window._dmSelectedItem && window._dmSelectedItem.path === item.path;
+
+        if (item.isDir && Array.isArray(item.children) && item.children.length > 0 && r.w >= 46 && r.h >= 34) {
+            // Draw folder outer frame + compact folder header + nested children mosaic (WizTree style!)
+            const headerH = 15;
+            ctx.fillStyle = '#1b2638';
+            ctx.fillRect(r.x, r.y, r.w, r.h);
+
+            // Header bar
+            ctx.fillStyle = isSel ? '#3182ce' : '#25354d';
+            ctx.fillRect(r.x, r.y, r.w, headerH);
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(r.x + 3, r.y, Math.max(0, r.w - 6), headerH);
+            ctx.clip();
+            ctx.fillStyle = '#edf2f7';
+            ctx.font = 'bold 10px Consolas, monospace';
+            ctx.fillText(`${item.name} (${FormatDiskBytes(item.size)})`, r.x + 4, r.y + 11);
+            ctx.restore();
+
+            // Register folder header as directly clickable/hoverable
+            hitRects.push({ item, parentNode: cur, x: r.x, y: r.y, w: r.w, h: headerH });
+
+            const innerRects = ComputeSquarifiedLayout(item.children, r.x + 2, r.y + headerH + 1, r.w - 4, r.h - headerH - 3);
+            for (const ir of innerRects) {
+                if (ir.w < 1.5 || ir.h < 1.5) continue;
+                const child = ir.item;
+                const matchExt = !extFlt || (!child.isDir && String(child.ext || '').toLowerCase() === extFlt);
+                const cSel = window._dmSelectedItem && window._dmSelectedItem.path === child.path;
+
+                ctx.save();
+                ctx.globalAlpha = matchExt ? 0.92 : 0.22;
+                ctx.fillStyle = GetDiskExtColor(child.ext, child.isDir);
+                ctx.fillRect(ir.x, ir.y, ir.w, ir.h);
+                ctx.restore();
+
+                ctx.strokeStyle = cSel ? '#ffffff' : '#0f141d';
+                ctx.lineWidth = cSel ? 2 : 1;
+                ctx.strokeRect(ir.x + 0.5, ir.y + 0.5, Math.max(0, ir.w - 1), Math.max(0, ir.h - 1));
+
+                if (ir.w >= 48 && ir.h >= 16) {
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.rect(ir.x + 2, ir.y + 1, Math.max(0, ir.w - 4), Math.max(0, ir.h - 2));
+                    ctx.clip();
+                    ctx.fillStyle = matchExt ? '#f7fafc' : '#a0aec0';
+                    ctx.font = '9.5px Consolas, monospace';
+                    ctx.fillText(child.name, ir.x + 3, ir.y + 11);
+                    if (ir.h >= 27) {
+                        ctx.fillStyle = 'rgba(237, 242, 247, 0.8)';
+                        ctx.fillText(FormatDiskBytes(child.size), ir.x + 3, ir.y + 22);
+                    }
+                    ctx.restore();
+                }
+                hitRects.push({ item: child, parentNode: item, x: ir.x, y: ir.y, w: ir.w, h: ir.h });
+            }
+
+            ctx.strokeStyle = isSel ? '#63b3ed' : '#3a4c66';
+            ctx.lineWidth = isSel ? 2 : 1;
+            ctx.strokeRect(r.x + 0.5, r.y + 0.5, Math.max(0, r.w - 1), Math.max(0, r.h - 1));
+        } else {
+            const matchExt = !extFlt || (!item.isDir && String(item.ext || '').toLowerCase() === extFlt);
+            ctx.save();
+            ctx.globalAlpha = matchExt ? 0.92 : 0.22;
+            ctx.fillStyle = GetDiskExtColor(item.ext, item.isDir);
+            ctx.fillRect(r.x, r.y, r.w, r.h);
+            ctx.restore();
+
+            ctx.strokeStyle = isSel ? '#ffffff' : '#0f141d';
+            ctx.lineWidth = isSel ? 2 : 1;
+            ctx.strokeRect(r.x + 0.5, r.y + 0.5, Math.max(0, r.w - 1), Math.max(0, r.h - 1));
+
+            if (r.w >= 44 && r.h >= 16) {
+                ctx.save();
+                ctx.beginPath();
+                ctx.rect(r.x + 3, r.y + 2, Math.max(0, r.w - 6), Math.max(0, r.h - 4));
+                ctx.clip();
+                ctx.fillStyle = '#f7fafc';
+                ctx.font = item.isDir ? 'bold 10px Consolas, monospace' : '10px Consolas, monospace';
+                ctx.fillText(item.name, r.x + 4, r.y + 12);
+                if (r.h >= 28) {
+                    ctx.fillStyle = 'rgba(237, 242, 247, 0.85)';
+                    ctx.fillText(FormatDiskBytes(item.size), r.x + 4, r.y + 24);
+                }
+                ctx.restore();
+            }
+            hitRects.push({ item, parentNode: cur, x: r.x, y: r.y, w: r.w, h: r.h });
+        }
+    }
+
+    // Highlight currently hovered rectangle cleanly
+    if (window._dmHoveredRect) {
+        const hr = window._dmHoveredRect;
+        ctx.strokeStyle = '#90cdf4';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(hr.x + 1, hr.y + 1, Math.max(0, hr.w - 2), Math.max(0, hr.h - 2));
+    }
+
+    window._dmRects = hitRects;
+}
+
+function FindDiskMapRectAt(mx, my) {
+    const rects = window._dmRects || [];
+    for (let i = rects.length - 1; i >= 0; i--) {
+        const r = rects[i];
+        if (mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h) return r;
+    }
+    return null;
+}
+
+function SetupDiskMapCanvasEvents() {
+    const wrap = document.getElementById('diskMapCanvasWrap');
+    const canvas = document.getElementById('diskMapCanvas');
+    const tip = document.getElementById('diskMapTooltip');
+    if (!wrap || !canvas) return;
+
+    canvas.addEventListener('mousemove', (e) => {
+        const bounds = canvas.getBoundingClientRect();
+        const mx = e.clientX - bounds.left;
+        const my = e.clientY - bounds.top;
+        const hit = FindDiskMapRectAt(mx, my);
+
+        if (hit !== window._dmHoveredRect) {
+            window._dmHoveredRect = hit;
+            DrawDiskMapTreemap();
+        }
+
+        if (!tip) return;
+        if (!hit) {
+            tip.style.display = 'none';
+            return;
+        }
+        const it = hit.item;
+        const cur = GetDiskMapCurrentNode();
+        const pct = cur && cur.size > 0 ? ((it.size / cur.size) * 100).toFixed(2) : '0.00';
+        tip.style.display = 'block';
+        tip.innerHTML = `
+            <div style="font-weight:700; color:#90cdf4;">${it.isDir ? '📁' : '📄'} ${EscapeHtmlTp(it.name)}</div>
+            <div style="color:#edf2f7;">Size: <strong>${FormatDiskBytes(it.size)}</strong> (${pct}% of current view)</div>
+            ${it.isDir ? `<div style="color:#a0aec0;">${(it.files || 0).toLocaleString()} files · ${(it.dirs || 0).toLocaleString()} folders · Double-click to zoom</div>` : `<div style="color:#a0aec0;">Type: ${EscapeHtmlTp(it.ext || 'file')}${it.modified ? ' · Modified: ' + it.modified : ''}</div>`}
+            <div style="color:#718096; font-size:9.5px; word-break:break-all; margin-top:2px;">${EscapeHtmlTp(it.path)}</div>
+        `;
+        const tx = Math.min(wrap.clientWidth - tip.offsetWidth - 8, mx + 14);
+        const ty = Math.min(wrap.clientHeight - tip.offsetHeight - 8, my + 14);
+        tip.style.left = `${Math.max(6, tx)}px`;
+        tip.style.top = `${Math.max(6, ty)}px`;
+    });
+
+    canvas.addEventListener('mouseleave', () => {
+        window._dmHoveredRect = null;
+        if (tip) tip.style.display = 'none';
+        DrawDiskMapTreemap();
+    });
+
+    canvas.addEventListener('click', (e) => {
+        const bounds = canvas.getBoundingClientRect();
+        const hit = FindDiskMapRectAt(e.clientX - bounds.left, e.clientY - bounds.top);
+        if (!hit) return;
+        window._dmSelectedItem = hit.item;
+        UpdateDiskMapSelectedBar();
+        DrawDiskMapTreemap();
+    });
+
+    canvas.addEventListener('dblclick', (e) => {
+        const bounds = canvas.getBoundingClientRect();
+        const hit = FindDiskMapRectAt(e.clientX - bounds.left, e.clientY - bounds.top);
+        if (!hit) return;
+        if (hit.item.isDir) {
+            DiskMapZoomIntoNode(hit.item);
+        } else {
+            DiskMapOpenInExplorer(hit.item.path);
+        }
+    });
+
+    if (typeof ResizeObserver !== 'undefined') {
+        window._dmResizeObs = new ResizeObserver(() => {
+            if (window._activeViewKey === 'diskmap' && window._dmScanData) {
+                DrawDiskMapTreemap();
+            }
+        });
+        window._dmResizeObs.observe(wrap);
+    }
+}
