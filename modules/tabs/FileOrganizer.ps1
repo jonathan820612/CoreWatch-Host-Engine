@@ -41,11 +41,11 @@ function Test-IsProtectedOrganizerPath {
 
 function Get-UndoManifestPath {
     param([string]$RootPath)
-    $binDir = Join-Path $RootPath "bin"
-    if (-not (Test-Path -LiteralPath $binDir)) {
-        $null = New-Item -ItemType Directory -Path $binDir -Force -ErrorAction SilentlyContinue
+    $appDataDir = Join-Path $env:LOCALAPPDATA "CoreWatch"
+    if (-not (Test-Path -LiteralPath $appDataDir)) {
+        $null = New-Item -ItemType Directory -Path $appDataDir -Force -ErrorAction SilentlyContinue
     }
-    return (Join-Path $binDir "FileOrganizerLastUndo.json")
+    return (Join-Path $appDataDir "FileOrganizerLastUndo.json")
 }
 
 function Get-DefaultMediaRules {

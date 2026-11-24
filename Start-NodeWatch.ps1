@@ -1,8 +1,12 @@
 [CmdletBinding()]
-param()
+param(
+    [switch]$Release,
+    [switch]$DevTools
+)
 
-Clear-Host
+try { if ($Host.Name -eq "ConsoleHost" -and -not [Console]::IsOutputRedirected) { Clear-Host } } catch {}
 $Global:NodeWatchRoot = $PSScriptRoot
+$Global:EnableDevTools = if ($DevTools) { $true } elseif ($Release) { $false } else { $true }
 $BinPath = Join-Path $Global:NodeWatchRoot "bin"
 $CoreDll = Join-Path $BinPath "Microsoft.Web.WebView2.Core.dll"
 $FormDll = Join-Path $BinPath "Microsoft.Web.WebView2.WinForms.dll"
@@ -39,7 +43,8 @@ namespace CoreWatch {
 }
 "@ -ErrorAction SilentlyContinue
 }
-$UserDataFolder = [System.IO.Path]::GetFullPath((Join-Path $BinPath "WebView2UserData"))
+$AppDataRoot = Join-Path $env:LOCALAPPDATA "CoreWatch"
+$UserDataFolder = [System.IO.Path]::GetFullPath((Join-Path $AppDataRoot "WebView2UserData"))
 if (-not (Test-Path $UserDataFolder)) { $null = New-Item -ItemType Directory -Path $UserDataFolder -Force }
 $env:WEBVIEW2_USER_DATA_FOLDER = $UserDataFolder
 
@@ -815,7 +820,7 @@ $global:WebViewControl.Add_CoreWebView2InitializationCompleted({
     param($evtSource, $evtArgs)
     if ($evtArgs.IsSuccess) {
         $global:WebViewControl.CoreWebView2.Settings.AreDefaultContextMenusEnabled = $false
-        $global:WebViewControl.CoreWebView2.Settings.AreDevToolsEnabled = $true
+        $global:WebViewControl.CoreWebView2.Settings.AreDevToolsEnabled = [bool]$Global:EnableDevTools
         $global:WebViewControl.Add_WebMessageReceived($HandleUiMessageEvent)
         $global:WebViewControl.Source = "file:///" + ((Join-Path $Global:NodeWatchRoot "modules\layouts\index.html") -replace '\\', '/')
     }
