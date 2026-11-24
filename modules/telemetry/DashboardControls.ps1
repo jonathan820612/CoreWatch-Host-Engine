@@ -484,45 +484,128 @@ namespace CoreWatch {
             }
 
             "INSTALL_PS_UPDATE" {
-                $wg = Get-Command winget -ErrorAction SilentlyContinue
-                if ($wg) {
-                    $runnerPath = Join-Path $env:TEMP ("CoreWatch-PsUpdate-{0}.ps1" -f ([guid]::NewGuid().ToString('N').Substring(0,8)))
-                    $psRunner = @"
-`$Host.UI.RawUI.WindowTitle = 'CoreWatch PowerShell Updater'
+                $runnerPath = Join-Path $env:TEMP ("CoreWatch-PsUpdate-{0}.ps1" -f ([guid]::NewGuid().ToString('N').Substring(0,8)))
+                $relaunchExe = Join-Path $RootPath "CoreWatch.exe"
+                $relaunchScript = Join-Path $RootPath "Start-NodeWatch.ps1"
+                $safeRelaunchExe = $relaunchExe.Replace("'", "''")
+                $safeRelaunchScript = $relaunchScript.Replace("'", "''")
+
+                $psRunner = @"
+`$Host.UI.RawUI.WindowTitle = 'CoreWatch PowerShell 7 Updater (C:\Program Files\PowerShell\7)'
 Write-Host '============================================================' -ForegroundColor Cyan
-Write-Host '  CoreWatch PowerShell 7 Update Installer' -ForegroundColor Cyan
+Write-Host '  CoreWatch PowerShell 7 Direct Updater' -ForegroundColor Cyan
+Write-Host '  Target: C:\Program Files\PowerShell\7 (Never WindowsApps)' -ForegroundColor DarkCyan
 Write-Host '============================================================' -ForegroundColor Cyan
-Write-Host 'Refreshing WinGet sources...' -ForegroundColor DarkCyan
-& winget source update --disable-interactivity 2>`$null | Out-Null
-Write-Host '`nUpgrading Microsoft.PowerShell...' -ForegroundColor Green
-& winget upgrade --id Microsoft.PowerShell -e --source winget --accept-package-agreements --accept-source-agreements
-if (`$LASTEXITCODE -eq -1978335215) {
-    Write-Host 'Hash mismatch (-1978335215) — opening official GitHub PowerShell Releases page...' -ForegroundColor Yellow
-    Start-Process 'https://github.com/PowerShell/PowerShell/releases/latest'
-} elseif (`$LASTEXITCODE -ne 0 -and `$LASTEXITCODE -ne -1978335189) {
-    Write-Host 'Trying winget install Microsoft.PowerShell...' -ForegroundColor Yellow
-    & winget install --id Microsoft.PowerShell -e --source winget --accept-package-agreements --accept-source-agreements
+
+`$targetDir = 'C:\Program Files\PowerShell\7'
+`$updatedOk = `$false
+
+try {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    `$arch = if (`$env:PROCESSOR_ARCHITECTURE -match 'ARM64') { 'arm64' } elseif ([Environment]::Is64BitOperatingSystem) { 'x64' } else { 'x86' }
+    Write-Host "`nFetching latest stable PowerShell 7 release metadata (win-`$arch)..." -ForegroundColor Green
+
+    `$rel = Invoke-RestMethod -Uri 'https://api.github.com/repos/PowerShell/PowerShell/releases/latest' -Headers @{'User-Agent'='CoreWatch'} -TimeoutSec 20 -ErrorAction Stop
+    `$tag = [string]`$rel.tag_name
+    `$msiAsset = `$rel.assets | Where-Object { `$_.name -match "^PowerShell-.*-win-`$arch\.msi`$" } | Select-Object -First 1
+    `$zipAsset = `$rel.assets | Where-Object { `$_.name -match "^PowerShell-.*-win-`$arch\.zip`$" } | Select-Object -First 1
+
+    if (`$msiAsset) {
+        Write-Host "Found official .MSI installer for `$tag: `$(`$msiAsset.name) (`$([math]::Round(`$msiAsset.size / 1MB, 1)) MB)" -ForegroundColor Green
+        `$msiPath = Join-Path `$env:TEMP `$msiAsset.name
+        Write-Host 'Downloading MSI...' -ForegroundColor Cyan
+        Invoke-WebRequest -Uri `$msiAsset.browser_download_url -OutFile `$msiPath -UseBasicParsing -ErrorAction Stop
+        Write-Host "Running msiexec into `$targetDir..." -ForegroundColor Green
+        `$proc = Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i', "`"`$msiPath`"", '/qb', 'ADD_PATH=1', 'REGISTER_MANIFEST=1', 'USE_MU=1', 'ENABLE_MU=1') -Wait -PassThru
+        Remove-Item -LiteralPath `$msiPath -Force -ErrorAction SilentlyContinue
+        if (`$proc.ExitCode -eq 0 -or `$proc.ExitCode -eq 3010) {
+            `$updatedOk = `$true
+        } else {
+            Write-Host "msiexec exited with code `$(`$proc.ExitCode)." -ForegroundColor Yellow
+        }
+    } elseif (`$zipAsset) {
+        Write-Host "NOTE: Release `$tag has NO .msi installer (Microsoft moved WinGet to WindowsApps MSIX)." -ForegroundColor Yellow
+        Write-Host "Downloading official ZIP instead: `$(`$zipAsset.name) (`$([math]::Round(`$zipAsset.size / 1MB, 1)) MB)..." -ForegroundColor Cyan
+
+        `$zipPath  = Join-Path `$env:TEMP `$zipAsset.name
+        `$stageDir = Join-Path `$env:TEMP ("CoreWatch-PsStage-" + [guid]::NewGuid().ToString('N').Substring(0,8))
+        Invoke-WebRequest -Uri `$zipAsset.browser_download_url -OutFile `$zipPath -UseBasicParsing -ErrorAction Stop
+
+        Write-Host 'Extracting official ZIP to staging folder...' -ForegroundColor Cyan
+        `$null = New-Item -ItemType Directory -Path `$stageDir -Force
+        Expand-Archive -LiteralPath `$zipPath -DestinationPath `$stageDir -Force
+        Remove-Item -LiteralPath `$zipPath -Force -ErrorAction SilentlyContinue
+
+        # Stop running pwsh.exe instances from C:\Program Files\PowerShell\7 (including CoreWatch host) so files are unlocked!
+        `$lockingProcs = @(Get-Process -Name 'pwsh' -ErrorAction SilentlyContinue | Where-Object {
+            try { `$_.MainModule.FileName -like "`$targetDir\*" } catch { `$true }
+        })
+        if (`$lockingProcs.Count -gt 0) {
+            Write-Host "`nClosing `$(`$lockingProcs.Count) running pwsh.exe process(es) (including CoreWatch) to unlock `$targetDir..." -ForegroundColor Yellow
+            Start-Sleep -Seconds 2
+            foreach (`$lp in `$lockingProcs) {
+                try { Stop-Process -Id `$lp.Id -Force -ErrorAction SilentlyContinue } catch {}
+            }
+            Start-Sleep -Milliseconds 900
+        }
+
+        if (-not (Test-Path -LiteralPath `$targetDir)) { `$null = New-Item -ItemType Directory -Path `$targetDir -Force }
+        Write-Host "Deploying PowerShell `$tag into `$targetDir..." -ForegroundColor Green
+        & robocopy "`$stageDir" "`$targetDir" /E /IS /IT /R:4 /W:1 /NFL /NDL /NJH /NJS | Out-Null
+        `$rc = `$LASTEXITCODE
+        Remove-Item -LiteralPath `$stageDir -Recurse -Force -ErrorAction SilentlyContinue
+
+        if (`$rc -lt 8) {
+            # Ensure C:\Program Files\PowerShell\7 is placed ahead of WindowsApps in System PATH
+            `$envReg = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment'
+            `$rawPath = (Get-ItemProperty -Path `$envReg -Name Path -ErrorAction SilentlyContinue).Path
+            if (`$rawPath) {
+                `$kept = New-Object System.Collections.Generic.List[string]
+                `$kept.Add(`$targetDir)
+                foreach (`$seg in (`$rawPath -split ';')) {
+                    `$s = `$seg.Trim()
+                    if (-not `$s) { continue }
+                    if (`$s.TrimEnd('\').Equals(`$targetDir, [System.StringComparison]::OrdinalIgnoreCase)) { continue }
+                    `$kept.Add(`$s)
+                }
+                Set-ItemProperty -Path `$envReg -Name Path -Value (`$kept -join ';') -Type ExpandString -ErrorAction SilentlyContinue
+            }
+            `$updatedOk = `$true
+        } else {
+            Write-Host "Robocopy returned error code `$rc — some files in `$targetDir may still be locked." -ForegroundColor Red
+        }
+    } else {
+        Write-Host "No win-`$arch .msi or .zip asset found in release `$tag." -ForegroundColor Red
+    }
+
+    if (`$updatedOk -and (Test-Path -LiteralPath (Join-Path `$targetDir 'pwsh.exe'))) {
+        `$verifiedVer = (& (Join-Path `$targetDir 'pwsh.exe') -NoProfile -Command '`$PSVersionTable.PSVersion.ToString()' 2>`$null)
+        Write-Host "`nVERIFIED INSTALLED VERSION: PowerShell `$verifiedVer (`$targetDir\pwsh.exe)" -ForegroundColor Green
+
+        # Relaunch CoreWatch automatically on the new PowerShell 7 runtime!
+        if (Test-Path -LiteralPath '$safeRelaunchExe') {
+            Write-Host 'Relaunching CoreWatch.exe...' -ForegroundColor Cyan
+            Start-Process -FilePath '$safeRelaunchExe'
+        } elseif (Test-Path -LiteralPath '$safeRelaunchScript') {
+            Write-Host 'Relaunching CoreWatch on updated pwsh.exe...' -ForegroundColor Cyan
+            Start-Process -FilePath (Join-Path `$targetDir 'pwsh.exe') -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', '"$safeRelaunchScript"')
+        }
+    }
+} catch {
+    Write-Host "Update failed: `$(`$_.Exception.Message)" -ForegroundColor Red
 }
-Write-Host '`nUpdate step finished. Restart CoreWatch to run on the updated PowerShell runtime.' -ForegroundColor Green
-Read-Host 'Press Enter to close'
+
+Read-Host "`nPress Enter to close this updater window"
 Remove-Item -LiteralPath '$runnerPath' -Force -ErrorAction SilentlyContinue
 "@
-                    Set-Content -LiteralPath $runnerPath -Value $psRunner -Encoding UTF8
-                    Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$runnerPath`"") -ErrorAction Stop
-                    return [PSCustomObject]@{
-                        type    = "DASHBOARD_CONTROL_RESULT"
-                        ok      = $true
-                        control = $cmd
-                        message = "Launched PowerShell 7 updater via WinGet. Restart CoreWatch after upgrade finishes."
-                    }
-                } else {
-                    Start-Process "https://github.com/PowerShell/PowerShell/releases/latest"
-                    return [PSCustomObject]@{
-                        type    = "DASHBOARD_CONTROL_RESULT"
-                        ok      = $true
-                        control = $cmd
-                        message = "Opened official PowerShell GitHub Releases page."
-                    }
+                Set-Content -LiteralPath $runnerPath -Value $psRunner -Encoding UTF8
+                $winPs = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+                Start-Process -FilePath $winPs -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$runnerPath`"") -Verb RunAs -ErrorAction Stop
+                return [PSCustomObject]@{
+                    type    = "DASHBOARD_CONTROL_RESULT"
+                    ok      = $true
+                    control = $cmd
+                    message = "Launched PowerShell 7 updater (MSI or official .zip -> C:\Program Files\PowerShell\7)."
                 }
             }
 

@@ -426,12 +426,15 @@ end;
 $Iscc = @(
     (Get-Command "ISCC.exe" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source),
     "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
-    "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+    "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+    "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
 ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
 
+$SetupExePath = Join-Path $DistRoot "CoreWatch-$SemVer-Setup.exe"
 if ($Iscc) {
-    Write-Host "[7/7] Inno Setup detected! Building Setup.exe..." -ForegroundColor Green
+    Write-Host "[7/7] Inno Setup detected ($Iscc)! Building Setup.exe..." -ForegroundColor Green
     & $Iscc $IssPath
+    if ($LASTEXITCODE -ne 0) { throw "Inno Setup (ISCC.exe) failed with exit code $LASTEXITCODE." }
 } else {
     Write-Host "[7/7] Inno Setup script ready: $IssPath" -ForegroundColor Yellow
 }
@@ -450,6 +453,7 @@ if ($GitTag) {
 
 $stageMB = [math]::Round(((Get-ChildItem -LiteralPath $StageDir -File -Recurse | Measure-Object Length -Sum).Sum / 1MB), 2)
 $zipMB   = if (Test-Path -LiteralPath $ZipPath) { [math]::Round(((Get-Item -LiteralPath $ZipPath).Length / 1MB), 2) } else { 0 }
+$setupMB = if (Test-Path -LiteralPath $SetupExePath) { [math]::Round(((Get-Item -LiteralPath $SetupExePath).Length / 1MB), 2) } else { 0 }
 
 Write-Host ""
 Write-Host "BUILD COMPLETE: CoreWatch v$SemVer" -ForegroundColor Green
@@ -458,5 +462,8 @@ Write-Host "  SensorHelper: $(if ($SensorBuilt) { "$StageHelper (LibreHardwareMo
 Write-Host "  Folder Size : $stageMB MB" -ForegroundColor White
 if ($zipMB -gt 0) {
     Write-Host "  Portable ZIP: $ZipPath ($zipMB MB)" -ForegroundColor White
+}
+if ($setupMB -gt 0) {
+    Write-Host "  Setup .EXE  : $SetupExePath ($setupMB MB)" -ForegroundColor White
 }
 Write-Host "  Provenance  : $(Join-Path $StageDir 'build-info.json')" -ForegroundColor White

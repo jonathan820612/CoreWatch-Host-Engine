@@ -5179,6 +5179,7 @@ function RenderPowerShellVersionControl(infra) {
     const latest = String(infra.PsLatestVersion || '');
     const missed = Number(infra.PsMissedUpdates || 0);
     const tier   = String(infra.PsVersionTier || 'uptodate');
+    const hasMsi = (infra.PsLatestHasMsi !== false);
     const detail = String(infra.PsUpdateDetail || 'Click to check for PowerShell updates').replace(/"/g, '&quot;');
 
     const isBusy = IsControlPending('CHECK_PS_UPDATE') || IsControlPending('INSTALL_PS_UPDATE');
@@ -5189,28 +5190,32 @@ function RenderPowerShellVersionControl(infra) {
 
     let cls = 'ver-uptodate';
     let label = `${ver} ✓`;
+    const msiTag = (!hasMsi && missed > 0) ? ' (ZIP)' : '';
     if (tier === 'critical' || missed > 5) {
         cls = 'ver-critical';
-        label = latest ? `${ver} ⚠ ${latest} (+${missed})` : `${ver} ⚠ Outdated`;
+        label = latest ? `${ver} ⚠ ${latest}${msiTag} (+${missed})` : `${ver} ⚠ Outdated`;
     } else if (tier === 'update' || missed > 0) {
         cls = 'ver-update';
-        label = latest ? `${ver} ⬆ ${latest}` : `${ver} ⬆ Update`;
+        label = latest ? `${ver} ⬆ ${latest}${msiTag}` : `${ver} ⬆ Update`;
     }
 
     const safeLatest = latest.replace(/'/g, "\\'");
     const safeVer = ver.replace(/'/g, "\\'");
-    SetDomHtml(el, `<button type="button" class="toggle-pill-btn ${cls}" onclick="TriggerPowerShellUpdateToggle('${safeVer}', '${safeLatest}', ${missed})" title="${detail}">${label}</button>`);
+    SetDomHtml(el, `<button type="button" class="toggle-pill-btn ${cls}" onclick="TriggerPowerShellUpdateToggle('${safeVer}', '${safeLatest}', ${missed}, ${hasMsi ? 'true' : 'false'})" title="${detail}">${label}</button>`);
 }
 
-window.TriggerPowerShellUpdateToggle = function(curVer, latestVer, missed) {
+window.TriggerPowerShellUpdateToggle = function(curVer, latestVer, missed, hasMsi = true) {
     if (missed > 0) {
+        const methodNote = hasMsi
+            ? `Click OK to download & install the official PowerShell ${latestVer} .msi directly into C:\\Program Files\\PowerShell\\7.`
+            : `Note: PowerShell ${latestVer} has NO .msi installer (Microsoft only ships MSIX/WindowsApps + official .zip).\n\nClick OK to automatically download the official .zip, unzip it cleanly into C:\\Program Files\\PowerShell\\7 (CoreWatch will briefly restart to unlock pwsh.exe).`;
         const action = confirm(
             `PowerShell update available: ${curVer} → ${latestVer || 'Latest'} (${missed} release${missed > 1 ? 's' : ''} behind).\n\n` +
-            `Click OK to install the PowerShell 7 update via WinGet now.\n` +
+            `${methodNote}\n\n` +
             `(Click Cancel to re-check GitHub releases without installing.)`
         );
         if (action) {
-            DispatchDashboardControl('INSTALL_PS_UPDATE', {}, `Launching PowerShell 7 updater (${curVer} -> ${latestVer || 'Latest'})...`, 'lblPsVersion');
+            DispatchDashboardControl('INSTALL_PS_UPDATE', {}, `Launching PowerShell 7 ${hasMsi ? 'MSI' : 'ZIP'} updater (${curVer} -> ${latestVer || 'Latest'})...`, 'lblPsVersion');
         } else {
             DispatchDashboardControl('CHECK_PS_UPDATE', {}, 'Checking GitHub for latest PowerShell release...', 'lblPsVersion');
         }

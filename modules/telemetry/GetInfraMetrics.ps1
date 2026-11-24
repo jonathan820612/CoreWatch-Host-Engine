@@ -53,6 +53,7 @@ $script:LastPsUpdateCheck    = [datetime]::MinValue
 $script:CachedPsLatest       = ""
 $script:CachedPsMissed       = 0
 $script:CachedPsVerTier      = "uptodate"
+$script:CachedPsHasMsi       = $true
 $script:CachedPsUpdateDetail = "Click to check for PowerShell updates"
 $script:CachedPsReleaseUrl   = "https://github.com/PowerShell/PowerShell/releases/latest"
 
@@ -298,6 +299,7 @@ function Get-PowerShellUpdateStatus {
             latest  = $script:CachedPsLatest
             missed  = $script:CachedPsMissed
             tier    = $script:CachedPsVerTier
+            hasMsi  = $script:CachedPsHasMsi
             detail  = $script:CachedPsUpdateDetail
             url     = $script:CachedPsReleaseUrl
         }
@@ -305,44 +307,54 @@ function Get-PowerShellUpdateStatus {
 
     $curVer = $global:PSVersionTable.PSVersion
     $curSem = [version]::new([int]$curVer.Major, [int]$curVer.Minor, [int]([math]::Max(0, $curVer.Patch)))
+    $arch = if ($env:PROCESSOR_ARCHITECTURE -match 'ARM64') { 'arm64' } elseif ([Environment]::Is64BitOperatingSystem) { 'x64' } else { 'x86' }
 
     try {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
         $rels = Invoke-RestMethod -Uri "https://api.github.com/repos/PowerShell/PowerShell/releases?per_page=30" -Headers @{"User-Agent"="CoreWatch"} -TimeoutSec 6 -ErrorAction Stop
-        $stableVersions = New-Object System.Collections.Generic.List[version]
-        $latestUrl = "https://github.com/PowerShell/PowerShell/releases/latest"
+        $stableEntries = New-Object System.Collections.Generic.List[PSCustomObject]
 
         foreach ($r in $rels) {
             if ($r.prerelease -or $r.draft) { continue }
             if ([string]$r.tag_name -match '^v(\d+\.\d+\.\d+)$') {
                 $v = [version]$Matches[1]
-                $stableVersions.Add($v)
-                if ($stableVersions.Count -eq 1 -and $r.html_url) { $latestUrl = [string]$r.html_url }
+                $hasMsiAsset = $null -ne ($r.assets | Where-Object { $_.name -match "^PowerShell-.*-win-$arch\.msi$" } | Select-Object -First 1)
+                $stableEntries.Add([PSCustomObject]@{
+                    ver    = $v
+                    url    = if ($r.html_url) { [string]$r.html_url } else { "https://github.com/PowerShell/PowerShell/releases/latest" }
+                    hasMsi = [bool]$hasMsiAsset
+                })
             }
         }
 
-        if ($stableVersions.Count -gt 0) {
-            $sortedDesc = @($stableVersions | Sort-Object -Descending | Select-Object -Unique)
-            $latestVer = $sortedDesc[0]
-            $newerList = @($sortedDesc | Where-Object { $_ -gt $curSem })
+        if ($stableEntries.Count -gt 0) {
+            $sortedEntries = @($stableEntries | Sort-Object ver -Descending)
+            $topEntry   = $sortedEntries[0]
+            $latestVer  = $topEntry.ver
+            $latestUrl  = $topEntry.url
+            $latestMsi  = [bool]$topEntry.hasMsi
+            $uniqueVers = @($sortedEntries | ForEach-Object { $_.ver } | Select-Object -Unique)
+            $newerList  = @($uniqueVers | Where-Object { $_ -gt $curSem })
             $missed = $newerList.Count
 
             # If running PS 5.1 or very old 7.x where >30 releases passed, mark critical (>5 missed)
             if ($curSem.Major -lt $latestVer.Major) { $missed = [math]::Max($missed, 6) }
             elseif (($latestVer.Minor - $curSem.Minor) -ge 2 -and $missed -lt 6) { $missed = [math]::Max($missed, 6) }
 
+            $msiNote = if ($latestMsi) { "Official .msi available" } else { "No .msi available — uses official .zip -> C:\Program Files\PowerShell\7" }
             $tier = if ($missed -eq 0) { "uptodate" } elseif ($missed -le 5) { "update" } else { "critical" }
             $detail = if ($missed -eq 0) {
                 "PowerShell $curSem is up to date (latest: $latestVer) — Click to re-check"
             } elseif ($missed -le 5) {
-                "PowerShell update available: $curSem -> $latestVer ($missed release(s) behind) — Click to install update"
+                "PowerShell update available: $curSem -> $latestVer ($missed release(s) behind · $msiNote) — Click to install"
             } else {
-                "PowerShell severely outdated: $curSem -> $latestVer ($missed+ releases missed) — Click to install update"
+                "PowerShell severely outdated: $curSem -> $latestVer ($missed+ releases missed · $msiNote) — Click to install"
             }
 
             $script:CachedPsLatest       = $latestVer.ToString()
             $script:CachedPsMissed       = $missed
             $script:CachedPsVerTier      = $tier
+            $script:CachedPsHasMsi       = $latestMsi
             $script:CachedPsUpdateDetail = $detail
             $script:CachedPsReleaseUrl   = $latestUrl
             $script:LastPsUpdateCheck    = [datetime]::Now
@@ -359,6 +371,7 @@ function Get-PowerShellUpdateStatus {
         latest  = $script:CachedPsLatest
         missed  = $script:CachedPsMissed
         tier    = $script:CachedPsVerTier
+        hasMsi  = $script:CachedPsHasMsi
         detail  = $script:CachedPsUpdateDetail
         url     = $script:CachedPsReleaseUrl
     }
@@ -494,6 +507,7 @@ function Get-InfraMetrics {
         PsLatestVersion     = [string]$script:CachedPsLatest
         PsMissedUpdates     = [int]$script:CachedPsMissed
         PsVersionTier       = [string]$script:CachedPsVerTier
+        PsLatestHasMsi      = [bool]$script:CachedPsHasMsi
         PsUpdateDetail      = [string]$script:CachedPsUpdateDetail
         PsReleaseUrl        = [string]$script:CachedPsReleaseUrl
         JavaPrimaryText     = [string]$script:CachedJavaPrimary
