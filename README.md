@@ -74,28 +74,36 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\Start-NodeWatch.ps1
 
 CoreWatch includes a zero-dependency build pipeline ([`build/Build-Beta.ps1`](build/Build-Beta.ps1)) that compiles using Windows' built-in `.NET Framework 4.x` C# compiler (`csc.exe`), tracks versions via [`version.json`](version.json), stamps Git branch & commit metadata into the binaries and `build-info.json`, and produces a clean portable package.
 
-### Standard Beta Build (Auto-Increments Build Number)
+### Standard Local Build (Single-Digit Rollover Versioning — Never `.10`)
 ```powershell
-.\build\Build-Beta.ps1
+.\build\Build-Beta.ps1 -RequireAdmin
 ```
-Each run automatically:
-1. Increments `build` in `version.json` (e.g. `0.9.0-beta.2` → `0.9.0-beta.3`).
-2. Captures current Git branch & short commit SHA into `AssemblyInformationalVersion`, `dist\CoreWatch-<ver>\build-info.json`, and `build\BUILD-HISTORY.md`.
-3. Generates a multi-resolution `CoreWatch.ico` from `images\Icon.png`.
-4. Compiles `CoreWatchSensorHelper.exe` (if `bin\LibreHardwareMonitorLib.dll` is present) and `CoreWatch.exe`.
-5. Stages clean release files (omitting `WebView2UserData`, fixed runtime bloat, and unimplemented tools) into `dist\CoreWatch-<ver>\` and zips `dist\CoreWatch-<ver>-Portable.zip`.
+Versions roll over cleanly at `9 → 0` into the next segment (`v0.9.0-beta.9` → `v0.9.1-beta` [Beta #10] → `v0.9.1-beta.1` [Beta #11] → ...), while `buildNumber` in `version.json` tracks the monotonic beta count. Each run automatically:
+1. Increments `version.json` and logs the build in `build\BUILD-HISTORY.md`.
+2. Captures Git branch & short commit SHA into `AssemblyInformationalVersion` and `build-info.json`.
+3. Generates multi-resolution `CoreWatch.ico`, compiles `CoreWatchSensorHelper.exe` + `CoreWatch.exe`, packages `CoreWatch-<ver>-Portable.zip`, compiles `CoreWatch-<ver>-Setup.exe` (via Inno Setup 6), and writes `SHA256SUMS.txt` + `RELEASE-NOTES.md` (commits since previous tag).
+
+### One-Command Automated GitHub Release (`build/Publish-Release.ps1`)
+```powershell
+# Build Portable + Setup .exe, commit version bump, create annotated tag, push, and publish GitHub Release:
+.\build\Publish-Release.ps1
+
+# Optional custom release title or Draft preview:
+.\build\Publish-Release.ps1 -ReleaseTitle "Disk Map & Optimization Update"
+.\build\Publish-Release.ps1 -Draft
+```
+**One-Time GitHub Auth Setup (Choose Either)**:
+- **Option A (Recommended — GitHub CLI)**: `winget install GitHub.cli` then `gh auth login`
+- **Option B (Environment Token)**: Set `$env:GITHUB_TOKEN` (a GitHub Fine-Grained Personal Access Token with **Contents: Read & Write** permission on this repo)
 
 ### Useful Build Options
 ```powershell
-# Build with automatic UAC Administrator prompt (recommended for full sensor & system control access)
-.\build\Build-Beta.ps1 -RequireAdmin
-
 # Bump patch / minor / major version instead of build number
-.\build\Build-Beta.ps1 -Bump patch
-.\build\Build-Beta.ps1 -Bump minor -Prerelease "beta"
-.\build\Build-Beta.ps1 -Bump none   # Rebuild without incrementing version.json
+.\build\Build-Beta.ps1 -Bump patch -RequireAdmin
+.\build\Build-Beta.ps1 -Bump minor -Prerelease "" -RequireAdmin   # Stable release (non-prerelease)
+.\build\Build-Beta.ps1 -Bump none -RequireAdmin                   # Rebuild without incrementing version.json
 
-# Commit version.json + BUILD-HISTORY.md and create an annotated Git tag (e.g. v0.9.0-beta.3)
+# Commit version.json + BUILD-HISTORY.md and create an annotated Git tag without publishing to GitHub
 .\build\Build-Beta.ps1 -RequireAdmin -GitCommit -GitTag
 
 # Bundle offline WebView2FixedRuntime (if present in bin\)

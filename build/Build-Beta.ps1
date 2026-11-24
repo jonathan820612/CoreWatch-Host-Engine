@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Source-controlled, auto-versioned Beta build pipeline for CoreWatch.
     Reads & bumps version.json, stamps Git branch/commit SHA into EXEs & build-info.json,
@@ -9,7 +9,8 @@
     .\build\Build-Beta.ps1
     .\build\Build-Beta.ps1 -Bump patch -RequireAdmin
     .\build\Build-Beta.ps1 -Bump build -GitCommit -GitTag
-    .\build\Build-Beta.ps1 -Bump none -IncludeFixedRuntime
+    .\build\Build-Beta.ps1 -RequireAdmin -PublishGitHub
+    .\build\Publish-Release.ps1 -ReleaseTitle "Test Beta 12"
 #>
 [CmdletBinding()]
 param(
@@ -20,8 +21,18 @@ param(
     [switch]$IncludeFixedRuntime,
     [switch]$SkipZip,
     [switch]$GitCommit,
-    [switch]$GitTag
+    [switch]$GitTag,
+    [switch]$GitPush,
+    [switch]$PublishGitHub,
+    [switch]$Draft,
+    [string]$ReleaseTitle = ""
 )
+
+if ($PublishGitHub) {
+    $GitCommit = $true
+    $GitTag    = $true
+    $GitPush   = $true
+}
 
 $ErrorActionPreference = "Stop"
 
@@ -466,16 +477,221 @@ if ($Iscc) {
     Write-Host "[7/7] Inno Setup script ready: $IssPath" -ForegroundColor Yellow
 }
 
-# Optional Git Version Commit & Annotated Tag
+# 10. Generate SHA256SUMS.txt & Categorized Release Notes (Commits Since Previous Tag)
+$ChecksumPath     = Join-Path $DistRoot "CoreWatch-$SemVer-SHA256SUMS.txt"
+$ReleaseNotesPath = Join-Path $StageDir "RELEASE-NOTES.md"
+$AssetPaths       = New-Object System.Collections.Generic.List[string]
+if (Test-Path -LiteralPath $SetupExePath) { $AssetPaths.Add($SetupExePath) }
+if (Test-Path -LiteralPath $ZipPath)      { $AssetPaths.Add($ZipPath) }
+
+$checksumLines = New-Object System.Collections.Generic.List[string]
+foreach ($ap in $AssetPaths) {
+    $h = (Get-FileHash -LiteralPath $ap -Algorithm SHA256).Hash.ToLowerInvariant()
+    $fn = Split-Path -Path $ap -Leaf
+    $checksumLines.Add("$h  $fn")
+}
+if ($checksumLines.Count -gt 0) {
+    ($checksumLines -join "`n") + "`n" | Set-Content -LiteralPath $ChecksumPath -Encoding UTF8
+    $AssetPaths.Add($ChecksumPath)
+}
+
+# Parse GitHub owner/repo from origin remote
+$repoSlug = ""
+try {
+    $remoteUrl = ((& git -C $ProjectRoot remote get-url origin 2>$null) | Out-String).Trim()
+    if ($remoteUrl -match 'github\.com[:/]([^/]+/[^/\.]+?)(?:\.git)?$') {
+        $repoSlug = $Matches[1]
+    }
+} catch {}
+
+# Collect commits since previous tag for complete release overview
+$prevTag = ""
+try {
+    $pt = ((& git -C $ProjectRoot describe --tags --abbrev=0 2>$null) | Out-String).Trim()
+    if ($LASTEXITCODE -eq 0 -and $pt) { $prevTag = $pt }
+} catch {}
+
+$tagName      = "v$SemVer"
+$commitRange  = if ($prevTag) { "$prevTag..HEAD" } else { "HEAD" }
+$rawCommits   = @()
+try {
+    $rawCommits = @(& git -C $ProjectRoot log $commitRange --no-merges --pretty=format:"%h|%ad|%an|%s" --date=short 2>$null)
+} catch {}
+
+$featList  = New-Object System.Collections.Generic.List[string]
+$fixList   = New-Object System.Collections.Generic.List[string]
+$otherList = New-Object System.Collections.Generic.List[string]
+
+foreach ($line in $rawCommits) {
+    if (-not $line -or $line -notmatch '\|') { continue }
+    $parts = $line -split '\|', 4
+    if ($parts.Count -lt 4) { continue }
+    $cSha  = $parts[0].Trim()
+    $cDate = $parts[1].Trim()
+    $cSubj = $parts[3].Trim()
+    if ($cSubj -match '^chore\(release\):') { continue }
+
+    $entry = "- ``$cSha`` $cSubj _($cDate)_"
+    if ($cSubj -match '(?i)^feat(\([^)]*\))?:') {
+        $featList.Add($entry)
+    } elseif ($cSubj -match '(?i)^fix(\([^)]*\))?:') {
+        $fixList.Add($entry)
+    } else {
+        $otherList.Add($entry)
+    }
+}
+
+$notesSb = New-Object System.Text.StringBuilder
+$effectiveTitle = if ($ReleaseTitle) { "CoreWatch $tagName — $ReleaseTitle" } else { "CoreWatch $tagName ($BuildLabel)" }
+[void]$notesSb.AppendLine("## $effectiveTitle")
+[void]$notesSb.AppendLine("")
+if ($prevTag) {
+    [void]$notesSb.AppendLine("Changes since ``$prevTag``:")
+} else {
+    [void]$notesSb.AppendLine("Release overview:")
+}
+[void]$notesSb.AppendLine("")
+
+if ($featList.Count -gt 0) {
+    [void]$notesSb.AppendLine("### Features")
+    foreach ($x in $featList) { [void]$notesSb.AppendLine($x) }
+    [void]$notesSb.AppendLine("")
+}
+if ($fixList.Count -gt 0) {
+    [void]$notesSb.AppendLine("### Bug Fixes")
+    foreach ($x in $fixList) { [void]$notesSb.AppendLine($x) }
+    [void]$notesSb.AppendLine("")
+}
+if ($otherList.Count -gt 0) {
+    [void]$notesSb.AppendLine("### Improvements & Maintenance")
+    foreach ($x in $otherList) { [void]$notesSb.AppendLine($x) }
+    [void]$notesSb.AppendLine("")
+}
+if ($featList.Count -eq 0 -and $fixList.Count -eq 0 -and $otherList.Count -eq 0) {
+    [void]$notesSb.AppendLine("- Versioned release build ``$tagName`` ($BuildLabel) from commit ``$gitSha``.")
+    [void]$notesSb.AppendLine("")
+}
+
+if ($repoSlug -and $prevTag) {
+    [void]$notesSb.AppendLine("**Full Changelog**: https://github.com/$repoSlug/compare/$prevTag...$tagName")
+    [void]$notesSb.AppendLine("")
+}
+
+[void]$notesSb.AppendLine("### Build & Verification")
+[void]$notesSb.AppendLine("| Field | Value |")
+[void]$notesSb.AppendLine("|---|---|")
+[void]$notesSb.AppendLine("| **Version** | ``$tagName`` ($BuildLabel) |")
+[void]$notesSb.AppendLine("| **Assembly** | ``$AssemblyVer`` |")
+[void]$notesSb.AppendLine("| **Branch / Commit** | ``$gitBranch`` @ ``$gitSha`` |")
+[void]$notesSb.AppendLine("| **Execution Level** | ``$ExecLevel`` |")
+[void]$notesSb.AppendLine("| **Hardware Sensor Bridge** | $(if ($SensorBuilt) { 'Bundled (LibreHardwareMonitor + PawnIO)' } else { 'Not bundled' }) |")
+[void]$notesSb.AppendLine("| **Built (UTC)** | ``$BuiltUtc`` |")
+[void]$notesSb.AppendLine("")
+
+if ($checksumLines.Count -gt 0) {
+    [void]$notesSb.AppendLine("### SHA-256 Checksums")
+    [void]$notesSb.AppendLine('```text')
+    foreach ($cl in $checksumLines) { [void]$notesSb.AppendLine($cl) }
+    [void]$notesSb.AppendLine('```')
+}
+
+$notesContent = $notesSb.ToString()
+[System.IO.File]::WriteAllText($ReleaseNotesPath, $notesContent, [System.Text.Encoding]::UTF8)
+
+# 11. Optional Git Version Commit, Annotated Tag (with full overview), and Push
 if ($GitCommit) {
     Write-Host "[GIT] Committing version bump (version.json & build/BUILD-HISTORY.md)..." -ForegroundColor Cyan
     & git -C $ProjectRoot add version.json build/BUILD-HISTORY.md
-    & git -C $ProjectRoot commit -m "chore(release): bump CoreWatch to v$SemVer"
+    $stagedDiff = & git -C $ProjectRoot diff --cached --name-only
+    if ($stagedDiff) {
+        & git -C $ProjectRoot commit -m "chore(release): release CoreWatch $tagName ($BuildLabel)"
+        if ($LASTEXITCODE -ne 0) { throw "Git commit failed." }
+        $gitSha = ((& git -C $ProjectRoot rev-parse --short HEAD 2>$null) | Out-String).Trim()
+    }
 }
 if ($GitTag) {
-    $tagName = "v$SemVer"
-    Write-Host "[GIT] Creating annotated Git tag $tagName..." -ForegroundColor Cyan
-    & git -C $ProjectRoot tag -a $tagName -m "CoreWatch $tagName (commit $gitSha)"
+    Write-Host "[GIT] Creating annotated Git tag $tagName with full release overview..." -ForegroundColor Cyan
+    $existingTag = (& git -C $ProjectRoot tag -l $tagName)
+    if ($existingTag) {
+        Write-Host "      Tag $tagName already exists locally — replacing with updated annotation." -ForegroundColor Yellow
+        & git -C $ProjectRoot tag -d $tagName | Out-Null
+    }
+    & git -C $ProjectRoot tag -a $tagName -F $ReleaseNotesPath
+    if ($LASTEXITCODE -ne 0) { throw "Failed to create annotated tag $tagName." }
+}
+if ($GitPush) {
+    Write-Host "[GIT] Pushing $gitBranch and tag $tagName to origin..." -ForegroundColor Cyan
+    & git -C $ProjectRoot push origin $gitBranch
+    if ($LASTEXITCODE -ne 0) { throw "Failed to push branch $gitBranch to origin." }
+    & git -C $ProjectRoot push origin $tagName --force
+    if ($LASTEXITCODE -ne 0) { throw "Failed to push tag $tagName to origin." }
+}
+
+# 12. Optional Automated GitHub Release Publication (gh CLI -> GITHUB_TOKEN REST API)
+$PublishedUrl = ""
+if ($PublishGitHub) {
+    if (-not $repoSlug) { throw "Could not determine GitHub owner/repo from git remote 'origin'." }
+    $isPrerelease = [bool]($pre -match '(?i)alpha|beta|rc|dev|preview')
+    Write-Host "[GITHUB] Publishing release $tagName to $repoSlug (Prerelease=$isPrerelease)..." -ForegroundColor Cyan
+
+    $ghCmd = Get-Command gh -ErrorAction SilentlyContinue
+    $ghReady = $false
+    if ($ghCmd) {
+        & gh auth status 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) { $ghReady = $true }
+    }
+
+    $token = if ($env:GITHUB_TOKEN) { $env:GITHUB_TOKEN } elseif ($env:GH_TOKEN) { $env:GH_TOKEN } else { "" }
+
+    if ($ghReady) {
+        $ghArgs = @("release", "create", $tagName)
+        foreach ($ap in $AssetPaths) { $ghArgs += $ap }
+        $ghArgs += @("--repo", $repoSlug, "--title", $effectiveTitle, "--notes-file", $ReleaseNotesPath)
+        if ($isPrerelease) { $ghArgs += "--prerelease" }
+        if ($Draft)        { $ghArgs += "--draft" }
+
+        $ghOut = & gh @ghArgs 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            throw "gh release create failed: $($ghOut -join ' ')"
+        }
+        $PublishedUrl = ($ghOut | Select-Object -Last 1).ToString().Trim()
+        Write-Host "[GITHUB] Release live: $PublishedUrl" -ForegroundColor Green
+    } elseif ($token) {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        $headers = @{
+            "Authorization"        = "Bearer $token"
+            "Accept"               = "application/vnd.github+json"
+            "User-Agent"           = "CoreWatch-ReleasePipeline"
+            "X-GitHub-Api-Version" = "2022-11-28"
+        }
+        $relBody = @{
+            tag_name         = $tagName
+            target_commitish = $gitBranch
+            name             = $effectiveTitle
+            body             = $notesContent
+            draft            = [bool]$Draft
+            prerelease       = [bool]$isPrerelease
+        } | ConvertTo-Json -Depth 4
+
+        $relResp = Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/$repoSlug/releases" -Headers $headers -Body ([System.Text.Encoding]::UTF8.GetBytes($relBody)) -ContentType "application/json; charset=utf-8" -ErrorAction Stop
+        $PublishedUrl = [string]$relResp.html_url
+        $uploadBase   = ([string]$relResp.upload_url) -replace '\{\?.*\}$', ''
+
+        foreach ($ap in $AssetPaths) {
+            $fn = Split-Path -Path $ap -Leaf
+            $mime = if ($fn -match '\.zip$') { "application/zip" } elseif ($fn -match '\.exe$') { "application/vnd.microsoft.portable-executable" } else { "text/plain" }
+            $uploadUrl = "$uploadBase?name=$([System.Uri]::EscapeDataString($fn))"
+            Write-Host "         Uploading asset: $fn..." -ForegroundColor Gray
+            $null = Invoke-RestMethod -Method Post -Uri $uploadUrl -Headers $headers -InFile $ap -ContentType $mime -ErrorAction Stop
+        }
+        Write-Host "[GITHUB] Release live: $PublishedUrl" -ForegroundColor Green
+    } else {
+        Write-Host ""
+        Write-Host "[GITHUB] Authentication required to publish release $tagName." -ForegroundColor Yellow
+        Write-Host "         Option 1 (Recommended): winget install GitHub.cli && gh auth login" -ForegroundColor White
+        Write-Host "         Option 2 (Token):       Set `$env:GITHUB_TOKEN (Fine-Grained PAT with Contents: Read & Write)" -ForegroundColor White
+        Write-Host "         Release notes saved to: $ReleaseNotesPath" -ForegroundColor DarkCyan
+    }
 }
 
 $stageMB = [math]::Round(((Get-ChildItem -LiteralPath $StageDir -File -Recurse | Measure-Object Length -Sum).Sum / 1MB), 2)
@@ -483,7 +699,7 @@ $zipMB   = if (Test-Path -LiteralPath $ZipPath) { [math]::Round(((Get-Item -Lite
 $setupMB = if (Test-Path -LiteralPath $SetupExePath) { [math]::Round(((Get-Item -LiteralPath $SetupExePath).Length / 1MB), 2) } else { 0 }
 
 Write-Host ""
-Write-Host "BUILD COMPLETE: CoreWatch v$SemVer" -ForegroundColor Green
+Write-Host "BUILD COMPLETE: CoreWatch v$SemVer ($BuildLabel)" -ForegroundColor Green
 Write-Host "  Executable  : $ExeOut" -ForegroundColor White
 Write-Host "  SensorHelper: $(if ($SensorBuilt) { "$StageHelper (LibreHardwareMonitor bundled)" } else { 'Not bundled' })" -ForegroundColor White
 Write-Host "  Folder Size : $stageMB MB" -ForegroundColor White
@@ -493,4 +709,11 @@ if ($zipMB -gt 0) {
 if ($setupMB -gt 0) {
     Write-Host "  Setup .EXE  : $SetupExePath ($setupMB MB)" -ForegroundColor White
 }
+if (Test-Path -LiteralPath $ChecksumPath) {
+    Write-Host "  SHA-256 Sums: $ChecksumPath" -ForegroundColor White
+}
+Write-Host "  ReleaseNotes: $ReleaseNotesPath" -ForegroundColor White
 Write-Host "  Provenance  : $(Join-Path $StageDir 'build-info.json')" -ForegroundColor White
+if ($PublishedUrl) {
+    Write-Host "  GitHub URL  : $PublishedUrl" -ForegroundColor Green
+}
