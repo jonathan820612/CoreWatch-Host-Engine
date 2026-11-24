@@ -30,40 +30,65 @@ $BuildDir    = $PSScriptRoot
 $DistRoot    = Join-Path $ProjectRoot "dist"
 $VersionFile = Join-Path $ProjectRoot "version.json"
 
-# 1. Load & Increment Semantic + Build Version from version.json
+# 1. Load & Increment Single-Digit Rollover Version from version.json (0-9 per segment; avoids confusing .10)
 if (Test-Path -LiteralPath $VersionFile) {
     $verObj = Get-Content -LiteralPath $VersionFile -Raw | ConvertFrom-Json
 } else {
-    $verObj = [PSCustomObject]@{ major = 0; minor = 9; patch = 0; prerelease = "beta"; build = 0 }
+    $verObj = [PSCustomObject]@{ major = 0; minor = 9; patch = 0; prerelease = "beta"; build = 0; buildNumber = 0 }
 }
 
-$major = [int]$verObj.major
-$minor = [int]$verObj.minor
-$patch = [int]$verObj.patch
-$build = [int]$verObj.build
-$pre   = if ($PSBoundParameters.ContainsKey("Prerelease")) { $Prerelease } else { [string]$verObj.prerelease }
+$major       = [int]$verObj.major
+$minor       = [int]$verObj.minor
+$patch       = [int]$verObj.patch
+$build       = [int]$verObj.build
+$buildNumber = if ($null -ne $verObj.buildNumber) { [int]$verObj.buildNumber } else { ($patch * 10) + $build }
+$pre         = if ($PSBoundParameters.ContainsKey("Prerelease")) { $Prerelease } else { [string]$verObj.prerelease }
+
+# Normalize any legacy >= 10 segment before bumping
+while ($build -ge 10) { $build -= 10; $patch++ }
+while ($patch -ge 10) { $patch -= 10; $minor++ }
+while ($minor -ge 10) { $minor -= 10; $major++ }
 
 switch ($Bump) {
-    "major" { $major++; $minor = 0; $patch = 0; $build = 1 }
-    "minor" { $minor++; $patch = 0; $build = 1 }
-    "patch" { $patch++; $build = 1 }
-    "build" { $build++ }
-    "none"  { if ($build -lt 1) { $build = 1 } }
+    "major" { $major++; $minor = 0; $patch = 0; $build = 0; $buildNumber++ }
+    "minor" {
+        $minor++; $patch = 0; $build = 0; $buildNumber++
+        if ($minor -ge 10) { $major++; $minor = 0 }
+    }
+    "patch" {
+        $patch++; $build = 0; $buildNumber++
+        if ($patch -ge 10) { $minor++; $patch = 0 }
+        if ($minor -ge 10) { $major++; $minor = 0 }
+    }
+    "build" {
+        $build++; $buildNumber++
+        if ($build -ge 10) { $patch++; $build = 0 }
+        if ($patch -ge 10) { $minor++; $patch = 0 }
+        if ($minor -ge 10) { $major++; $minor = 0 }
+    }
+    "none"  { }
 }
 
 $updatedVerObj = [ordered]@{
-    major      = $major
-    minor      = $minor
-    patch      = $patch
-    prerelease = $pre
-    build      = $build
+    major       = $major
+    minor       = $minor
+    patch       = $patch
+    prerelease  = $pre
+    build       = $build
+    buildNumber = $buildNumber
 }
 if ($Bump -ne "none" -or -not (Test-Path -LiteralPath $VersionFile)) {
     ($updatedVerObj | ConvertTo-Json -Depth 2) + "`n" | Set-Content -LiteralPath $VersionFile -Encoding UTF8
 }
 
-$SemVer      = if ($pre) { "$major.$minor.$patch-$pre.$build" } else { "$major.$minor.$patch.$build" }
+# Clean human-readable version: e.g., 0.9.1-beta (Beta #10), 0.9.1-beta.1 (Beta #11) .. 0.9.1-beta.9 (#19), 0.9.2-beta (#20)
+$SemVer = if ($pre) {
+    if ($build -eq 0) { "$major.$minor.$patch-$pre" } else { "$major.$minor.$patch-$pre.$build" }
+} else {
+    if ($build -eq 0) { "$major.$minor.$patch" } else { "$major.$minor.$patch.$build" }
+}
 $AssemblyVer = "$major.$minor.$patch.$build"
+$BuildLabel  = if ($pre) { "$($pre.Substring(0,1).ToUpper())$($pre.Substring(1)) #$buildNumber" } else { "Build #$buildNumber" }
 
 # 2. Capture Git Source-Control Metadata
 $gitBranch = "unknown"
@@ -85,7 +110,7 @@ $StageDir = Join-Path $DistRoot "CoreWatch-$SemVer"
 $ZipPath  = Join-Path $DistRoot "CoreWatch-$SemVer-Portable.zip"
 
 Write-Host "=================================================================" -ForegroundColor Cyan
-Write-Host "  CoreWatch Source-Controlled Build  v$SemVer" -ForegroundColor Cyan
+Write-Host "  CoreWatch Source-Controlled Build  v$SemVer ($BuildLabel)" -ForegroundColor Cyan
 Write-Host "  Git: $gitBranch @ $gitSha$(if ($gitDirty) { ' (uncommitted changes)' } else { ' (clean)' })" -ForegroundColor DarkCyan
 Write-Host "=================================================================" -ForegroundColor Cyan
 
@@ -333,6 +358,8 @@ if ($LASTEXITCODE -ne 0) {
 $buildInfo = [ordered]@{
     product        = "CoreWatch"
     version        = $SemVer
+    buildLabel     = $BuildLabel
+    buildNumber    = $buildNumber
     assemblyVer    = $AssemblyVer
     infoVersion    = $InfoVersion
     gitBranch      = $gitBranch
@@ -350,7 +377,7 @@ $HistoryPath = Join-Path $BuildDir "BUILD-HISTORY.md"
 if (-not (Test-Path -LiteralPath $HistoryPath)) {
     "# CoreWatch Build History`n`n| Version | Assembly | Git Branch | Commit | Built (UTC) | Admin | LHM Bridge |`n|---|---|---|---|---|---|---|" | Set-Content -LiteralPath $HistoryPath -Encoding UTF8
 }
-$histLine = "| v$SemVer | $AssemblyVer | $gitBranch | ``$gitSha``$(if ($gitDirty) { '*' }) | $BuiltUtc | $ExecLevel | $(if ($SensorBuilt) { 'Yes' } else { 'No' }) |"
+$histLine = "| v$SemVer (#$buildNumber) | $AssemblyVer | $gitBranch | ``$gitSha``$(if ($gitDirty) { '*' }) | $BuiltUtc | $ExecLevel | $(if ($SensorBuilt) { 'Yes' } else { 'No' }) |"
 Add-Content -LiteralPath $HistoryPath -Value $histLine -Encoding UTF8
 
 # 9. Package Portable ZIP + Generate Inno Setup Installer Script

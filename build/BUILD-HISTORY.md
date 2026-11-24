@@ -14,4 +14,5 @@
 | v0.9.0-beta.7 | 0.9.0.7 | main | `457eafb`* | 2026-11-24T07:28:55Z | requireAdministrator | Yes |
 | v0.9.0-beta.8 | 0.9.0.8 | main | `457eafb`* | 2026-11-24T08:04:01Z | requireAdministrator | Yes |
 | v0.9.0-beta.9 | 0.9.0.9 | main | `18a4953`* | 2026-11-24T08:32:38Z | asInvoker | Yes |
-| v0.9.0-beta.10 | 0.9.1.0 | main | `18a4953`* | 2026-11-24T09:15:03Z | requireAdministrator | Yes |
+| v0.9.1-beta (#10) | 0.9.1.0 | main | `18a4953`* | 2026-11-24T09:15:03Z | requireAdministrator | Yes |
+| v0.9.1-beta.1 (#11) | 0.9.1.1 | main | `723d107`* | 2026-11-24T09:29:23Z | requireAdministrator | Yes |

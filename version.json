@@ -1,8 +1,9 @@
 {
   "major": 0,
   "minor": 9,
-  "patch": 0,
+  "patch": 1,
   "prerelease": "beta",
-  "build": 10
+  "build": 1,
+  "buildNumber": 11
 }
 
