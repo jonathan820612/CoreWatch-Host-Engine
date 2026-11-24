@@ -20,6 +20,13 @@ $script:CachedLastCrashText       = "None Recorded"
 $script:CachedLastCrashDetail     = "No Kernel-Power (41) or BugCheck (1001) events found"
 $script:CachedHasRecentCrash      = $false
 
+# [DYNAMIC CONTROL] Force-expire cached Display/PowerPlan/Stability timers after user toggle
+function Reset-InfraMetricsCache {
+    $script:LastDynamicInfra   = [datetime]::MinValue
+    $script:LastDisplayCheck   = [datetime]::MinValue
+    $script:LastStabilityCheck = [datetime]::MinValue
+}
+
 # =========================================================================
 # [DIAGNOSTIC ADDITION] PENDING REBOOT REGISTRY INSPECTOR
 # Insert Point: Checks CBS, Windows Update, Session Manager & Pending Rename

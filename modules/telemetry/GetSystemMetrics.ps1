@@ -56,8 +56,10 @@ $script:CachedGpuVramPct     = 0
 $script:CachedGpuVramText    = "-- / -- GB"
 $script:CachedThrottleState  = "None"
 $script:CachedThrottleDetail = "No CPU/GPU throttling detected"
-$script:CachedTopProcessText = "Sampling..."
+$script:CachedTopProcessText   = "Sampling..."
 $script:CachedTopProcessDetail = ""
+$script:CachedTopProcessPid    = 0
+$script:CachedTopProcessName   = ""
 $script:LastProcCpuMap       = @{}
 $script:LastProcSampleTime   = [datetime]::MinValue
 $script:LastCpuLoadSample    = 0
@@ -158,8 +160,8 @@ function Update-TopResourceConsumer {
         $logicalCores = if ($script:StaticSystemCache) { $script:StaticSystemCache.LogicalProcessors } else { [math]::Max(1, [Environment]::ProcessorCount) }
         $newCpuMap = @{}
 
-        $topRamName = $null; $topRamBytes = 0L
-        $topCpuName = $null; $topCpuPct = 0.0; $topCpuBytes = 0L
+        $topRamName = $null; $topRamBytes = 0L; $topRamPid = 0
+        $topCpuName = $null; $topCpuPct = 0.0; $topCpuBytes = 0L; $topCpuPid = 0
 
         $procs = [System.Diagnostics.Process]::GetProcesses()
         foreach ($p in $procs) {
@@ -172,6 +174,7 @@ function Update-TopResourceConsumer {
                 if ($ws -gt $topRamBytes) {
                     $topRamBytes = $ws
                     $topRamName  = $pName
+                    $topRamPid   = $pidVal
                 }
 
                 try {
@@ -185,6 +188,7 @@ function Update-TopResourceConsumer {
                                 $topCpuPct   = [math]::Min(100.0, $pct)
                                 $topCpuName  = $pName
                                 $topCpuBytes = $ws
+                                $topCpuPid   = $pidVal
                             }
                         }
                     }
@@ -210,8 +214,12 @@ function Update-TopResourceConsumer {
         # Highlight active CPU spike (>= 10% CPU), otherwise display top RAM consumer
         if ($topCpuName -and $cpuPctRounded -ge 10) {
             $script:CachedTopProcessText = "$topCpuName.exe ($cpuPctRounded% CPU · $cpuMemStr)"
+            $script:CachedTopProcessPid  = $topCpuPid
+            $script:CachedTopProcessName = "$topCpuName.exe"
         } elseif ($topRamName) {
             $script:CachedTopProcessText = "$topRamName.exe ($ramStr)"
+            $script:CachedTopProcessPid  = $topRamPid
+            $script:CachedTopProcessName = "$topRamName.exe"
         }
 
         $cpuSummary = if ($topCpuName) { "$topCpuName.exe ($cpuPctRounded% CPU)" } else { "Idle" }
@@ -490,7 +498,15 @@ function Get-FastHardwareMetrics {
         GpuVramText       = $script:CachedGpuVramText
         TopProcessText    = $script:CachedTopProcessText
         TopProcessDetail  = $script:CachedTopProcessDetail
+        TopProcessPid     = [int]$script:CachedTopProcessPid
+        TopProcessName    = [string]$script:CachedTopProcessName
     }
+}
+
+# [DYNAMIC CONTROL] Force-expire cached PowerPlan / Telemetry timers after user toggle
+function Reset-SystemMetricsCache {
+    $script:LastPowerPlanCheck = [datetime]::MinValue
+    $script:LastSensorSample   = [datetime]::MinValue
 }
 
 function Get-SystemMetrics {
@@ -532,5 +548,7 @@ function Get-SystemMetrics {
         GpuDriverVersion  = $script:StaticSystemCache.GpuDriverVersion
         TopProcessText    = $fast.TopProcessText
         TopProcessDetail  = $fast.TopProcessDetail
+        TopProcessPid     = $fast.TopProcessPid
+        TopProcessName    = $fast.TopProcessName
     }
 }

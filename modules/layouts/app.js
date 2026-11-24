@@ -10,7 +10,10 @@ window.SwitchAppLayoutView = function(targetViewId) {
         apps: document.getElementById('viewInstalledAppsPanel'),
         devices: document.getElementById('viewSystemDevicesPanel'),
         organizer: document.getElementById('viewFileOrganizerPanel'),
-        diagx: document.getElementById('viewUltimaDiagXPanel')
+        diagx: document.getElementById('viewUltimaDiagXPanel'),
+        tasksports: document.getElementById('viewTasksPortsPanel'),
+        wsl: document.getElementById('viewWslManagerPanel'),
+        security: document.getElementById('viewSecurityRepairPanel')
     };
 
     const buttons = {
@@ -21,11 +24,43 @@ window.SwitchAppLayoutView = function(targetViewId) {
         apps: document.getElementById('tabInstalledApps'),
         devices: document.getElementById('tabDevices'),
         organizer: document.getElementById('tabOrganizer'),
-        diagx: document.getElementById('tabUltimaDiagX')
+        diagx: document.getElementById('tabUltimaDiagX'),
+        tasksports: document.getElementById('tabTasksPorts'),
+        wsl: document.getElementById('tabWslManager'),
+        security: document.getElementById('tabSecurityRepair')
     };
 
     Object.values(panels).forEach(p => { if (p) p.style.display = 'none'; });
     Object.values(buttons).forEach(b => { if (b) b.classList.remove('active'); });
+
+    // Auto-pause Tasks & Ports live refresh whenever leaving that tab
+    if (targetViewId !== 'tasksports' && window._tpLiveWatchTimer) {
+        StopTasksPortsLiveWatch();
+    }
+
+    // Close System Tools dropdown and update grouped trigger label/active highlight
+    const sysDrop = document.getElementById('navSystemDropdown');
+    const sysTrigger = document.getElementById('tabSystemMenu');
+    const sysLabel = document.getElementById('lblSystemMenuText');
+    if (sysDrop) sysDrop.classList.remove('open');
+    if (sysTrigger) {
+        sysTrigger.classList.remove('active');
+        sysTrigger.setAttribute('aria-expanded', 'false');
+    }
+    const systemMenuLabels = {
+        security: '🛡️ Security',
+        startup: '🚀 Startup',
+        sharing: '📂 Sharing',
+        apps: '📦 Apps',
+        devices: '🧩 Devices',
+        organizer: '🗂️ Organizer'
+    };
+    if (systemMenuLabels[targetViewId]) {
+        if (sysTrigger) sysTrigger.classList.add('active');
+        if (sysLabel) sysLabel.textContent = systemMenuLabels[targetViewId];
+    } else if (sysLabel) {
+        sysLabel.textContent = '🧰 System';
+    }
 
     if (targetViewId === 'netmanager') {
         if (panels.netmanager) panels.netmanager.style.display = 'flex';
@@ -68,6 +103,27 @@ window.SwitchAppLayoutView = function(targetViewId) {
         if (buttons.diagx) buttons.diagx.classList.add('active');
         if (!window._ultimaDiagXLoaded) {
             InitUltimaDiagX();
+        }
+    }
+    else if (targetViewId === 'tasksports') {
+        if (panels.tasksports) panels.tasksports.style.display = 'flex';
+        if (buttons.tasksports) buttons.tasksports.classList.add('active');
+        if (!window._tasksPortsLoaded) {
+            RequestTasksPorts();
+        }
+    }
+    else if (targetViewId === 'wsl') {
+        if (panels.wsl) panels.wsl.style.display = 'flex';
+        if (buttons.wsl) buttons.wsl.classList.add('active');
+        if (!window._wslManagerLoaded) {
+            RequestWslManager();
+        }
+    }
+    else if (targetViewId === 'security') {
+        if (panels.security) panels.security.style.display = 'flex';
+        if (buttons.security) buttons.security.classList.add('active');
+        if (!window._secRepairLoaded) {
+            RequestSecurityRepair();
         }
     }
     else {
@@ -212,6 +268,60 @@ const msgType = stats.type || stats.Type;
     }
     else if (msgType === "SPEED_TEST_RESULTS") {
         RenderSpeedTestResults(stats);
+    }
+    else if (msgType === "DASHBOARD_CONTROL_RESULT") {
+        HandleDashboardControlResult(stats);
+    }
+    else if (msgType === "WSL_MANAGER_STATE") {
+        RenderWslManagerState(stats);
+    }
+    else if (msgType === "WSL_ONLINE_CATALOG") {
+        RenderWslOnlineCatalog(stats.onlineCatalog, stats.catalogSource);
+    }
+    else if (msgType === "WSL_COMMAND_OUTPUT") {
+        RenderWslCommandOutput(stats);
+    }
+    else if (msgType === "WSL_NOTICE") {
+        HandleWslNotice(stats);
+    }
+    else if (msgType === "WSL_BROWSE_IMPORT_RESULT") {
+        const inp = document.getElementById('wslImportSource');
+        if (inp && stats.path) inp.value = stats.path;
+    }
+    else if (msgType === "WSL_BROWSE_EXPORT_RESULT") {
+        if (stats.distro && stats.path) {
+            ExecuteWslExportDistro(stats.distro, stats.path);
+        }
+    }
+    else if (msgType === "TASKS_PORTS_STATE") {
+        RenderTasksPortsState(stats);
+    }
+    else if (msgType === "TASKS_PORTS_NOTICE") {
+        HandleTasksPortsNotice(stats);
+    }
+    else if (msgType === "NET_DIAG_RESULT") {
+        RenderNetDiagResult(stats);
+    }
+    else if (msgType === "NET_DIAG_WIFI_ROUTES") {
+        RenderNetDiagWifiAndRoutes(stats);
+    }
+    else if (msgType === "NET_DIAG_ERROR") {
+        HandleNetDiagError(stats);
+    }
+    else if (msgType === "SECURITY_REPAIR_STATE") {
+        RenderSecurityRepairState(stats);
+    }
+    else if (msgType === "SEC_ENV_HOSTS_PROXY_STATE") {
+        RenderSecEnvHostsProxyState(stats);
+    }
+    else if (msgType === "REPAIR_TOOL_OUTPUT") {
+        RenderRepairToolOutput(stats);
+    }
+    else if (msgType === "SECURITY_REPAIR_NOTICE") {
+        HandleSecurityRepairNotice(stats);
+    }
+    else if (msgType === "SUPPORT_BUNDLE_PATH_RESULT") {
+        if (stats.path) ExecuteSupportBundleExport(stats.path);
     }
     else {
         // Dashboard Full Telemetry (1s cadence)
@@ -487,7 +597,53 @@ function ApplySelectedMonitorMetrics() {
     }
 
     SetDomText('lblMonResolution',  mon.Resolution || '--');
-    SetDomText('lblMonRefresh',     mon.RefreshRate || '--');
+
+    // [DYNAMIC CONTROL] Safe Driver-Verified Refresh Rate Selector
+    const refEl = document.getElementById('lblMonRefresh');
+    if (refEl) {
+        const rates = Array.isArray(mon.AvailableRefreshRates)
+            ? mon.AvailableRefreshRates.map(Number).filter(n => Number.isFinite(n) && n >= 24)
+            : [];
+        const curHz = Number(mon.RefreshRateHz || parseInt(mon.RefreshRate, 10) || 0);
+        const existingSel = refEl.querySelector('select.infra-refresh-select');
+
+        if (rates.length > 1) {
+            const sig = `${mon.Id}|${rates.join(',')}`;
+            const isBusy = IsControlPending('SET_MONITOR_REFRESH_RATE');
+            const isFocused = existingSel && document.activeElement === existingSel;
+
+            if (!isFocused) {
+                if (!existingSel || existingSel.dataset.sig !== sig) {
+                    const sel = document.createElement('select');
+                    sel.className = 'infra-refresh-select';
+                    sel.dataset.sig = sig;
+                    sel.dataset.device = mon.Id || '';
+                    sel.setAttribute('aria-label', 'Select safe monitor refresh rate');
+                    sel.title = `Safe Windows driver-verified refresh rates for ${mon.Resolution || 'current resolution'}`;
+                    rates.forEach(hz => {
+                        const opt = document.createElement('option');
+                        opt.value = String(hz);
+                        opt.textContent = `${hz} Hz`;
+                        if (hz === curHz) opt.selected = true;
+                        sel.appendChild(opt);
+                    });
+                    sel.disabled = isBusy;
+                    sel.addEventListener('change', (e) => {
+                        TriggerRefreshRateChange(sel.dataset.device, Number(e.target.value), curHz);
+                    });
+                    refEl.replaceChildren(sel);
+                } else {
+                    existingSel.disabled = isBusy;
+                    if (!isBusy && curHz > 0) {
+                        existingSel.value = String(curHz);
+                    }
+                }
+            }
+        } else {
+            refEl.textContent = mon.RefreshRate || '--';
+        }
+    }
+
     SetDomText('lblMonConnection',  mon.ConnectionType || '--');
     SetDomText('lblMonScale',       mon.Scale || '--');
     SetDomText('lblMonOrientation', mon.Orientation || '--');
@@ -495,15 +651,57 @@ function ApplySelectedMonitorMetrics() {
     const hdrEl = document.getElementById('lblMonHdr');
     if (hdrEl) {
         const hdr = mon.HdrStatus || 'Unknown';
-        hdrEl.textContent = hdr;
-        hdrEl.style.color = hdr === 'On' ? '#48bb78' : (hdr.startsWith('Off') ? '#a0aec0' : '#718096');
+        const safeDev = String(mon.Id || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        if (IsControlPending('TOGGLE_HDR')) {
+            hdrEl.innerHTML = `<button type="button" class="toggle-pill-btn is-busy" disabled>...</button>`;
+        } else if (hdr === 'On') {
+            hdrEl.innerHTML = `<button type="button" class="toggle-pill-btn state-on" onclick="TriggerHdrToggle('${safeDev}', 'Off')" title="HDR is On — Click to turn Off">On</button>`;
+        } else if (hdr.startsWith('Off')) {
+            hdrEl.innerHTML = `<button type="button" class="toggle-pill-btn state-off" onclick="TriggerHdrToggle('${safeDev}', 'On')" title="HDR is Supported (Off) — Click to turn On">Off</button>`;
+        } else {
+            hdrEl.textContent = hdr;
+            hdrEl.style.color = '#718096';
+        }
     }
 
     const nlEl = document.getElementById('lblMonNightLight');
     if (nlEl) {
         const nl = mon.NightLight || 'Off';
-        nlEl.textContent = nl;
-        nlEl.style.color = nl === 'On' ? '#ecc94b' : '#a0aec0';
+        if (IsControlPending('TOGGLE_NIGHT_LIGHT')) {
+            nlEl.innerHTML = `<button type="button" class="toggle-pill-btn is-busy" disabled>...</button>`;
+        } else if (nl === 'On') {
+            nlEl.innerHTML = `<button type="button" class="toggle-pill-btn state-warn" onclick="TriggerNightLightToggle('Off')" title="Night Light is On — Click to turn Off">On</button>`;
+        } else {
+            nlEl.innerHTML = `<button type="button" class="toggle-pill-btn state-off" onclick="TriggerNightLightToggle('On')" title="Night Light is Off — Click to turn On">Off</button>`;
+        }
+    }
+
+    // [DYNAMIC CONTROL] Sync Night Light Warmth Slider — enabled ONLY when Night Light is actively On
+    const nlRow    = document.getElementById('nightLightSliderRow');
+    const nlSlider = document.getElementById('rngNightLightStrength');
+    const nlValLbl = document.getElementById('lblNightLightStrength');
+    const strengthPending = IsControlPending('SET_NIGHT_LIGHT_STRENGTH');
+    // During safe auto-reapply pulse (SET_NIGHT_LIGHT_STRENGTH), keep slider visually active without flickering Off
+    const isNlOn   = ((mon.NightLight === 'On') || strengthPending) && !IsControlPending('TOGGLE_NIGHT_LIGHT');
+    window._nightLightIsOn = isNlOn;
+
+    const dragLocked = window._nlSliderDragLockUntil && Date.now() < window._nlSliderDragLockUntil;
+    if (nlSlider && nlValLbl) {
+        nlSlider.disabled = !isNlOn || strengthPending;
+        if (nlRow) {
+            nlRow.classList.toggle('is-disabled', !isNlOn);
+            nlRow.title = isNlOn
+                ? 'Adjust Windows Night Light warmth / blue-light reduction (0% = 6500K cool, 100% = 1200K warm)'
+                : 'Turn Night Light On to adjust blue-light reduction warmth';
+        }
+        if (!dragLocked && !strengthPending) {
+            const pct = Number.isFinite(Number(mon.NightLightStrength)) ? Number(mon.NightLightStrength) : 32;
+            const kelvin = Number.isFinite(Number(mon.NightLightKelvin))
+                ? Number(mon.NightLightKelvin)
+                : Math.round(6500 - (pct / 100) * (6500 - 1200));
+            nlSlider.value = String(pct);
+            nlValLbl.textContent = isNlOn ? `${pct}% (${kelvin}K)` : `Off (${kelvin}K)`;
+        }
     }
 
     const cpEl = document.getElementById('lblMonColorProfile');
@@ -576,12 +774,19 @@ function ApplyHardwareDiagnosticsUi(sys) {
         SetDomStyleWidth('barGpuVram', `${sys.GpuVramPercent}%`);
     }
 
-    // 3. Top Resource Consumer Single-Line Callout
+    // 3. Top Resource Consumer Single-Line Callout (caches PID/Name for click-to-inspect/terminate)
     if (sys.TopProcessText) {
         SetDomText('lblTopProcess', sys.TopProcessText);
+        window._topProcessMeta = {
+            text: sys.TopProcessText,
+            detail: sys.TopProcessDetail || '',
+            pid: Number(sys.TopProcessPid || 0),
+            name: sys.TopProcessName || ''
+        };
         const strip = document.getElementById('topProcessStrip');
-        if (strip && sys.TopProcessDetail) {
-            strip.title = sys.TopProcessDetail;
+        if (strip) {
+            const detailStr = sys.TopProcessDetail ? `${sys.TopProcessDetail} — ` : '';
+            strip.title = `${detailStr}Click to inspect or terminate top process`;
         }
     }
 }
@@ -660,17 +865,19 @@ function updateDashboardUiMesh(stats) {
         }
         SetDomText('lblCpuModel', id.CpuModel);
 
-        // [DIAGNOSTIC ADDITION] Admin / Elevation Context Pill
+        // [DIAGNOSTIC ADDITION] Admin / Elevation Context Pill (Clickable to Relaunch as Admin when Standard User)
         const elevElem = document.getElementById('lblElevation');
         if (elevElem && id.ElevationStatus) {
             elevElem.textContent = id.ElevationStatus;
-            elevElem.classList.remove('diag-ok', 'diag-info', 'diag-warn', 'diag-neutral');
+            elevElem.classList.remove('diag-ok', 'diag-info', 'diag-warn', 'diag-neutral', 'clickable-pill');
             if (id.IsAdmin) {
                 elevElem.classList.add('diag-info');
-                elevElem.title = 'Running elevated as Administrator (full WMI/SMART/registry access)';
+                elevElem.onclick = null;
+                elevElem.title = 'Running elevated as Administrator (full WMI/SMART/toggle control access)';
             } else {
-                elevElem.classList.add('diag-warn');
-                elevElem.title = 'Running as Standard User — some SMART, Event Log, or system control queries may require Administrator privileges';
+                elevElem.classList.add('diag-warn', 'clickable-pill');
+                elevElem.onclick = TriggerRelaunchAsAdmin;
+                elevElem.title = 'Running as Standard User — Click to relaunch CoreWatch as Administrator';
             }
         }
     }
@@ -683,6 +890,7 @@ function updateDashboardUiMesh(stats) {
         SetDomText('lblUpdateLevel',    infra.WindowsUpdateLevel);
         SetDomText('lblDirectX',        infra.DirectX);
         SetDomText('lblVirtualization', infra.Virtualization);
+        SetDomText('lblSecureBoot',     infra.SecureBoot || '--');
         SetDomText('lblPsVersion',      infra.PsVersion);
         SetDomText('lblMotherboard',    infra.Motherboard);
         SetDomText('lblBiosVersion',    infra.BiosVersion);
@@ -696,13 +904,20 @@ function updateDashboardUiMesh(stats) {
         const planElem = document.getElementById('lblPowerPlan');
         if (planElem) planElem.innerHTML = powerPlanHtml;
 
-        // [DIAGNOSTIC ADDITION] Pending Reboot Flag Pill
+        // [DIAGNOSTIC ADDITION] Pending Reboot Flag Pill (Clickable to trigger confirmed reboot when Yes)
         const rebootElem = document.getElementById('lblPendingReboot');
         if (rebootElem && infra.PendingReboot) {
             rebootElem.textContent = infra.PendingReboot;
-            rebootElem.title = infra.PendingRebootDetail || '';
-            rebootElem.classList.remove('diag-ok', 'diag-warn', 'diag-crit', 'diag-neutral');
-            rebootElem.classList.add(infra.PendingReboot === 'Yes' ? 'diag-warn' : 'diag-ok');
+            rebootElem.classList.remove('diag-ok', 'diag-warn', 'diag-crit', 'diag-neutral', 'clickable-pill');
+            if (infra.PendingReboot === 'Yes') {
+                rebootElem.classList.add('diag-warn', 'clickable-pill');
+                rebootElem.onclick = TriggerPendingRebootRestart;
+                rebootElem.title = `${infra.PendingRebootDetail || 'Reboot required'} — Click to restart PC now`;
+            } else {
+                rebootElem.classList.add('diag-ok');
+                rebootElem.onclick = null;
+                rebootElem.title = infra.PendingRebootDetail || 'No pending reboot flags detected';
+            }
         }
 
         // [DIAGNOSTIC ADDITION] Last Unexpected Shutdown / BSOD Timestamp
@@ -730,12 +945,15 @@ function updateDashboardUiMesh(stats) {
         SetDomText('lblCpuTemp',        sys.CpuTemp);
         SetDomText('lblPagefileUsage', sys.PagefileUsageText); 
         SetDomStyleWidth('barPagefileUsage', `${sys.PagefilePercent}%`);
+        // [DYNAMIC CONTROL] Windows Telemetry Bidirectional On <-> Off Toggle Pill
         const telElem = document.getElementById('lblTelemetry');
         if (telElem) {
-            if (sys.TelemetryStatus === "On") {
-                telElem.innerHTML = `<span style="color:#48bb78; cursor:pointer; text-decoration:underline dotted;" onclick="TriggerTelemetryDisable()" title="Click to Disable Windows Telemetry Services">On (Disable)</span>`;
+            if (IsControlPending('TOGGLE_TELEMETRY')) {
+                telElem.innerHTML = `<button type="button" class="toggle-pill-btn is-busy" disabled>...</button>`;
+            } else if (sys.TelemetryStatus === "On") {
+                telElem.innerHTML = `<button type="button" class="toggle-pill-btn state-on" onclick="TriggerTelemetryToggle('Off')" title="Windows Telemetry (DiagTrack) is On — Click to turn Off">On</button>`;
             } else {
-                telElem.innerHTML = `<span style="color:#f56565;">Off</span>`;
+                telElem.innerHTML = `<button type="button" class="toggle-pill-btn state-off" onclick="TriggerTelemetryToggle('On')" title="Windows Telemetry (DiagTrack) is Off — Click to turn On">Off</button>`;
             }
         }
 
@@ -775,14 +993,88 @@ function updateDashboardUiMesh(stats) {
         SetDomText('lblSubnetMask',     net.SubnetMask);
         SetDomText('lblGateway',        net.Gateway);
         if (net.NetAssignment) SetDomText('lblNetAssignment', net.NetAssignment);
-        SetDomText('lblNetworkStatus',  net.NetworkStatus);
+
+        // [DYNAMIC CONTROL] Network Profile Status Toggle Pill (Public <-> Private)
+        const profElem = document.getElementById('lblNetworkStatus');
+        if (profElem) {
+            const prof = String(net.NetworkStatus || 'Disconnected');
+            if (IsControlPending('TOGGLE_NET_PROFILE')) {
+                profElem.innerHTML = `<button type="button" class="toggle-pill-btn is-busy" disabled>...</button>`;
+            } else if (prof === 'Private') {
+                profElem.innerHTML = `<button type="button" class="toggle-pill-btn state-info" onclick="TriggerNetworkProfileToggle('Public')" title="Private network profile — Click to switch to Public">Private</button>`;
+            } else if (prof === 'Public') {
+                profElem.innerHTML = `<button type="button" class="toggle-pill-btn state-warn" onclick="TriggerNetworkProfileToggle('Private')" title="Public network profile (restricts sharing/discovery) — Click to switch to Private">Public</button>`;
+            } else {
+                profElem.textContent = prof;
+            }
+        }
+
         SetDomText('lblWlanSsid',       net.WlanSsid);
         SetDomText('lblExtIPv4',        net.ExtIPv4);
         SetDomText('lblLinkCap',        net.LinkCap);
-        SetDomText('lblFirewall',       net.Firewall);
-        SetDomText('lblRealtime',       net.Realtime);
-        SetDomText('lblDiscovery',      net.Discovery);
-        SetDomText('lblSharing',        net.Sharing);
+
+        // [DYNAMIC CONTROL] Firewall On <-> Off Toggle Pill + Provider Hint
+        const fwElem = document.getElementById('lblFirewall');
+        if (fwElem) {
+            const fwRaw = String(net.Firewall || 'Unknown');
+            const fwMatch = fwRaw.match(/^(On|Off)(?:\s*\((.+)\))?$/i);
+            const fwState = fwMatch ? fwMatch[1] : fwRaw;
+            const fwProviderFull = fwMatch && fwMatch[2] ? fwMatch[2] : '';
+            const fwProviderShort = fwProviderFull === 'Windows Firewall' ? 'WinFW' : fwProviderFull;
+            const providerHtml = fwProviderShort ? ` <span class="net-provider-hint" title="${fwProviderFull}">(${fwProviderShort})</span>` : '';
+
+            if (IsControlPending('TOGGLE_FIREWALL')) {
+                fwElem.innerHTML = `<button type="button" class="toggle-pill-btn is-busy" disabled>...</button>${providerHtml}`;
+            } else if (fwState.toLowerCase() === 'on') {
+                fwElem.innerHTML = `<button type="button" class="toggle-pill-btn state-on" onclick="TriggerFirewallToggle('Off')" title="${fwRaw} — Click to turn Firewall Off">On</button>${providerHtml}`;
+            } else if (fwState.toLowerCase() === 'off') {
+                fwElem.innerHTML = `<button type="button" class="toggle-pill-btn state-off" onclick="TriggerFirewallToggle('On')" title="${fwRaw} — Click to turn Firewall On">Off</button>${providerHtml}`;
+            } else {
+                fwElem.textContent = fwRaw;
+            }
+        }
+
+        // [DYNAMIC CONTROL] Realtime Protection On <-> Off Toggle Pill
+        const rtElem = document.getElementById('lblRealtime');
+        if (rtElem) {
+            const rt = String(net.Realtime || 'Unknown');
+            if (IsControlPending('TOGGLE_REALTIME')) {
+                rtElem.innerHTML = `<button type="button" class="toggle-pill-btn is-busy" disabled>...</button>`;
+            } else if (rt.toLowerCase() === 'on') {
+                rtElem.innerHTML = `<button type="button" class="toggle-pill-btn state-on" onclick="TriggerRealtimeToggle('Off')" title="Defender Real-Time Protection is On — Click to turn Off">On</button>`;
+            } else if (rt.toLowerCase() === 'off') {
+                rtElem.innerHTML = `<button type="button" class="toggle-pill-btn state-off" onclick="TriggerRealtimeToggle('On')" title="Defender Real-Time Protection is Off — Click to turn On">Off</button>`;
+            } else {
+                rtElem.textContent = rt;
+            }
+        }
+
+        // [DYNAMIC CONTROL] Network Discovery On <-> Off Toggle Pill
+        const discElem = document.getElementById('lblDiscovery');
+        if (discElem) {
+            const disc = String(net.Discovery || 'Off');
+            if (IsControlPending('TOGGLE_DISCOVERY')) {
+                discElem.innerHTML = `<button type="button" class="toggle-pill-btn is-busy" disabled>...</button>`;
+            } else if (disc.toLowerCase() === 'on') {
+                discElem.innerHTML = `<button type="button" class="toggle-pill-btn state-on" onclick="TriggerDiscoveryToggle('Off')" title="Network Discovery is On — Click to turn Off">On</button>`;
+            } else {
+                discElem.innerHTML = `<button type="button" class="toggle-pill-btn state-off" onclick="TriggerDiscoveryToggle('On')" title="Network Discovery is Off — Click to turn On">Off</button>`;
+            }
+        }
+
+        // [DYNAMIC CONTROL] File & Printer Sharing On <-> Off Toggle Pill
+        const shareElem = document.getElementById('lblSharing');
+        if (shareElem) {
+            const sh = String(net.Sharing || 'Off');
+            if (IsControlPending('TOGGLE_SHARING')) {
+                shareElem.innerHTML = `<button type="button" class="toggle-pill-btn is-busy" disabled>...</button>`;
+            } else if (sh.toLowerCase() === 'on') {
+                shareElem.innerHTML = `<button type="button" class="toggle-pill-btn state-on" onclick="TriggerSharingToggle('Off')" title="File & Printer Sharing (SMB) is On — Click to turn Off">On</button>`;
+            } else {
+                shareElem.innerHTML = `<button type="button" class="toggle-pill-btn state-off" onclick="TriggerSharingToggle('On')" title="File & Printer Sharing (SMB) is Off — Click to turn On">Off</button>`;
+            }
+        }
+
         SetDomText('lblEthernet',       net.lblEthDriver);
         SetDomText('lblWifi',           net.lblWifiDriver);
 
@@ -790,20 +1082,22 @@ function updateDashboardUiMesh(stats) {
         if (net.DnsServers) SetDomText('lblDnsServers', net.DnsServers);
         const dnsElem = document.getElementById('lblDnsStatus');
         if (dnsElem && net.DnsStatusText) {
-            dnsElem.textContent = net.DnsStatusText;
-            dnsElem.title = `DNS resolution probe via configured resolvers (${net.DnsServers || 'Auto'})`;
+            dnsElem.textContent = IsControlPending('FLUSH_AND_TEST_DNS') ? 'Probing...' : net.DnsStatusText;
+            dnsElem.title = `DNS probe (${net.DnsServers || 'Auto'}) — Click to flush DNS cache & re-test`;
             dnsElem.classList.remove('diag-ok', 'diag-warn', 'diag-crit', 'diag-neutral');
-            if (net.DnsStatus === 'OK') dnsElem.classList.add('diag-ok');
+            if (IsControlPending('FLUSH_AND_TEST_DNS')) dnsElem.classList.add('diag-neutral');
+            else if (net.DnsStatus === 'OK') dnsElem.classList.add('diag-ok');
             else if (net.DnsStatus === 'FAIL') dnsElem.classList.add('diag-crit');
             else dnsElem.classList.add('diag-neutral');
         }
         const arpElem = document.getElementById('lblArpStatus');
         if (arpElem && net.ArpStatus) {
-            arpElem.textContent = net.ArpStatus;
-            arpElem.title = net.ArpDetail || `Gateway MAC: ${net.GatewayMac || 'N/A'}`;
+            arpElem.textContent = IsControlPending('REFRESH_ARP_GATEWAY') ? 'Probing...' : net.ArpStatus;
+            arpElem.title = `${net.ArpDetail || `Gateway MAC: ${net.GatewayMac || 'N/A'}`} — Click to refresh Gateway ARP cache`;
             arpElem.classList.remove('diag-ok', 'diag-warn', 'diag-crit', 'diag-neutral');
             const arpLower = String(net.ArpStatus).toLowerCase();
-            if (arpLower === 'reachable' || arpLower === 'permanent') arpElem.classList.add('diag-ok');
+            if (IsControlPending('REFRESH_ARP_GATEWAY')) arpElem.classList.add('diag-neutral');
+            else if (arpLower === 'reachable' || arpLower === 'permanent') arpElem.classList.add('diag-ok');
             else if (arpLower === 'stale' || arpLower === 'delay' || arpLower === 'probe') arpElem.classList.add('diag-warn');
             else arpElem.classList.add('diag-crit');
         }
@@ -1381,6 +1675,16 @@ window.ClearConsoleLogView = function() {
     }
 };
 
+window.CopyConsoleLogView = function() {
+    const consoleBox = document.getElementById('console-box') || document.querySelector('.console-box');
+    const txt = consoleBox ? consoleBox.textContent : '';
+    if (!txt) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(txt).catch(() => {});
+    }
+    AppendConsoleLogEntry('[CLIPBOARD] Copied live console log buffer to clipboard.');
+};
+
 window.TriggerPowerPlanMenu = function() {
     const plans = {
         "1": "381b4222-f694-41f0-9685-ff5bb260df2e", // Balanced
@@ -1543,13 +1847,13 @@ document.addEventListener("DOMContentLoaded", () => {
         headerDeck.addEventListener('mousedown', (e) => {
             if (e.button !== 0) return;
             if (DetectWindowEdgeHit(e.clientX, e.clientY)) return;
-            if (e.target.closest('.tab-btn') || e.target.closest('.exit-system-btn')) return;
+            if (e.target.closest('.tab-btn') || e.target.closest('.exit-system-btn') || e.target.closest('.nav-dropdown')) return;
             e.preventDefault();
             window.chrome.webview.postMessage('Window-DragStart');
         });
 
         headerDeck.addEventListener('dblclick', (e) => {
-            if (e.target.closest('.tab-btn') || e.target.closest('.exit-system-btn')) return;
+            if (e.target.closest('.tab-btn') || e.target.closest('.exit-system-btn') || e.target.closest('.nav-dropdown')) return;
             window.chrome.webview.postMessage('Maximize-App');
         });
     }
@@ -1575,10 +1879,202 @@ document.addEventListener("DOMContentLoaded", () => {
         document.body.style.cursor = '';
     });
 });
-window.TriggerTelemetryDisable = function() {
-    if (confirm("Disable Windows Telemetry services (DiagTrack & dmwappushservice)?\nThis will stop and disable the services immediately.")) {
-        window.chrome.webview.postMessage(JSON.stringify({ command: "DISABLE_TELEMETRY" }));
+// =========================================================================
+// [DYNAMIC CONTROL] UNIFIED DASHBOARD TOGGLE & QUICK-ACTION DISPATCHERS
+// =========================================================================
+window._pendingControls = {};
+
+function IsControlPending(commandKey) {
+    const expiry = window._pendingControls[commandKey];
+    if (!expiry) return false;
+    if (Date.now() > expiry) {
+        delete window._pendingControls[commandKey];
+        return false;
     }
+    return true;
+}
+
+function DispatchDashboardControl(command, extraPayload = {}, logNote = '', targetElemId = '') {
+    if (!window.chrome || !window.chrome.webview) return;
+    window._pendingControls[command] = Date.now() + 7000;
+    if (targetElemId) {
+        const host = document.getElementById(targetElemId);
+        if (host) {
+            const btn = host.matches('button') ? host : host.querySelector('button');
+            if (btn) {
+                btn.disabled = true;
+                btn.classList.add('is-busy');
+                btn.textContent = '...';
+            } else if (host.classList.contains('diag-pill')) {
+                host.textContent = 'Probing...';
+            }
+        }
+    }
+    if (logNote) AppendConsoleLogEntry(`[CONTROL] ${logNote}`);
+    window.chrome.webview.postMessage(JSON.stringify(Object.assign({ command }, extraPayload)));
+}
+
+function HandleDashboardControlResult(res) {
+    if (!res) return;
+    if (res.control) {
+        delete window._pendingControls[res.control];
+    }
+    const prefix = res.ok ? '[CONTROL OK]' : '[CONTROL ERROR]';
+    AppendConsoleLogEntry(`${prefix} ${res.message || res.error || 'Action completed.'}`);
+    if (!res.ok && (res.message || res.error)) {
+        alert(`Action could not be completed:\n\n${res.message || res.error}`);
+    }
+}
+
+window.TriggerTelemetryToggle = function(targetState) {
+    const msg = targetState === 'Off'
+        ? "Disable Windows Telemetry services (DiagTrack & dmwappushservice)?"
+        : "Re-enable and start Windows Telemetry service (DiagTrack)?";
+    if (!confirm(msg)) return;
+    DispatchDashboardControl('TOGGLE_TELEMETRY', { targetState }, `Setting Windows Telemetry -> ${targetState}...`, 'lblTelemetry');
+};
+
+window.TriggerTelemetryDisable = function() {
+    window.TriggerTelemetryToggle('Off');
+};
+
+window.TriggerFirewallToggle = function(targetState) {
+    if (targetState === 'Off') {
+        if (!confirm("Turn OFF Windows Firewall across Domain, Private, and Public profiles?\nOnly disable temporarily for diagnostics.")) return;
+    }
+    DispatchDashboardControl('TOGGLE_FIREWALL', { targetState }, `Setting Windows Firewall -> ${targetState}...`, 'lblFirewall');
+};
+
+window.TriggerRealtimeToggle = function(targetState) {
+    if (targetState === 'Off') {
+        if (!confirm("Turn OFF Microsoft Defender Real-Time Protection?\n(Requires Tamper Protection to be disabled in Windows Security.)")) return;
+    }
+    DispatchDashboardControl('TOGGLE_REALTIME', { targetState }, `Setting Real-Time Protection -> ${targetState}...`, 'lblRealtime');
+};
+
+window.TriggerDiscoveryToggle = function(targetState) {
+    DispatchDashboardControl('TOGGLE_DISCOVERY', { targetState }, `Setting Network Discovery -> ${targetState}...`, 'lblDiscovery');
+};
+
+window.TriggerSharingToggle = function(targetState) {
+    DispatchDashboardControl('TOGGLE_SHARING', { targetState }, `Setting File & Printer Sharing -> ${targetState}...`, 'lblSharing');
+};
+
+window.TriggerNetworkProfileToggle = function(targetCategory) {
+    if (!confirm(`Switch active network profile category to "${targetCategory}"?`)) return;
+    DispatchDashboardControl('TOGGLE_NET_PROFILE', { targetState: targetCategory }, `Switching Network Profile -> ${targetCategory}...`, 'lblNetworkStatus');
+};
+
+window.TriggerHdrToggle = function(deviceName, targetState) {
+    DispatchDashboardControl('TOGGLE_HDR', { deviceName, targetState }, `Setting Display HDR -> ${targetState}...`, 'lblMonHdr');
+};
+
+window.TriggerNightLightToggle = function(targetState) {
+    // Immediately lock slider during toggle transition to prevent race-condition LUT glitches
+    window._nightLightIsOn = false;
+    const nlRow = document.getElementById('nightLightSliderRow');
+    const nlSlider = document.getElementById('rngNightLightStrength');
+    if (nlSlider) nlSlider.disabled = true;
+    if (nlRow) nlRow.classList.add('is-disabled');
+    DispatchDashboardControl('TOGGLE_NIGHT_LIGHT', { targetState }, `Setting Windows Night Light -> ${targetState}...`, 'lblMonNightLight');
+};
+
+window.OnNightLightSliderInput = function(rawVal) {
+    if (!window._nightLightIsOn) return;
+    const pct = Math.max(0, Math.min(100, Number(rawVal) || 0));
+    const kelvin = Math.round(6500 - (pct / 100) * (6500 - 1200));
+    window._nlSliderDragLockUntil = Date.now() + 2500;
+    SetDomText('lblNightLightStrength', `${pct}% (${kelvin}K)`);
+};
+
+window.OnNightLightSliderCommit = function(rawVal) {
+    if (!window._nightLightIsOn) return;
+    const pct = Math.max(0, Math.min(100, Number(rawVal) || 0));
+    const kelvin = Math.round(6500 - (pct / 100) * (6500 - 1200));
+    window._nlSliderDragLockUntil = Date.now() + 3000;
+    SetDomText('lblNightLightStrength', `${pct}% (${kelvin}K)`);
+    DispatchDashboardControl('SET_NIGHT_LIGHT_STRENGTH', { strength: pct }, `Setting Night Light warmth -> ${pct}% (${kelvin}K)...`);
+};
+
+window.TriggerRefreshRateChange = function(deviceName, targetHz, previousHz) {
+    if (!deviceName || !Number.isFinite(targetHz) || targetHz < 24) return;
+    if (previousHz && targetHz === previousHz) return;
+    const sel = document.querySelector('#lblMonRefresh select.infra-refresh-select');
+    if (sel) sel.disabled = true;
+    DispatchDashboardControl('SET_MONITOR_REFRESH_RATE', { deviceName, refreshRate: targetHz }, `Switching display refresh rate -> ${targetHz} Hz...`);
+};
+
+window.TriggerQuickDnsMenu = function() {
+    const choice = prompt(
+        "Quick-Switch Active IPv4 DNS Servers:\n" +
+        "1. Automatic (DHCP)\n" +
+        "2. Cloudflare (1.1.1.1, 1.0.0.1)\n" +
+        "3. Google (8.8.8.8, 8.8.4.4)\n" +
+        "4. Quad9 (9.9.9.9, 149.112.112.112)\n" +
+        "5. Custom IPv4 (comma-separated)",
+        "2"
+    );
+    if (!choice) return;
+    const trimmed = choice.trim();
+    let servers = null;
+    if (trimmed === '1') servers = ['AUTO'];
+    else if (trimmed === '2') servers = ['1.1.1.1', '1.0.0.1'];
+    else if (trimmed === '3') servers = ['8.8.8.8', '8.8.4.4'];
+    else if (trimmed === '4') servers = ['9.9.9.9', '149.112.112.112'];
+    else if (trimmed === '5') {
+        const custom = prompt("Enter primary (and optional secondary) IPv4 DNS, comma-separated:", "1.1.1.1, 8.8.8.8");
+        if (!custom || !custom.trim()) return;
+        servers = custom.split(',').map(s => s.trim()).filter(Boolean);
+    } else {
+        return;
+    }
+    DispatchDashboardControl('SET_QUICK_DNS', { servers }, `Updating active DNS servers -> ${servers.join(', ')}...`);
+};
+
+window.TriggerFlushAndTestDns = function() {
+    if (IsControlPending('FLUSH_AND_TEST_DNS')) return;
+    DispatchDashboardControl('FLUSH_AND_TEST_DNS', {}, 'Flushing DNS cache & running live resolution probe...', 'lblDnsStatus');
+};
+
+window.TriggerRefreshArpGateway = function() {
+    if (IsControlPending('REFRESH_ARP_GATEWAY')) return;
+    DispatchDashboardControl('REFRESH_ARP_GATEWAY', {}, 'Clearing & re-probing default gateway ARP neighbor entry...', 'lblArpStatus');
+};
+
+window.TriggerRelaunchAsAdmin = function() {
+    if (!confirm("Relaunch CoreWatch elevated as Administrator?\n(A Windows UAC prompt will appear and this window will restart elevated.)")) return;
+    DispatchDashboardControl('RELAUNCH_AS_ADMIN', {}, 'Requesting elevated Administrator relaunch...');
+};
+
+window.TriggerPendingRebootRestart = function() {
+    if (!confirm("Windows reports a Pending Reboot.\nRestart this computer right now? Unsaved work in open apps will be lost.")) return;
+    DispatchDashboardControl('TRIGGER_SYSTEM_REBOOT', {}, 'Initiating system restart...');
+};
+
+window.TriggerTopProcessAction = function() {
+    const meta = window._topProcessMeta;
+    if (!meta || !meta.pid) return;
+    const msg =
+        `Top Active Process Details:\n` +
+        `• Process: ${meta.name} (PID ${meta.pid})\n` +
+        `• Footprint: ${meta.text}\n` +
+        (meta.detail ? `• Snapshot: ${meta.detail}\n\n` : '\n') +
+        `Force-terminate ${meta.name} (PID ${meta.pid})?`;
+    if (!confirm(msg)) return;
+    DispatchDashboardControl('END_TOP_PROCESS', { pid: meta.pid, name: meta.name }, `Terminating ${meta.name} (PID ${meta.pid})...`);
+};
+
+window.CopyDashboardValue = function(elemId, label) {
+    const el = document.getElementById(elemId);
+    if (!el) return;
+    const val = (el.textContent || '').trim();
+    if (!val || val === '0.0.0.0' || val === 'Resolving...' || val === 'Loading...') return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(val).catch(() => {});
+    }
+    el.classList.add('copied-flash');
+    setTimeout(() => el.classList.remove('copied-flash'), 700);
+    AppendConsoleLogEntry(`[CLIPBOARD] Copied ${label}: ${val}`);
 };
 
 // =========================================================================
@@ -2341,6 +2837,9 @@ function HandleBrowseFolderResult(data) {
         }
     } else if (data.target === 'diagfolder') {
         AddDiagXExternalLogPath(data.path);
+    } else if (data.target === 'wslinstalldir') {
+        const inp = document.getElementById('wslImportInstallDir');
+        if (inp) inp.value = data.path;
     } else {
         const inp = document.getElementById('orgCustomFolderInput');
         if (inp) inp.value = data.path;
@@ -3475,6 +3974,1500 @@ function HandleDiagXNotice(data) {
     if (data.message) AppendConsoleLogEntry(`[ULTIMADIAGX] ${data.message}`);
     if (data.error) AppendConsoleLogEntry(`[ULTIMADIAGX ERROR] ${data.error}`);
 }
+
+// =========================================================================
+// VIEW 9: WSL — WINDOWS SUBSYSTEM FOR LINUX DEPLOYMENT & MANAGEMENT
+// =========================================================================
+window._wslManagerLoaded = false;
+window._wslStateCache = null;
+
+function SetWslStatus(text, isError = false) {
+    const el = document.getElementById('wslStatus');
+    if (!el) return;
+    el.classList.toggle('sharing-error', !!isError);
+    el.textContent = text;
+}
+
+window.RequestWslManager = function() {
+    SetWslStatus('Inspecting WSL engine, installed distributions, VHDX sizes, and .wslconfig...');
+    window.chrome?.webview?.postMessage('Request-WslManager');
+};
+
+window.RequestWslOnlineCatalog = function() {
+    SetWslStatus('Fetching online WSL distribution catalog...');
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'WSL_LOAD_ONLINE_CATALOG' }));
+};
+
+function RenderWslManagerState(data) {
+    window._wslManagerLoaded = true;
+    window._wslStateCache = data;
+
+    if (!data) return;
+
+    const statusMsg = data.actionMessage || data.statusMessage || 'WSL state loaded.';
+    SetWslStatus(statusMsg, !!data.error);
+    if (data.actionMessage) {
+        AppendConsoleLogEntry(`[WSL] ${data.actionMessage}`);
+    }
+
+    const eng = data.engine || {};
+    SetDomText('lblWslVersion', eng.wslVersion || (data.installed ? 'Installed' : 'Not Installed'));
+    SetDomText('lblWslKernel', eng.kernelVersion || '--');
+    SetDomText('lblWslgVersion', eng.wslgVersion || '--');
+    SetDomText('lblWslVmmem', eng.vmmemMemory || 'Idle (0 MB)');
+    SetDomText('lblWslDistroCount', `${eng.totalDistros ?? 0} (${eng.runningCount ?? 0} running)`);
+    SetDomText('lblWslTotalDisk', eng.totalDiskUsage || '0 MB');
+    SetDomText('lblWslDefaultDistro', `Default: ${eng.defaultDistro || 'None'}`);
+
+    const defVerBtn = document.getElementById('btnWslDefaultVer');
+    if (defVerBtn) {
+        const ver = Number(eng.defaultVersion || 2);
+        defVerBtn.textContent = `WSL ${ver}`;
+        defVerBtn.dataset.ver = String(ver);
+        defVerBtn.classList.remove('state-info', 'state-purple');
+        defVerBtn.classList.add(ver === 2 ? 'state-info' : 'state-purple');
+    }
+
+    // Setup / Readiness Banner when WSL is not installed
+    const setupBanner = document.getElementById('wslSetupBanner');
+    if (setupBanner) {
+        setupBanner.style.display = data.installed ? 'none' : 'block';
+        const pre = data.prerequisites || {};
+        SetDomText('lblWslPrereqVirt', pre.virtualization || '--');
+        SetDomText('lblWslPrereqWsl', pre.wslFeature || '--');
+        SetDomText('lblWslPrereqVmp', pre.vmPlatform || '--');
+    }
+
+    // Installed Distributions Cards
+    const distros = Array.isArray(data.distributions) ? data.distributions : (data.distributions ? [data.distributions] : []);
+    RenderWslDistroCards(distros);
+    PopulateWslCmdDistroPicker(distros);
+
+    // Online Catalog (if included in payload)
+    if (Array.isArray(data.onlineCatalog) && data.onlineCatalog.length > 0) {
+        RenderWslOnlineCatalog(data.onlineCatalog, data.catalogSource);
+    }
+
+    // Global .wslconfig Editor Fields
+    if (data.wslConfig) {
+        PopulateWslConfigForm(data.wslConfig);
+    }
+}
+
+function RenderWslDistroCards(distros) {
+    const container = document.getElementById('wslDistroList');
+    if (!container) return;
+    container.replaceChildren();
+
+    if (!distros.length) {
+        const empty = document.createElement('div');
+        empty.className = 'driver-text-node';
+        empty.textContent = 'No Linux distributions registered yet. Deploy one from the catalog below or import a custom .tar / .vhdx archive.';
+        container.appendChild(empty);
+        return;
+    }
+
+    distros.forEach(d => {
+        const isRunning = d.state === 'Running';
+        const card = document.createElement('article');
+        card.className = `wsl-distro-card ${isRunning ? 'is-running' : 'is-stopped'}`;
+
+        const safeName = String(d.name || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        const stateBadge = isRunning
+            ? '<span class="sharing-badge badge-success">Running</span>'
+            : `<span class="sharing-badge badge-neutral">${d.state || 'Stopped'}</span>`;
+        const verBadge = `<span class="sharing-badge badge-info">WSL ${d.version || 2}</span>`;
+        const defBadge = d.isDefault ? '<span class="sharing-badge badge-purple">★ Default</span>' : '';
+
+        const nextVer = Number(d.version || 2) === 2 ? 1 : 2;
+        const stopBtn = isRunning
+            ? `<button type="button" onclick="TriggerWslTerminateDistro('${safeName}')">Stop</button>`
+            : '';
+        const setDefBtn = !d.isDefault
+            ? `<button type="button" onclick="TriggerWslSetDefaultDistro('${safeName}')">Set Default</button>`
+            : '';
+        const compactBtn = Number(d.version || 2) === 2
+            ? `<button type="button" onclick="TriggerWslCompactVhdx('${safeName}')" title="Shut down WSL and reclaim unused sparse VHDX disk space">Compact VHDX</button>`
+            : '';
+
+        card.innerHTML = `
+            <div class="wsl-distro-head">
+                <span class="wsl-distro-title">🐧 ${d.name}</span>
+                <span class="card-badge-group">${defBadge}${verBadge}${stateBadge}</span>
+            </div>
+            <div class="wsl-distro-meta">
+                <div>VHDX Disk: <strong>${d.vhdxSize || 'N/A'}</strong></div>
+                <div>IPv4: <strong>${d.ipAddress || (isRunning ? 'NAT/Mirrored' : 'Stopped')}</strong></div>
+                <div>Default UID: <strong>${d.defaultUid ?? 1000}</strong></div>
+                <div>Engine: <strong>WSL ${d.version || 2}</strong></div>
+            </div>
+            ${d.basePath ? `<div class="wsl-distro-path" title="${d.basePath}">Path: ${d.basePath}</div>` : ''}
+            <div class="wsl-distro-actions">
+                <button type="button" onclick="TriggerWslLaunchDistro('${safeName}')">Launch Shell</button>
+                <button type="button" onclick="TriggerWslExploreDistro('${safeName}')">Explore Files</button>
+                ${stopBtn}
+                ${setDefBtn}
+                <button type="button" onclick="TriggerWslConvertVersion('${safeName}', ${nextVer})">To WSL ${nextVer}</button>
+                <button type="button" onclick="TriggerWslExportDistro('${safeName}')">Export .tar</button>
+                ${compactBtn}
+                <button type="button" class="wsl-btn-danger" onclick="TriggerWslUnregisterDistro('${safeName}')">Unregister</button>
+            </div>
+        `;
+        container.appendChild(card);
+    });
+}
+
+function RenderWslOnlineCatalog(items, source) {
+    const sel = document.getElementById('selWslDeployDistro');
+    const hint = document.getElementById('lblWslCatalogHint');
+    if (!sel) return;
+    const list = Array.isArray(items) ? items : [];
+    if (!list.length) return;
+
+    sel.replaceChildren();
+    list.forEach(item => {
+        const opt = document.createElement('option');
+        opt.value = item.id;
+        opt.textContent = `${item.id} — ${item.friendlyName || item.id}`;
+        sel.appendChild(opt);
+    });
+
+    if (hint) {
+        const srcText = source === 'live' ? `Live Microsoft WSL catalog (${list.length} distros)` : `Built-in catalog (${list.length} popular distros)`;
+        hint.textContent = `${srcText} · Opens an interactive terminal for first-boot UNIX user setup.`;
+    }
+}
+
+function PopulateWslCmdDistroPicker(distros) {
+    const sel = document.getElementById('selWslCmdDistro');
+    if (!sel) return;
+    const prev = sel.value;
+    sel.replaceChildren();
+
+    const defOpt = document.createElement('option');
+    defOpt.value = '__default__';
+    defOpt.textContent = 'Default Distro';
+    sel.appendChild(defOpt);
+
+    distros.forEach(d => {
+        const opt = document.createElement('option');
+        opt.value = d.name;
+        opt.textContent = `${d.name} (${d.state})`;
+        sel.appendChild(opt);
+    });
+
+    if (Array.from(sel.options).some(o => o.value === prev)) {
+        sel.value = prev;
+    }
+}
+
+function PopulateWslConfigForm(cfg) {
+    SetDomText('lblWslConfigPath', cfg.path || '%USERPROFILE%\\.wslconfig');
+    const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v ?? ''; };
+    const setChk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
+
+    setVal('wslCfgMemory', cfg.memory || '');
+    setVal('wslCfgProcessors', cfg.processors || '');
+    setVal('wslCfgSwap', cfg.swap || '');
+    setVal('wslCfgNetMode', cfg.networkingMode === 'mirrored' ? 'mirrored' : 'nat');
+    setVal('wslCfgMemReclaim', ['gradual', 'dropcache'].includes(cfg.autoMemoryReclaim) ? cfg.autoMemoryReclaim : 'disabled');
+
+    setChk('wslCfgDnsTunneling', cfg.dnsTunneling);
+    setChk('wslCfgFirewall', cfg.firewall);
+    setChk('wslCfgAutoProxy', cfg.autoProxy);
+    setChk('wslCfgGuiApps', cfg.guiApplications);
+    setChk('wslCfgNestedVirt', cfg.nestedVirtualization);
+    setChk('wslCfgSparseVhd', cfg.sparseVhd);
+}
+
+window.TriggerWslInstallEngine = function() {
+    if (!confirm("Launch elevated WSL Engine installer (`wsl --install --no-distribution`)?\nA UAC prompt and terminal window will open to install/configure WSL.")) return;
+    SetWslStatus('Launching elevated WSL engine installer...');
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'WSL_INSTALL_ENGINE' }));
+};
+
+window.TriggerWslUpdateEngine = function() {
+    SetWslStatus('Launching elevated WSL kernel update (`wsl --update`)...');
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'WSL_UPDATE_ENGINE' }));
+};
+
+window.TriggerWslShutdownAll = function() {
+    if (!confirm("Shut down all running WSL distributions and stop the WSL2 lightweight VM (`wsl --shutdown`)?")) return;
+    SetWslStatus('Shutting down all WSL instances...');
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'WSL_SHUTDOWN_ALL' }));
+};
+
+window.TriggerWslDefaultVersionToggle = function() {
+    const btn = document.getElementById('btnWslDefaultVer');
+    const current = Number(btn?.dataset?.ver || 2);
+    const next = current === 2 ? 1 : 2;
+    SetWslStatus(`Setting default WSL version to WSL ${next}...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'WSL_SET_DEFAULT_VERSION', version: next }));
+};
+
+window.TriggerWslDeployDistro = function() {
+    const sel = document.getElementById('selWslDeployDistro');
+    const distroId = sel?.value?.trim();
+    if (!distroId) return;
+    QuickDeployWslDistro(distroId);
+};
+
+window.QuickDeployWslDistro = function(distroId) {
+    if (!confirm(`Deploy Linux distribution '${distroId}' via 'wsl --install -d ${distroId}'?\nAn interactive terminal will open to complete download and first-boot UNIX account creation.`)) return;
+    SetWslStatus(`Launching deployment terminal for '${distroId}'...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'WSL_DEPLOY_DISTRO', distroId }));
+};
+
+window.TriggerWslLaunchDistro = function(name) {
+    SetWslStatus(`Opening Linux terminal for '${name}'...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'WSL_LAUNCH_DISTRO', name }));
+};
+
+window.TriggerWslExploreDistro = function(name) {
+    SetWslStatus(`Opening \\\\wsl.localhost\\${name} in File Explorer...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'WSL_EXPLORE_DISTRO', name }));
+};
+
+window.TriggerWslTerminateDistro = function(name) {
+    SetWslStatus(`Terminating distribution '${name}'...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'WSL_TERMINATE_DISTRO', name }));
+};
+
+window.TriggerWslSetDefaultDistro = function(name) {
+    SetWslStatus(`Setting '${name}' as default WSL distribution...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'WSL_SET_DEFAULT_DISTRO', name }));
+};
+
+window.TriggerWslConvertVersion = function(name, version) {
+    if (!confirm(`Convert '${name}' to WSL ${version}?\nThis may take several minutes for large distributions.`)) return;
+    SetWslStatus(`Converting '${name}' to WSL ${version} (please wait)...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'WSL_CONVERT_VERSION', name, version }));
+};
+
+window.TriggerWslExportDistro = function(name) {
+    window.chrome?.webview?.postMessage(`Browse-WslExportFile:${name}`);
+};
+
+function ExecuteWslExportDistro(name, targetPath) {
+    SetWslStatus(`Exporting '${name}' to ${targetPath} (this may take a moment)...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'WSL_EXPORT_DISTRO', name, targetPath }));
+}
+
+window.TriggerWslCompactVhdx = function(name) {
+    if (!confirm(`Compact ext4.vhdx virtual disk for '${name}'?\nAll running WSL distros will be shut down briefly to release the VHDX lock (requires Administrator privileges).`)) return;
+    SetWslStatus(`Compacting VHDX virtual disk for '${name}'...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'WSL_COMPACT_VHDX', name }));
+};
+
+window.TriggerWslUnregisterDistro = function(name) {
+    if (!confirm(`WARNING: Permanently unregister and DELETE WSL distribution '${name}' and all files inside its Linux filesystem?\nExport a .tar backup first if you need to keep data.`)) return;
+    const typed = prompt(`Type the distribution name "${name}" to confirm permanent deletion:`);
+    if (typed !== name) return;
+    SetWslStatus(`Unregistering '${name}'...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'WSL_UNREGISTER_DISTRO', name }));
+};
+
+window.BrowseWslImportFile = function() {
+    window.chrome?.webview?.postMessage('Browse-WslImportFile');
+};
+
+window.SaveWslConfig = function(restartWsl) {
+    const config = {
+        memory: document.getElementById('wslCfgMemory')?.value.trim() || '',
+        processors: document.getElementById('wslCfgProcessors')?.value.trim() || '',
+        swap: document.getElementById('wslCfgSwap')?.value.trim() || '',
+        networkingMode: document.getElementById('wslCfgNetMode')?.value || 'nat',
+        autoMemoryReclaim: document.getElementById('wslCfgMemReclaim')?.value || 'disabled',
+        dnsTunneling: !!document.getElementById('wslCfgDnsTunneling')?.checked,
+        firewall: !!document.getElementById('wslCfgFirewall')?.checked,
+        autoProxy: !!document.getElementById('wslCfgAutoProxy')?.checked,
+        guiApplications: !!document.getElementById('wslCfgGuiApps')?.checked,
+        nestedVirtualization: !!document.getElementById('wslCfgNestedVirt')?.checked,
+        sparseVhd: !!document.getElementById('wslCfgSparseVhd')?.checked
+    };
+    SetWslStatus(restartWsl ? 'Saving .wslconfig and shutting down WSL...' : 'Saving .wslconfig...');
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'WSL_SAVE_CONFIG', config, restartWsl: !!restartWsl }));
+};
+
+window.TriggerWslOpenConfigFile = function() {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'WSL_OPEN_CONFIG_FILE' }));
+};
+
+window.RunWslPresetCommand = function(cmdText) {
+    const inp = document.getElementById('wslCmdInput');
+    if (inp) inp.value = cmdText;
+    ExecuteWslQuickCommand();
+};
+
+function ExecuteWslQuickCommand() {
+    const distro = document.getElementById('selWslCmdDistro')?.value || '__default__';
+    const cmd = document.getElementById('wslCmdInput')?.value.trim();
+    if (!cmd) return;
+    const out = document.getElementById('wslCmdOutput');
+    if (out) out.textContent = `$ ${cmd}\nRunning inside ${distro === '__default__' ? 'Default Distro' : distro}...`;
+    SetDomText('lblWslCmdMeta', 'Running...');
+    window.chrome?.webview?.postMessage(JSON.stringify({
+        command: 'WSL_RUN_COMMAND',
+        distro,
+        linuxCommand: cmd
+    }));
+}
+
+function RenderWslCommandOutput(data) {
+    const out = document.getElementById('wslCmdOutput');
+    if (out) {
+        out.textContent = `[${data.distro || 'WSL'}] $ ${data.command || ''}\n\n${data.output || ''}`;
+    }
+    SetDomText('lblWslCmdMeta', `Exit ${data.exitCode ?? '?'} · ${data.elapsedMs ?? 0} ms`);
+}
+
+function HandleWslNotice(data) {
+    const msg = data.error || data.message || '';
+    SetWslStatus(msg, !!data.error || data.ok === false);
+    if (data.message) AppendConsoleLogEntry(`[WSL] ${data.message}`);
+    if (data.error) AppendConsoleLogEntry(`[WSL ERROR] ${data.error}`);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const importForm = document.getElementById('wslImportForm');
+    if (importForm) {
+        importForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const name = document.getElementById('wslImportName')?.value.trim();
+            const sourcePath = document.getElementById('wslImportSource')?.value.trim();
+            const installDir = document.getElementById('wslImportInstallDir')?.value.trim();
+            const version = Number(document.getElementById('wslImportVersion')?.value || 2);
+            if (!name || !sourcePath || !installDir) return;
+            SetWslStatus(`Importing '${name}' into ${installDir} (please wait)...`);
+            window.chrome?.webview?.postMessage(JSON.stringify({
+                command: 'WSL_IMPORT_DISTRO',
+                name,
+                sourcePath,
+                installDir,
+                version
+            }));
+        });
+    }
+
+    const cmdForm = document.getElementById('wslCmdForm');
+    if (cmdForm) {
+        cmdForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            ExecuteWslQuickCommand();
+        });
+    }
+});
+
+// =========================================================================
+// VIEW 10: TASKS, WINDOWS SERVICES & OPEN PORTS / SOCKETS CONTROLLER
+// =========================================================================
+window._tasksPortsLoaded = false;
+window._tasksPortsData = null;
+window._tpActiveSubView = 'processes';
+window._tpServiceFilter = 'all';
+window._tpSocketFilter = 'listen';
+
+function SetTpStatus(msg, isError = false) {
+    const el = document.getElementById('tpStatus');
+    if (!el) return;
+    el.classList.toggle('sharing-error', !!isError);
+    el.textContent = msg;
+}
+
+window.RequestTasksPorts = function() {
+    SetTpStatus('Sampling live CPU% deltas, Windows Services, and active TCP/UDP sockets...');
+    window.chrome?.webview?.postMessage('Request-TasksPorts');
+};
+
+window._tpLiveWatchTimer = null;
+
+function StopTasksPortsLiveWatch() {
+    if (window._tpLiveWatchTimer) {
+        clearInterval(window._tpLiveWatchTimer);
+        window._tpLiveWatchTimer = null;
+    }
+    const btn = document.getElementById('btnTpLiveRefresh');
+    if (btn) {
+        btn.textContent = 'Live: OFF';
+        btn.classList.remove('btn-accent-action');
+    }
+}
+
+window.ToggleTasksPortsLiveWatch = function() {
+    if (window._tpLiveWatchTimer) {
+        StopTasksPortsLiveWatch();
+        SetTpStatus('Live 3s auto-refresh paused.');
+    } else {
+        const btn = document.getElementById('btnTpLiveRefresh');
+        if (btn) {
+            btn.textContent = 'Live: ON (3s)';
+            btn.classList.add('btn-accent-action');
+        }
+        RequestTasksPorts();
+        window._tpLiveWatchTimer = setInterval(() => {
+            const panel = document.getElementById('viewTasksPortsPanel');
+            if (!panel || panel.style.display === 'none') {
+                StopTasksPortsLiveWatch();
+                return;
+            }
+            window.chrome?.webview?.postMessage('Request-TasksPorts');
+        }, 3000);
+    }
+};
+
+window.SetTasksPortsSubView = function(viewKey) {
+    window._tpActiveSubView = viewKey;
+    document.querySelectorAll('#tpSubViewPills .filter-pill').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.view === viewKey);
+    });
+    const sortSel = document.getElementById('selTpSort');
+    if (sortSel) sortSel.style.display = (viewKey === 'processes') ? 'inline-block' : 'none';
+    RenderTasksPortsSubFilterPills();
+    RenderCurrentTasksPortsView();
+};
+
+function RenderTasksPortsSubFilterPills() {
+    const bar = document.getElementById('tpSubFilterPills');
+    if (!bar) return;
+    const view = window._tpActiveSubView;
+
+    if (view === 'services') {
+        bar.style.display = 'flex';
+        const cur = window._tpServiceFilter;
+        const opts = [
+            ['all', 'All Services'],
+            ['faulty', '⚠️ Stopped Auto'],
+            ['running', 'Running'],
+            ['stopped', 'Stopped'],
+            ['disabled', 'Disabled']
+        ];
+        bar.innerHTML = opts.map(([k, lbl]) =>
+            `<button type="button" class="filter-pill ${cur === k ? 'active' : ''}" onclick="SetTpServiceFilter('${k}')">${lbl}</button>`
+        ).join('');
+    } else if (view === 'sockets') {
+        bar.style.display = 'flex';
+        const cur = window._tpSocketFilter;
+        const opts = [
+            ['listen', 'Listening Ports'],
+            ['established', 'Established TCP'],
+            ['udp', 'UDP Endpoints'],
+            ['all', 'All Sockets']
+        ];
+        bar.innerHTML = opts.map(([k, lbl]) =>
+            `<button type="button" class="filter-pill ${cur === k ? 'active' : ''}" onclick="SetTpSocketFilter('${k}')">${lbl}</button>`
+        ).join('');
+    } else {
+        bar.style.display = 'none';
+        bar.innerHTML = '';
+    }
+}
+
+window.SetTpServiceFilter = function(key) {
+    window._tpServiceFilter = key;
+    RenderTasksPortsSubFilterPills();
+    RenderCurrentTasksPortsView();
+};
+
+window.SetTpSocketFilter = function(key) {
+    window._tpSocketFilter = key;
+    RenderTasksPortsSubFilterPills();
+    RenderCurrentTasksPortsView();
+};
+
+function RenderTasksPortsState(data) {
+    window._tasksPortsLoaded = true;
+    window._tasksPortsData = data;
+    if (!data) return;
+
+    const sum = data.summary || {};
+    SetDomText('lblTpTimestamp', `Snapshot: ${data.timestamp || '--'}`);
+    SetDomText('sumTpProcs', sum.totalProcesses ?? '--');
+    SetDomText('sumTpHandles', (sum.totalHandles ?? 0).toLocaleString());
+    SetDomText('sumTpSvcRun', `${sum.runningSvcs ?? 0} / ${sum.totalServices ?? 0}`);
+    SetDomText('sumTpSvcFault', sum.stoppedAutoSvc ?? 0);
+    SetDomText('sumTpListen', sum.listeningPorts ?? 0);
+    SetDomText('sumTpEstab', sum.establishedTcp ?? 0);
+
+    const statusMsg = data.actionMessage
+        || `Loaded ${sum.totalProcesses ?? 0} processes, ${sum.totalServices ?? 0} services (${sum.stoppedAutoSvc ?? 0} stopped auto), and ${sum.totalSockets ?? 0} TCP/UDP sockets.`;
+    SetTpStatus(statusMsg, false);
+    if (data.actionMessage) AppendConsoleLogEntry(`[TASKS/PORTS] ${data.actionMessage}`);
+
+    RenderTasksPortsSubFilterPills();
+    RenderCurrentTasksPortsView();
+}
+
+function EscapeHtmlTp(str) {
+    return String(str ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+window.RenderCurrentTasksPortsView = function() {
+    const container = document.getElementById('tpTableContainer');
+    const data = window._tasksPortsData;
+    if (!container || !data) return;
+
+    const q = (document.getElementById('tpSearchInput')?.value || '').trim().toLowerCase();
+    const view = window._tpActiveSubView;
+
+    if (view === 'processes') {
+        const sortBy = document.getElementById('selTpSort')?.value || 'ram';
+        let list = Array.isArray(data.processes) ? [...data.processes] : [];
+        if (q) {
+            list = list.filter(p =>
+                String(p.name).toLowerCase().includes(q) ||
+                String(p.pid).includes(q) ||
+                String(p.path || '').toLowerCase().includes(q)
+            );
+        }
+        list.sort((a, b) => {
+            if (sortBy === 'cpu') return (b.cpuPct - a.cpuPct) || (b.ramBytes - a.ramBytes);
+            if (sortBy === 'handles') return (b.handles - a.handles) || (b.ramBytes - a.ramBytes);
+            if (sortBy === 'name') return String(a.name).localeCompare(String(b.name));
+            return (b.ramBytes - a.ramBytes) || (b.cpuPct - a.cpuPct);
+        });
+
+        if (!list.length) {
+            container.innerHTML = '<div class="driver-text-node" style="padding:12px;">No active processes match your filter.</div>';
+            return;
+        }
+
+        const rows = list.map(p => {
+            const safePath = String(p.path || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+            const safeName = String(p.name || '').replace(/'/g, "\\'");
+            const cpuCls = p.cpuPct >= 25 ? 'hot-val' : (p.cpuPct >= 10 ? 'warn-val' : '');
+            const ramCls = p.ramBytes >= 1073741824 ? 'warn-val' : '';
+            const hndCls = p.handles >= 5000 ? 'warn-val' : '';
+            const locBtn = p.path ? `<button type="button" onclick="TriggerTpOpenLocation('${safePath}')" title="Open file location in Explorer">Folder</button>` : '';
+            return `<tr>
+                <td><span class="tp-cell-primary">${EscapeHtmlTp(p.name)}.exe</span>${p.path ? `<span class="tp-cell-sub" title="${EscapeHtmlTp(p.path)}">${EscapeHtmlTp(p.path)}</span>` : ''}</td>
+                <td class="tp-cell-num">${p.pid}</td>
+                <td class="tp-cell-num ${cpuCls}">${Number(p.cpuPct || 0).toFixed(1)}%</td>
+                <td class="tp-cell-num ${ramCls}">${EscapeHtmlTp(p.ramText)}</td>
+                <td class="tp-cell-num ${hndCls}">${(p.handles ?? 0).toLocaleString()}</td>
+                <td class="tp-cell-num">${p.threads ?? 0}</td>
+                <td><div class="tp-row-actions">${locBtn}<button type="button" class="wsl-btn-danger" onclick="TriggerTpKillProcess(${p.pid}, '${safeName}')">End</button></div></td>
+            </tr>`;
+        }).join('');
+
+        container.innerHTML = `<table class="tp-data-table">
+            <thead><tr><th>Process / Path</th><th style="text-align:right">PID</th><th style="text-align:right">CPU</th><th style="text-align:right">RAM</th><th style="text-align:right">Handles</th><th style="text-align:right">Threads</th><th>Actions</th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table>`;
+        return;
+    }
+
+    if (view === 'services') {
+        const flt = window._tpServiceFilter;
+        let list = Array.isArray(data.services) ? [...data.services] : [];
+        if (flt === 'faulty') list = list.filter(s => s.isAutoStopped);
+        else if (flt === 'running') list = list.filter(s => s.state === 'Running');
+        else if (flt === 'stopped') list = list.filter(s => s.state !== 'Running');
+        else if (flt === 'disabled') list = list.filter(s => s.startMode === 'Disabled');
+
+        if (q) {
+            list = list.filter(s =>
+                String(s.name).toLowerCase().includes(q) ||
+                String(s.displayName).toLowerCase().includes(q) ||
+                String(s.account || '').toLowerCase().includes(q) ||
+                String(s.pid || '').includes(q)
+            );
+        }
+
+        if (!list.length) {
+            container.innerHTML = '<div class="driver-text-node" style="padding:12px;">No Windows services match the selected filter.</div>';
+            return;
+        }
+
+        const rows = list.slice(0, 260).map(s => {
+            const safeSvc = String(s.name || '').replace(/'/g, "\\'");
+            const isRun = s.state === 'Running';
+            const badgeCls = isRun ? 'badge-success' : (s.isAutoStopped ? 'badge-danger' : 'badge-neutral');
+            const rowCls = s.isAutoStopped ? 'tp-row-fault' : '';
+            const curMode = s.startMode === 'Auto' ? 'Automatic' : (s.startMode === 'Disabled' ? 'Disabled' : 'Manual');
+            const ctrlBtns = isRun
+                ? `<button type="button" onclick="TriggerTpServiceAction('${safeSvc}', 'restart')">Restart</button><button type="button" class="wsl-btn-danger" onclick="TriggerTpServiceAction('${safeSvc}', 'stop')">Stop</button>`
+                : `<button type="button" onclick="TriggerTpServiceAction('${safeSvc}', 'start')">Start</button>`;
+
+            return `<tr class="${rowCls}">
+                <td><span class="tp-cell-primary">${EscapeHtmlTp(s.displayName)}</span><span class="tp-cell-sub">${EscapeHtmlTp(s.name)}${s.account ? ` · ${EscapeHtmlTp(s.account)}` : ''}</span></td>
+                <td><span class="sharing-badge ${badgeCls}">${EscapeHtmlTp(s.state)}${s.isAutoStopped ? ' (!)' : ''}</span></td>
+                <td>
+                    <select onchange="TriggerTpServiceStartup('${safeSvc}', this.value)" title="Change service startup type">
+                        <option value="Automatic" ${curMode === 'Automatic' ? 'selected' : ''}>Auto</option>
+                        <option value="Manual" ${curMode === 'Manual' ? 'selected' : ''}>Manual</option>
+                        <option value="Disabled" ${curMode === 'Disabled' ? 'selected' : ''}>Disabled</option>
+                    </select>
+                </td>
+                <td class="tp-cell-num">${s.pid > 0 ? s.pid : '--'}</td>
+                <td><div class="tp-row-actions">${ctrlBtns}</div></td>
+            </tr>`;
+        }).join('');
+
+        container.innerHTML = `<table class="tp-data-table">
+            <thead><tr><th>Service / Account</th><th>State</th><th>Startup</th><th style="text-align:right">PID</th><th>Control</th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table>`;
+        return;
+    }
+
+    if (view === 'sockets') {
+        const flt = window._tpSocketFilter;
+        let list = Array.isArray(data.sockets) ? [...data.sockets] : [];
+        if (flt === 'listen') list = list.filter(x => x.protocol === 'TCP' && x.state === 'Listen');
+        else if (flt === 'established') list = list.filter(x => x.protocol === 'TCP' && x.state === 'Established');
+        else if (flt === 'udp') list = list.filter(x => x.protocol === 'UDP');
+
+        if (q) {
+            list = list.filter(x =>
+                String(x.localPort).includes(q) ||
+                String(x.remotePort).includes(q) ||
+                String(x.localAddress).toLowerCase().includes(q) ||
+                String(x.remoteAddress).toLowerCase().includes(q) ||
+                String(x.processName).toLowerCase().includes(q) ||
+                String(x.pid).includes(q)
+            );
+        }
+
+        if (!list.length) {
+            container.innerHTML = '<div class="driver-text-node" style="padding:12px;">No TCP/UDP sockets match your filter.</div>';
+            return;
+        }
+
+        const rows = list.slice(0, 300).map(x => {
+            const localEp = `${x.localAddress}:${x.localPort}`;
+            const remoteEp = x.protocol === 'UDP' ? '*:*' : `${x.remoteAddress}:${x.remotePort}`;
+            const stCls = x.state === 'Listen' ? 'badge-info' : (x.state === 'Established' ? 'badge-success' : 'badge-neutral');
+            const safePath = String(x.processPath || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+            const safeProc = String(x.processName || '').replace(/'/g, "\\'");
+            const safeEp = localEp.replace(/'/g, "\\'");
+            const locBtn = x.processPath ? `<button type="button" onclick="TriggerTpOpenLocation('${safePath}')">Folder</button>` : '';
+            const killBtn = x.pid > 4 ? `<button type="button" class="wsl-btn-danger" onclick="TriggerTpKillProcess(${x.pid}, '${safeProc}')">Kill PID</button>` : '';
+
+            return `<tr>
+                <td><span class="sharing-badge ${x.protocol === 'UDP' ? 'badge-purple' : 'badge-info'}">${x.protocol}</span></td>
+                <td><span class="tp-port-badge">${x.localPort}</span> <span style="color:#a0aec0;">${EscapeHtmlTp(x.localAddress)}</span></td>
+                <td style="color:#a0aec0;">${EscapeHtmlTp(remoteEp)}</td>
+                <td><span class="sharing-badge ${stCls}">${EscapeHtmlTp(x.state)}</span></td>
+                <td><span class="tp-cell-primary">${EscapeHtmlTp(x.processName)}</span> <span style="color:#718096;">(${x.pid})</span>${x.processPath ? `<span class="tp-cell-sub" title="${EscapeHtmlTp(x.processPath)}">${EscapeHtmlTp(x.processPath)}</span>` : ''}</td>
+                <td><div class="tp-row-actions"><button type="button" onclick="CopyRawText('${safeEp}', 'Endpoint')">Copy</button>${locBtn}${killBtn}</div></td>
+            </tr>`;
+        }).join('');
+
+        container.innerHTML = `<table class="tp-data-table">
+            <thead><tr><th>Proto</th><th>Local Port / Addr</th><th>Remote Endpoint</th><th>State</th><th>Owning Process (PID)</th><th>Actions</th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table>`;
+    }
+};
+
+window.TriggerTpKillProcess = function(pid, name) {
+    if (!confirm(`Force-terminate process '${name}' (PID ${pid})?`)) return;
+    SetTpStatus(`Terminating ${name} (PID ${pid})...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'TP_KILL_PROCESS', pid }));
+};
+
+window.TriggerTpOpenLocation = function(path) {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'TP_OPEN_PROCESS_LOCATION', path }));
+};
+
+window.TriggerTpServiceAction = function(serviceName, action) {
+    if (action === 'stop' && !confirm(`Stop Windows service '${serviceName}'?`)) return;
+    SetTpStatus(`Running '${action}' on service '${serviceName}'...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'TP_SERVICE_ACTION', serviceName, action }));
+};
+
+window.TriggerTpServiceStartup = function(serviceName, startupType) {
+    SetTpStatus(`Changing '${serviceName}' startup type to ${startupType}...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'TP_SERVICE_STARTUP', serviceName, startupType }));
+};
+
+window.CopyRawText = function(text, label) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).catch(() => {});
+    }
+    AppendConsoleLogEntry(`[CLIPBOARD] Copied ${label}: ${text}`);
+    SetTpStatus(`Copied ${label}: ${text}`);
+};
+
+function HandleTasksPortsNotice(data) {
+    const msg = data.error || data.message || '';
+    SetTpStatus(msg, !!data.error || data.ok === false);
+    if (data.message) AppendConsoleLogEntry(`[TASKS/PORTS] ${data.message}`);
+    if (data.error) AppendConsoleLogEntry(`[TASKS/PORTS ERROR] ${data.error}`);
+}
+
+// =========================================================================
+// SCALABLE TOP-BAR SYSTEM TOOLS DROPDOWN CONTROLLER
+// =========================================================================
+window.ToggleSystemToolsMenu = function(e) {
+    if (e) e.stopPropagation();
+    const dd = document.getElementById('navSystemDropdown');
+    const trigger = document.getElementById('tabSystemMenu');
+    if (!dd) return;
+    const isOpen = dd.classList.toggle('open');
+    if (trigger) trigger.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+};
+
+window.SelectSystemMenuView = function(viewKey) {
+    SwitchAppLayoutView(viewKey);
+};
+
+document.addEventListener('click', (e) => {
+    const dd = document.getElementById('navSystemDropdown');
+    if (dd && dd.classList.contains('open') && !dd.contains(e.target)) {
+        dd.classList.remove('open');
+        const trigger = document.getElementById('tabSystemMenu');
+        if (trigger) trigger.setAttribute('aria-expanded', 'false');
+    }
+});
+
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        const dd = document.getElementById('navSystemDropdown');
+        if (dd && dd.classList.contains('open')) {
+            dd.classList.remove('open');
+            const trigger = document.getElementById('tabSystemMenu');
+            if (trigger) trigger.setAttribute('aria-expanded', 'false');
+        }
+    }
+});
+
+// =========================================================================
+// ACTIVE NETWORK TROUBLESHOOTING TOOLKIT & WI-FI / ROUTING CONTROLLER
+// =========================================================================
+window._netActiveSubView = 'adapters';
+window._netWifiRoutesLoaded = false;
+
+window.SetNetworkSubView = function(subKey) {
+    window._netActiveSubView = subKey;
+    document.querySelectorAll('#netSubViewPills .filter-pill').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.netview === subKey);
+    });
+    const panes = {
+        adapters: document.getElementById('netSubAdapters'),
+        diagnostics: document.getElementById('netSubDiagnostics'),
+        wifiroutes: document.getElementById('netSubWifiRoutes')
+    };
+    Object.entries(panes).forEach(([k, el]) => {
+        if (el) el.style.display = (k === subKey) ? 'flex' : 'none';
+    });
+
+    if (subKey === 'adapters') {
+        RequestNetworkAdapters();
+    } else if (subKey === 'wifiroutes' && !window._netWifiRoutesLoaded) {
+        RequestNetDiagWifiAndRoutes();
+    }
+};
+
+window.RefreshActiveNetworkSubView = function() {
+    if (window._netActiveSubView === 'wifiroutes') {
+        RequestNetDiagWifiAndRoutes();
+    } else if (window._netActiveSubView === 'diagnostics') {
+        RunNetDiagPing();
+    } else {
+        RequestNetworkAdapters();
+    }
+};
+
+function SetNetDiagBusy(titleText, metaText) {
+    SetDomText('lblNetDiagResultTitle', titleText);
+    SetDomText('lblNetDiagResultMeta', metaText);
+    const area = document.getElementById('netDiagVisualArea');
+    if (area) area.innerHTML = `<div class="driver-text-node">${EscapeHtmlTp(metaText)}</div>`;
+    const status = document.getElementById('netManagerStatus');
+    if (status) {
+        status.classList.remove('sharing-error');
+        status.textContent = metaText;
+    }
+}
+
+window.SetNetDiagTarget = function(val) {
+    const inp = document.getElementById('netDiagTargetInput');
+    if (inp) inp.value = val;
+};
+
+window.SetNetDiagTargetGateway = function() {
+    const gw = (document.getElementById('lblGateway')?.textContent || '').trim();
+    if (gw && gw !== '0.0.0.0' && gw !== 'N/A') {
+        SetNetDiagTarget(gw);
+    } else {
+        SetNetDiagTarget('192.168.1.1');
+    }
+};
+
+window.RunNetDiagPing = function() {
+    const target = (document.getElementById('netDiagTargetInput')?.value || '').trim();
+    if (!target) return;
+    SetNetDiagBusy(`📶 ICMP Ping -> ${target}`, `Sending 6 ICMP probes to ${target}...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'NET_DIAG_PING', target, count: 6 }));
+};
+
+window.RunNetDiagTraceroute = function() {
+    const target = (document.getElementById('netDiagTargetInput')?.value || '').trim();
+    if (!target) return;
+    SetNetDiagBusy(`🧭 Traceroute -> ${target}`, `Tracing route to ${target} (up to 20 hops)...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'NET_DIAG_TRACEROUTE', target, maxHops: 20 }));
+};
+
+window.RunNetDiagPortTest = function() {
+    const target = (document.getElementById('netDiagTargetInput')?.value || '').trim();
+    const ports = (document.getElementById('netDiagPortsInput')?.value || '443').trim();
+    if (!target) return;
+    SetNetDiagBusy(`🔌 TCP Port Test -> ${target}`, `Probing TCP ports [${ports}] on ${target}...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'NET_DIAG_PORT_TEST', target, ports }));
+};
+
+window.RunNetDiagDnsLookup = function() {
+    const target = (document.getElementById('netDiagTargetInput')?.value || '').trim();
+    const recordType = document.getElementById('selNetDiagDnsType')?.value || 'A';
+    const server = (document.getElementById('netDiagDnsServer')?.value || '').trim();
+    if (!target) return;
+    SetNetDiagBusy(`🔎 DNS ${recordType} Lookup -> ${target}`, `Querying ${recordType} records for ${target}...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'NET_DIAG_DNS_LOOKUP', target, recordType, server }));
+};
+
+window.RequestNetDiagWifiAndRoutes = function() {
+    const status = document.getElementById('netManagerStatus');
+    if (status) {
+        status.classList.remove('sharing-error');
+        status.textContent = 'Querying Wi-Fi radio telemetry, IPv4 routing table, and ARP neighbors...';
+    }
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'NET_DIAG_WIFI_AND_ROUTES' }));
+};
+
+function RenderNetDiagResult(data) {
+    const area = document.getElementById('netDiagVisualArea');
+    const status = document.getElementById('netManagerStatus');
+    if (!area || !data) return;
+
+    if (data.tool === 'ping') {
+        SetDomText('lblNetDiagResultTitle', `📶 ICMP Ping — ${data.target} (${data.resolvedIp})`);
+        SetDomText('lblNetDiagResultMeta', `Avg: ${data.avgMs >= 0 ? data.avgMs + ' ms' : 'N/A'} · Jitter: ${data.jitterMs} ms · Loss: ${data.lossPct}%`);
+        if (status) status.textContent = `Ping ${data.target}: ${data.received}/${data.sent} received, ${data.lossPct}% loss, avg ${data.avgMs} ms`;
+
+        const samples = Array.isArray(data.samples) ? data.samples : [];
+        const maxRtt = Math.max(20, ...samples.map(s => (s.rttMs > 0 ? s.rttMs : 0)));
+        const barsHtml = samples.map(s => {
+            const isOk = s.status === 'OK' && s.rttMs >= 0;
+            const hPct = isOk ? Math.max(12, Math.round((s.rttMs / maxRtt) * 100)) : 100;
+            const cls = !isOk ? 'bar-bad' : (s.rttMs >= 80 ? 'bar-bad' : (s.rttMs >= 35 ? 'bar-warn' : 'bar-good'));
+            const lbl = isOk ? `${s.rttMs}ms` : 'ERR';
+            return `<div class="net-ping-bar-wrap" title="Seq #${s.seq}: ${isOk ? s.rttMs + ' ms (TTL ' + s.ttl + ')' : s.status}">
+                <div class="net-ping-bar ${cls}" style="height: ${hPct}%;"></div>
+                <span class="net-ping-bar-lbl">${lbl}</span>
+            </div>`;
+        }).join('');
+
+        area.innerHTML = `
+            <div class="tab-summary-strip" style="margin-bottom: 8px;">
+                <span class="summary-chip">Min: <strong>${data.minMs >= 0 ? data.minMs + ' ms' : '--'}</strong></span>
+                <span class="summary-chip chip-accent">Avg: <strong>${data.avgMs >= 0 ? data.avgMs + ' ms' : '--'}</strong></span>
+                <span class="summary-chip">Max: <strong>${data.maxMs >= 0 ? data.maxMs + ' ms' : '--'}</strong></span>
+                <span class="summary-chip">Jitter: <strong>${data.jitterMs} ms</strong></span>
+                <span class="summary-chip ${data.lossPct > 0 ? 'chip-warn' : 'chip-ok'}">Loss: <strong>${data.lossPct}%</strong></span>
+            </div>
+            <div class="net-ping-sparkline">${barsHtml}</div>
+        `;
+        return;
+    }
+
+    if (data.tool === 'traceroute') {
+        const hops = Array.isArray(data.hops) ? data.hops : [];
+        SetDomText('lblNetDiagResultTitle', `🧭 Traceroute — ${data.target} (${data.resolvedIp})`);
+        SetDomText('lblNetDiagResultMeta', `${hops.length} hops · ${data.reached ? 'Target Reached' : 'Stopped at Max Hops'}`);
+        if (status) status.textContent = `Traceroute to ${data.target} completed in ${hops.length} hops.`;
+
+        const rows = hops.map(h => {
+            const isTo = h.status === 'Timeout' || h.rttMs < 0;
+            const rttCls = isTo ? 'hot-val' : (h.rttMs >= 80 ? 'warn-val' : '');
+            return `<tr>
+                <td class="tp-cell-num">${h.hop}</td>
+                <td class="tp-cell-primary">${EscapeHtmlTp(h.ip)}</td>
+                <td style="color:#a0aec0;">${EscapeHtmlTp(h.hostname || '--')}</td>
+                <td class="tp-cell-num ${rttCls}">${isTo ? '*' : h.rttMs + ' ms'}</td>
+                <td><span class="sharing-badge ${isTo ? 'badge-danger' : 'badge-success'}">${EscapeHtmlTp(h.status)}</span></td>
+            </tr>`;
+        }).join('');
+
+        area.innerHTML = `<div class="tp-table-scroll" style="max-height:280px;"><table class="tp-data-table">
+            <thead><tr><th style="text-align:right">Hop</th><th>Hop IP</th><th>Reverse Hostname</th><th style="text-align:right">RTT</th><th>Status</th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table></div>`;
+        return;
+    }
+
+    if (data.tool === 'port') {
+        const list = Array.isArray(data.results) ? data.results : [];
+        const openCnt = list.filter(r => r.open).length;
+        SetDomText('lblNetDiagResultTitle', `🔌 TCP Port Reachability — ${data.target} (${data.resolvedIp})`);
+        SetDomText('lblNetDiagResultMeta', `${openCnt}/${list.length} open`);
+        if (status) status.textContent = `TCP Port test on ${data.target}: ${openCnt} of ${list.length} ports open.`;
+
+        const rows = list.map(r => `<tr>
+            <td><span class="tp-port-badge">${r.port}</span></td>
+            <td>${EscapeHtmlTp(r.serviceHint)}</td>
+            <td><span class="sharing-badge ${r.open ? 'badge-success' : 'badge-danger'}">${r.open ? 'OPEN' : 'CLOSED'}</span></td>
+            <td class="tp-cell-num">${r.rttMs} ms</td>
+            <td style="color:#a0aec0;">${EscapeHtmlTp(r.detail)}</td>
+        </tr>`).join('');
+
+        area.innerHTML = `<table class="tp-data-table">
+            <thead><tr><th>Port</th><th>Service</th><th>State</th><th style="text-align:right">Time</th><th>Detail</th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table>`;
+        return;
+    }
+
+    if (data.tool === 'dns') {
+        const recs = Array.isArray(data.records) ? data.records : [];
+        SetDomText('lblNetDiagResultTitle', `🔎 DNS ${data.recordType} — ${data.target}`);
+        SetDomText('lblNetDiagResultMeta', `${recs.length} record(s) · ${data.elapsedMs} ms · Server: ${data.server}`);
+        if (status) status.textContent = `DNS ${data.recordType} lookup for ${data.target} returned ${recs.length} record(s) in ${data.elapsedMs} ms.`;
+
+        if (!recs.length) {
+            area.innerHTML = '<div class="driver-text-node">No DNS records returned.</div>';
+            return;
+        }
+        const rows = recs.map(r => `<tr>
+            <td class="tp-cell-primary">${EscapeHtmlTp(r.name)}</td>
+            <td><span class="sharing-badge badge-info">${EscapeHtmlTp(r.type)}</span></td>
+            <td class="tp-cell-num">${r.ttl}s</td>
+            <td style="user-select:text; word-break:break-all;">${EscapeHtmlTp(r.value)}</td>
+        </tr>`).join('');
+
+        area.innerHTML = `<table class="tp-data-table">
+            <thead><tr><th>Name</th><th>Type</th><th style="text-align:right">TTL</th><th>Value</th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table>`;
+    }
+}
+
+function RenderNetDiagWifiAndRoutes(data) {
+    window._netWifiRoutesLoaded = true;
+    const status = document.getElementById('netManagerStatus');
+    SetDomText('lblNetWifiStamp', `Updated: ${data.timestamp || '--'}`);
+
+    const w = data.wifi || {};
+    const wifiBox = document.getElementById('netWifiTelemetryBox');
+    if (wifiBox) {
+        const sig = Number(w.signalPct || 0);
+        const sigCls = !w.connected ? '' : (sig >= 75 ? 'sig-good' : (sig >= 50 ? 'sig-warn' : 'sig-bad'));
+        const items = [
+            ['SSID', w.ssid || 'Disconnected', ''],
+            ['Signal / RSSI', w.connected ? `${sig}% (${w.rssiDbm})` : 'N/A', sigCls],
+            ['Band & Channel', w.connected ? `${w.band} · Ch ${w.channel}` : '--', ''],
+            ['Radio Standard', w.radioType || '--', ''],
+            ['Link Rates (RX/TX)', w.connected ? `${w.rxRateMbps} / ${w.txRateMbps}` : '--', ''],
+            ['Security / Cipher', w.connected ? `${w.authentication} (${w.cipher})` : '--', ''],
+            ['AP BSSID', w.bssid || '--', ''],
+            ['Interface', w.interfaceName || 'N/A', '']
+        ];
+        wifiBox.innerHTML = items.map(([k, v, cls]) =>
+            `<div class="net-wifi-stat"><span>${k}</span><strong class="${cls}" title="${EscapeHtmlTp(v)}">${EscapeHtmlTp(v)}</strong></div>`
+        ).join('') + (w.note ? `<div class="driver-text-node" style="grid-column:1/-1; color:#ecc94b;">⚠️ ${EscapeHtmlTp(w.note)}</div>` : '');
+    }
+
+    const routes = Array.isArray(data.routes) ? data.routes : [];
+    SetDomText('lblNetRoutesCount', `${routes.length} routes`);
+    const routesBox = document.getElementById('netRoutesContainer');
+    if (routesBox) {
+        if (!routes.length) {
+            routesBox.innerHTML = '<div class="driver-text-node" style="padding:8px;">No IPv4 routes returned.</div>';
+        } else {
+            routesBox.innerHTML = `<table class="tp-data-table">
+                <thead><tr><th>Destination</th><th>Next Hop</th><th>Interface</th><th style="text-align:right">Metric</th></tr></thead>
+                <tbody>${routes.map(r => `<tr>
+                    <td class="tp-cell-primary">${EscapeHtmlTp(r.destination)}</td>
+                    <td style="color:#90cdf4;">${EscapeHtmlTp(r.nextHop)}</td>
+                    <td style="color:#a0aec0;">${EscapeHtmlTp(r.interface)}</td>
+                    <td class="tp-cell-num">${r.totalMetric}</td>
+                </tr>`).join('')}</tbody>
+            </table>`;
+        }
+    }
+
+    const arp = Array.isArray(data.arp) ? data.arp : [];
+    SetDomText('lblNetArpCount', `${arp.length} entries`);
+    const arpBox = document.getElementById('netArpContainer');
+    if (arpBox) {
+        if (!arp.length) {
+            arpBox.innerHTML = '<div class="driver-text-node" style="padding:8px;">No active ARP neighbors found.</div>';
+        } else {
+            arpBox.innerHTML = `<table class="tp-data-table">
+                <thead><tr><th>IPv4</th><th>MAC Address</th><th>State</th><th>Interface</th></tr></thead>
+                <tbody>${arp.map(a => `<tr>
+                    <td class="tp-cell-primary">${EscapeHtmlTp(a.ip)}</td>
+                    <td style="color:#90cdf4; user-select:text;">${EscapeHtmlTp(a.mac)}</td>
+                    <td><span class="sharing-badge ${a.state === 'Reachable' ? 'badge-success' : 'badge-neutral'}">${EscapeHtmlTp(a.state)}</span></td>
+                    <td style="color:#a0aec0;">${EscapeHtmlTp(a.interface)}</td>
+                </tr>`).join('')}</tbody>
+            </table>`;
+        }
+    }
+
+    if (status) {
+        status.classList.remove('sharing-error');
+        status.textContent = `Loaded Wi-Fi radio telemetry, ${routes.length} IPv4 routes, and ${arp.length} ARP neighbors.`;
+    }
+}
+
+function HandleNetDiagError(data) {
+    const errMsg = data?.error || 'Network diagnostic command failed.';
+    const status = document.getElementById('netManagerStatus');
+    if (status) {
+        status.classList.add('sharing-error');
+        status.textContent = errMsg;
+    }
+    SetDomText('lblNetDiagResultMeta', 'Error');
+    const area = document.getElementById('netDiagVisualArea');
+    if (area) area.innerHTML = `<div class="sharing-status sharing-error">${EscapeHtmlTp(errMsg)}</div>`;
+    AppendConsoleLogEntry(`[NET DIAG ERROR] ${errMsg}`);
+}
+
+// =========================================================================
+// VIEW 11: SECURITY POSTURE, WINDOWS REPAIR TOOLKIT & SUPPORT BUNDLE
+// =========================================================================
+window._secRepairLoaded = false;
+window._secRepairData = null;
+
+function SetSecStatus(msg, isError = false) {
+    const el = document.getElementById('secStatus');
+    if (!el) return;
+    el.classList.toggle('sharing-error', !!isError);
+    el.textContent = msg;
+}
+
+window.RequestSecurityRepair = function() {
+    SetSecStatus('Auditing BitLocker, TPM 2.0, HVCI, RDP, Local Admins, Scheduled Tasks & Battery...');
+    window.chrome?.webview?.postMessage('Request-SecurityRepair');
+};
+
+window._secEnvHostsLoaded = false;
+
+window.SetSecuritySubView = function(key) {
+    document.querySelectorAll('#secSubViewPills .filter-pill').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.secview === key);
+    });
+    const p1 = document.getElementById('secSubPosture');
+    const p2 = document.getElementById('secSubEnvHosts');
+    const p3 = document.getElementById('secSubRepair');
+    if (p1) p1.style.display = (key === 'posture') ? 'flex' : 'none';
+    if (p2) p2.style.display = (key === 'envhosts') ? 'flex' : 'none';
+    if (p3) p3.style.display = (key === 'repair') ? 'flex' : 'none';
+
+    if ((key === 'envhosts' || key === 'repair') && !window._secEnvHostsLoaded) {
+        RequestSecEnvHostsProxy();
+    }
+};
+
+window.RequestSecEnvHostsProxy = function() {
+    SetSecStatus('Inspecting Hosts file, WinINET/WinHTTP Proxy, PATH entries, Recent KBs, and Temp bloat...');
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'SEC_LOAD_ENV_HOSTS_PROXY' }));
+};
+
+function RenderTempBloatWidget(tempBloat) {
+    const box = document.getElementById('secTempBloatContainer');
+    if (!box || !tempBloat) return;
+    const items = Array.isArray(tempBloat.items) ? tempBloat.items : [];
+    if (!items.length) {
+        box.innerHTML = '<div class="driver-text-node">No temp bloat data returned.</div>';
+        return;
+    }
+    box.innerHTML = `<table class="tp-data-table">
+        <thead><tr><th>Location</th><th style="text-align:right">Size</th></tr></thead>
+        <tbody>${items.map(i => `<tr>
+            <td><span class="tp-cell-primary">${EscapeHtmlTp(i.label)}</span><span class="tp-cell-sub">${EscapeHtmlTp(i.path)}</span></td>
+            <td class="tp-cell-num ${i.bytes >= 536870912 ? 'warn-val' : ''}">${EscapeHtmlTp(i.sizeText)}</td>
+        </tr>`).join('')}</tbody>
+    </table><div class="wsl-hint-line" style="margin-top:5px;">Total Scanned Footprint: <strong style="color:#90cdf4;">${EscapeHtmlTp(tempBloat.totalText)}</strong> · Clean Temp safely removes unlocked files in %TEMP% &amp; Windows\\Temp.</div>`;
+}
+
+function RenderSecEnvHostsProxyState(data) {
+    window._secEnvHostsLoaded = true;
+    if (!data) return;
+
+    // 1. Proxy card & click-toggle pill
+    const px = data.proxy || {};
+    const pxCtrl = document.getElementById('lblSecProxyControl');
+    if (pxCtrl) {
+        pxCtrl.innerHTML = px.enabled
+            ? `<button type="button" class="toggle-pill-btn state-warn" onclick="TriggerSecProxyToggle('Off')" title="User System Proxy is Enabled — Click to Disable">Proxy: ON</button>`
+            : `<button type="button" class="toggle-pill-btn state-off" onclick="TriggerSecProxyToggle('On')" title="User System Proxy is Disabled — Click to Enable">Proxy: OFF</button>`;
+    }
+    const pxBox = document.getElementById('secProxySummary');
+    if (pxBox) {
+        pxBox.innerHTML = [
+            ['WinINET Proxy State', px.enabled ? 'Enabled' : 'Disabled', px.enabled ? 'sig-warn' : 'sig-good'],
+            ['WinINET Proxy Server', px.server || 'None', ''],
+            ['Auto-Config (PAC URL)', px.pacUrl || 'None', ''],
+            ['WinHTTP System Proxy', px.winHttp || 'Direct access', '']
+        ].map(([k, v, cls]) => `<div class="net-wifi-stat"><span>${k}</span><strong class="${cls}" title="${EscapeHtmlTp(v)}">${EscapeHtmlTp(v)}</strong></div>`).join('');
+    }
+
+    // 2. Hosts file entries
+    const hosts = Array.isArray(data.hosts) ? data.hosts : [];
+    const hostsBox = document.getElementById('secHostsContainer');
+    if (hostsBox) {
+        if (!hosts.length) {
+            hostsBox.innerHTML = '<div class="driver-text-node" style="padding:8px;">No active custom overrides in hosts file (clean default).</div>';
+        } else {
+            hostsBox.innerHTML = `<table class="tp-data-table">
+                <thead><tr><th style="text-align:right">Line</th><th>IP Address</th><th>Hostname(s)</th></tr></thead>
+                <tbody>${hosts.map(h => `<tr>
+                    <td class="tp-cell-num">${h.line}</td>
+                    <td class="tp-cell-primary" style="color:#90cdf4;">${EscapeHtmlTp(h.ip)}</td>
+                    <td style="user-select:text;">${EscapeHtmlTp(h.host)}</td>
+                </tr>`).join('')}</tbody>
+            </table>`;
+        }
+    }
+
+    // 3. Recent KBs / Hotfixes
+    const kbs = Array.isArray(data.hotfixes) ? data.hotfixes : [];
+    SetDomText('lblSecKbCount', `${kbs.length} KBs`);
+    const kbBox = document.getElementById('secHotfixContainer');
+    if (kbBox) {
+        if (!kbs.length) {
+            kbBox.innerHTML = '<div class="driver-text-node" style="padding:8px;">No hotfix records returned.</div>';
+        } else {
+            kbBox.innerHTML = `<table class="tp-data-table">
+                <thead><tr><th>KB ID</th><th>Type</th><th>Installed</th></tr></thead>
+                <tbody>${kbs.map(k => `<tr>
+                    <td class="tp-cell-primary" style="color:#90cdf4;">${EscapeHtmlTp(k.kb)}</td>
+                    <td style="color:#a0aec0;">${EscapeHtmlTp(k.description)}</td>
+                    <td class="tp-cell-num">${EscapeHtmlTp(k.installedOn)}</td>
+                </tr>`).join('')}</tbody>
+            </table>`;
+        }
+    }
+
+    // 4. PATH Environment Audit
+    const pa = data.pathAudit || {};
+    const paItems = Array.isArray(pa.items) ? pa.items : [];
+    SetDomText('lblSecPathSummary', `${pa.total ?? 0} entries · ${pa.missing ?? 0} missing · ${pa.dups ?? 0} duplicates`);
+    const pathBox = document.getElementById('secPathContainer');
+    if (pathBox) {
+        if (!paItems.length) {
+            pathBox.innerHTML = '<div class="driver-text-node" style="padding:8px;">No PATH entries found.</div>';
+        } else {
+            pathBox.innerHTML = `<table class="tp-data-table">
+                <thead><tr><th>Scope</th><th>Directory Entry</th><th>Status</th></tr></thead>
+                <tbody>${paItems.map(item => {
+                    const statusBadge = !item.exists
+                        ? '<span class="sharing-badge badge-danger">Missing</span>'
+                        : (item.isDup ? '<span class="sharing-badge badge-purple">Duplicate</span>' : '<span class="sharing-badge badge-success">OK</span>');
+                    return `<tr class="${!item.exists ? 'tp-row-fault' : ''}">
+                        <td><span class="sharing-badge badge-neutral">${EscapeHtmlTp(item.scope)}</span></td>
+                        <td style="user-select:text; word-break:break-all;">${EscapeHtmlTp(item.entry)}</td>
+                        <td>${statusBadge}</td>
+                    </tr>`;
+                }).join('')}</tbody>
+            </table>`;
+        }
+    }
+
+    // 5. Temp Bloat widget
+    if (data.tempBloat) RenderTempBloatWidget(data.tempBloat);
+
+    const msg = data.actionMessage || `Audited ${hosts.length} hosts override(s), ${kbs.length} recent KB(s), ${pa.missing ?? 0} dead PATH folder(s), and ${data.tempBloat?.totalText || '0 MB'} temp bloat.`;
+    SetSecStatus(msg, false);
+    if (data.actionMessage) AppendConsoleLogEntry(`[ENV/PROXY] ${data.actionMessage}`);
+}
+
+window.TriggerSecProxyToggle = function(targetState) {
+    SetSecStatus(`Setting Windows User System Proxy -> ${targetState}...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'SEC_TOGGLE_PROXY', targetState }));
+};
+
+window.TriggerSecOpenHostsFile = function() {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'SEC_OPEN_HOSTS_FILE' }));
+};
+
+function RenderSecurityRepairState(data) {
+    window._secRepairLoaded = true;
+    window._secRepairData = data;
+    if (!data) return;
+
+    const p = data.posture || {};
+    const bl = Array.isArray(data.bitlocker) ? data.bitlocker : [];
+    const admins = Array.isArray(data.localAdmins) ? data.localAdmins : [];
+    const tasks = Array.isArray(data.tasks) ? data.tasks : [];
+
+    SetDomText('lblSecSecureBoot', p.secureBoot || '--');
+    SetDomText('lblSecTpm', p.tpmPresent ? `${p.tpmVersion}${p.tpmReady ? ' (Ready)' : ''}` : (p.tpmVersion || 'Not Present'));
+    SetDomText('lblSecHvci', p.hvciStatus || 'Off');
+    SetDomText('lblSecRdpPort', p.rdpPort || 3389);
+    SetDomText('lblSecAdminCount', admins.length);
+    SetDomText('lblSecTaskCount', tasks.length);
+
+    const rdpWrap = document.getElementById('lblSecRdpControl');
+    if (rdpWrap) {
+        if (p.rdpEnabled) {
+            rdpWrap.innerHTML = `<button type="button" class="toggle-pill-btn state-warn" onclick="TriggerSecRdpToggle('Off')" title="RDP is Enabled on port ${p.rdpPort || 3389} (NLA: ${p.rdpNla ? 'On' : 'Off'}) — Click to Disable">On</button>`;
+        } else {
+            rdpWrap.innerHTML = `<button type="button" class="toggle-pill-btn state-off" onclick="TriggerSecRdpToggle('On')" title="RDP is Disabled — Click to Enable">Off</button>`;
+        }
+    }
+
+    // BitLocker Volumes
+    const blBox = document.getElementById('secBitlockerContainer');
+    if (blBox) {
+        if (!bl.length) {
+            blBox.innerHTML = `<div class="driver-text-node">${EscapeHtmlTp(p.blAccessNote || 'No BitLocker volumes returned.')}</div>`;
+        } else {
+            blBox.innerHTML = `<table class="tp-data-table">
+                <thead><tr><th>Drive</th><th>Protection</th><th>Encrypted</th><th>Method</th></tr></thead>
+                <tbody>${bl.map(v => `<tr>
+                    <td class="tp-cell-primary">${EscapeHtmlTp(v.mountPoint)}</td>
+                    <td><span class="sharing-badge ${v.protectionStatus === 'On' ? 'badge-success' : 'badge-danger'}">${EscapeHtmlTp(v.protectionStatus)}</span></td>
+                    <td class="tp-cell-num">${v.encryptionPct}%</td>
+                    <td style="color:#a0aec0;">${EscapeHtmlTp(v.method)}</td>
+                </tr>`).join('')}</tbody>
+            </table>`;
+        }
+    }
+
+    // Local Admins
+    const admBox = document.getElementById('secLocalAdminsContainer');
+    if (admBox) {
+        if (!admins.length) {
+            admBox.innerHTML = '<div class="driver-text-node">Unable to enumerate Local Administrators group.</div>';
+        } else {
+            admBox.innerHTML = `<table class="tp-data-table">
+                <thead><tr><th>Account</th><th>Type</th><th>Source</th></tr></thead>
+                <tbody>${admins.map(a => `<tr>
+                    <td class="tp-cell-primary">${EscapeHtmlTp(a.name)}</td>
+                    <td style="color:#a0aec0;">${EscapeHtmlTp(a.class)}</td>
+                    <td><span class="sharing-badge badge-info">${EscapeHtmlTp(a.source)}</span></td>
+                </tr>`).join('')}</tbody>
+            </table>`;
+        }
+    }
+
+    // Battery Summary
+    const batBox = document.getElementById('secBatterySummary');
+    if (batBox && data.battery) {
+        const b = data.battery;
+        if (!b.present) {
+            batBox.innerHTML = '<div class="net-wifi-stat"><span>Power Source</span><strong>AC Desktop / No Battery Detected</strong></div>';
+        } else {
+            const hCls = b.healthPct !== null ? (b.healthPct >= 80 ? 'sig-good' : (b.healthPct >= 60 ? 'sig-warn' : 'sig-bad')) : '';
+            batBox.innerHTML = [
+                ['Status', `${b.status}${b.chargePct !== null ? ` (${b.chargePct}%)` : ''}`, ''],
+                ['Battery Health', b.healthPct !== null ? `${b.healthPct}% (Wear: ${b.wearPct}%)` : 'N/A', hCls],
+                ['Full / Design', (b.fullChargeMWh && b.designMWh) ? `${b.fullChargeMWh} / ${b.designMWh} mWh` : 'N/A', ''],
+                ['Cycle Count', b.cycleCount !== null ? String(b.cycleCount) : 'N/A', '']
+            ].map(([k, v, cls]) => `<div class="net-wifi-stat"><span>${k}</span><strong class="${cls}">${EscapeHtmlTp(v)}</strong></div>`).join('');
+        }
+    }
+
+    RenderSecScheduledTasks();
+    const msg = data.actionMessage || `Security audit complete (${data.timestamp || '--'}): ${bl.length} BitLocker volume(s), ${admins.length} local admin(s), ${tasks.length} 3rd-party task(s).`;
+    SetSecStatus(msg, false);
+    if (data.actionMessage) AppendConsoleLogEntry(`[SECURITY] ${data.actionMessage}`);
+}
+
+window.RenderSecScheduledTasks = function() {
+    const box = document.getElementById('secTasksContainer');
+    const data = window._secRepairData;
+    if (!box || !data) return;
+
+    const q = (document.getElementById('secTaskSearchInput')?.value || '').trim().toLowerCase();
+    let list = Array.isArray(data.tasks) ? [...data.tasks] : [];
+    if (q) {
+        list = list.filter(t =>
+            String(t.name).toLowerCase().includes(q) ||
+            String(t.path).toLowerCase().includes(q) ||
+            String(t.author).toLowerCase().includes(q) ||
+            String(t.action).toLowerCase().includes(q)
+        );
+    }
+
+    if (!list.length) {
+        box.innerHTML = '<div class="driver-text-node" style="padding:8px;">No non-Microsoft scheduled tasks match your filter.</div>';
+        return;
+    }
+
+    box.innerHTML = `<table class="tp-data-table">
+        <thead><tr><th>Task / Action</th><th>State</th><th>Author</th><th>Control</th></tr></thead>
+        <tbody>${list.map(t => {
+            const safeName = String(t.name || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+            const safePath = String(t.path || '\\').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+            const isDis = t.state === 'Disabled';
+            const badgeCls = t.state === 'Running' ? 'badge-success' : (isDis ? 'badge-neutral' : 'badge-info');
+            const toggleBtn = isDis
+                ? `<button type="button" onclick="TriggerSecTaskToggle('${safePath}', '${safeName}', 'Enable')">Enable</button>`
+                : `<button type="button" class="wsl-btn-danger" onclick="TriggerSecTaskToggle('${safePath}', '${safeName}', 'Disable')">Disable</button>`;
+            return `<tr>
+                <td><span class="tp-cell-primary">${EscapeHtmlTp(t.name)}</span><span class="tp-cell-sub" title="${EscapeHtmlTp(t.action || t.path)}">${EscapeHtmlTp(t.action || t.path)}</span></td>
+                <td><span class="sharing-badge ${badgeCls}">${EscapeHtmlTp(t.state)}</span></td>
+                <td style="color:#a0aec0;">${EscapeHtmlTp(t.author)}</td>
+                <td><div class="tp-row-actions">${toggleBtn}</div></td>
+            </tr>`;
+        }).join('')}</tbody>
+    </table>`;
+};
+
+window.TriggerSecRdpToggle = function(targetState) {
+    if (!confirm(`${targetState === 'On' ? 'Enable' : 'Disable'} Windows Remote Desktop (RDP) and update Remote Desktop firewall rules?`)) return;
+    SetSecStatus(`Setting Remote Desktop (RDP) -> ${targetState}...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'SEC_TOGGLE_RDP', targetState }));
+};
+
+window.TriggerSecTaskToggle = function(taskPath, taskName, targetState) {
+    SetSecStatus(`${targetState === 'Enable' ? 'Enabling' : 'Disabling'} scheduled task '${taskName}'...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'SEC_TOGGLE_TASK', taskPath, taskName, targetState }));
+};
+
+window.RunRepairTool = function(command, label, needsConfirm = false) {
+    if (needsConfirm && !confirm(`Run "${label}"?\nThis action modifies system repair/cache components or launches an elevated repair terminal.`)) return;
+    SetSecuritySubView('repair');
+    SetDomText('lblRepairOutputTitle', `📟 ${label}`);
+    SetDomText('lblRepairOutputMeta', 'Running...');
+    const out = document.getElementById('repairToolOutput');
+    if (out) out.textContent = `Executing ${label}...`;
+    SetSecStatus(`Running ${label}...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command }));
+};
+
+function RenderRepairToolOutput(data) {
+    SetDomText('lblRepairOutputTitle', `📟 ${data.tool || 'Repair Toolkit'}`);
+    SetDomText('lblRepairOutputMeta', `Exit ${data.exitCode ?? 0}${data.elapsedMs ? ` · ${data.elapsedMs} ms` : ''}`);
+    const out = document.getElementById('repairToolOutput');
+    if (out) out.textContent = data.output || '(Completed with no output)';
+    if (data.tempBloat) RenderTempBloatWidget(data.tempBloat);
+    SetSecStatus(`${data.tool || 'Repair action'} completed.`, !data.ok);
+    AppendConsoleLogEntry(`[REPAIR] ${data.tool}: Exit ${data.exitCode ?? 0}`);
+}
+
+window.TriggerExportSupportBundle = function() {
+    window.chrome?.webview?.postMessage('Browse-SupportBundleZip');
+};
+
+function ExecuteSupportBundleExport(targetPath) {
+    SetSecStatus(`Packaging IT Support Bundle ZIP to ${targetPath}...`);
+    AppendConsoleLogEntry(`[SUPPORT BUNDLE] Exporting snapshot to ${targetPath}...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'EXPORT_SUPPORT_BUNDLE', targetPath }));
+}
+
+function HandleSecurityRepairNotice(data) {
+    const msg = data.error || data.message || '';
+    SetSecStatus(msg, !!data.error || data.ok === false);
+    if (data.message) AppendConsoleLogEntry(`[SECURITY/REPAIR] ${data.message}`);
+    if (data.error) AppendConsoleLogEntry(`[SECURITY/REPAIR ERROR] ${data.error}`);
+}
+
+// =========================================================================
+// CTRL+K QUICK COMMAND PALETTE CONTROLLER
+// =========================================================================
+window._cmdPaletteSelectedIdx = 0;
+window._cmdPaletteFiltered = [];
+
+const COREWATCH_PALETTE_ITEMS = [
+    { label: '📟 Dashboard — System Overview', cat: 'Tab', run: () => SwitchAppLayoutView('dashboard') },
+    { label: '📡 Network — Adapters, Diagnostics & Routing', cat: 'Tab', run: () => SwitchAppLayoutView('netmanager') },
+    { label: '🧪 Network — Active Diagnostics (Ping / Trace / Ports / DNS)', cat: 'Tool', run: () => { SwitchAppLayoutView('netmanager'); SetNetworkSubView('diagnostics'); } },
+    { label: '📶 Network — Wi-Fi RSSI, Routing Table & ARP', cat: 'Tool', run: () => { SwitchAppLayoutView('netmanager'); SetNetworkSubView('wifiroutes'); } },
+    { label: '🧭 Tasks & Ports — Live Processes, Services & Sockets', cat: 'Tab', run: () => SwitchAppLayoutView('tasksports') },
+    { label: '🔌 Open Listening Ports & Sockets', cat: 'Tool', run: () => { SwitchAppLayoutView('tasksports'); SetTasksPortsSubView('sockets'); } },
+    { label: '🛠️ Windows Services (Stopped Auto Fault Check)', cat: 'Tool', run: () => { SwitchAppLayoutView('tasksports'); SetTasksPortsSubView('services'); SetTpServiceFilter('faulty'); } },
+    { label: '🩺 UltimaDiagX — Event Logs & BSOD Translator', cat: 'Tab', run: () => SwitchAppLayoutView('diagx') },
+    { label: '🐧 WSL — Windows Subsystem for Linux Manager', cat: 'Tab', run: () => SwitchAppLayoutView('wsl') },
+    { label: '🛡️ Security & Compliance Posture (BitLocker, TPM, RDP)', cat: 'Tab', run: () => { SwitchAppLayoutView('security'); SetSecuritySubView('posture'); } },
+    { label: '🧬 Env, Hosts File, System Proxy & Recent KBs Audit', cat: 'Tool', run: () => { SwitchAppLayoutView('security'); SetSecuritySubView('envhosts'); } },
+    { label: '🧰 Windows Repair Toolkit (DISM, SFC, WU/Winsock, Temp Clean)', cat: 'Tool', run: () => { SwitchAppLayoutView('security'); SetSecuritySubView('repair'); } },
+    { label: '🧹 Clean Safe Temp Files (%TEMP% & Windows\\Temp)', cat: 'Action', run: () => { SwitchAppLayoutView('security'); SetSecuritySubView('repair'); RunRepairTool('REPAIR_CLEAN_TEMP', 'Safe Temp Cleanup', true); } },
+    { label: '📦 Export 1-Click IT Support Bundle (.zip)', cat: 'Action', run: () => TriggerExportSupportBundle() },
+    { label: '🚀 Startup Apps Manager', cat: 'Tab', run: () => SwitchAppLayoutView('startup') },
+    { label: '📂 SMB Sharing Center', cat: 'Tab', run: () => SwitchAppLayoutView('sharing') },
+    { label: '📦 Installed Applications Manager', cat: 'Tab', run: () => SwitchAppLayoutView('apps') },
+    { label: '🧩 System Devices & Drivers Tree', cat: 'Tab', run: () => SwitchAppLayoutView('devices') },
+    { label: '🗂️ File Organizer', cat: 'Tab', run: () => SwitchAppLayoutView('organizer') },
+    { label: '🌐 Flush DNS Cache & Probe Resolution', cat: 'Action', run: () => TriggerFlushAndTestDns() },
+    { label: '🚀 Run Speed / Jitter / Packet Loss Test', cat: 'Action', run: () => { SwitchAppLayoutView('dashboard'); TriggerNetworkSpeedAnalysis(); } }
+];
+
+window.OpenCommandPalette = function() {
+    const ov = document.getElementById('cmdPaletteOverlay');
+    const inp = document.getElementById('cmdPaletteInput');
+    if (!ov || !inp) return;
+    ov.style.display = 'flex';
+    inp.value = '';
+    window._cmdPaletteSelectedIdx = 0;
+    RenderCommandPaletteItems();
+    setTimeout(() => inp.focus(), 10);
+};
+
+window.CloseCommandPalette = function() {
+    const ov = document.getElementById('cmdPaletteOverlay');
+    if (ov) ov.style.display = 'none';
+};
+
+window.RenderCommandPaletteItems = function() {
+    const listEl = document.getElementById('cmdPaletteList');
+    const q = (document.getElementById('cmdPaletteInput')?.value || '').trim().toLowerCase();
+    if (!listEl) return;
+
+    const matches = COREWATCH_PALETTE_ITEMS.filter(item =>
+        !q || item.label.toLowerCase().includes(q) || item.cat.toLowerCase().includes(q)
+    );
+    window._cmdPaletteFiltered = matches;
+    if (window._cmdPaletteSelectedIdx >= matches.length) window._cmdPaletteSelectedIdx = 0;
+
+    if (!matches.length) {
+        listEl.innerHTML = '<div class="driver-text-node" style="padding:8px;">No matching tabs or actions.</div>';
+        return;
+    }
+
+    listEl.innerHTML = matches.map((item, idx) =>
+        `<button type="button" class="cmdk-item ${idx === window._cmdPaletteSelectedIdx ? 'selected' : ''}" onclick="ExecuteCommandPaletteIndex(${idx})">
+            <span>${EscapeHtmlTp(item.label)}</span>
+            <span class="cmdk-item-cat">${item.cat}</span>
+        </button>`
+    ).join('');
+};
+
+window.ExecuteCommandPaletteIndex = function(idx) {
+    const item = window._cmdPaletteFiltered[idx];
+    CloseCommandPalette();
+    if (item && typeof item.run === 'function') item.run();
+};
+
+document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        const ov = document.getElementById('cmdPaletteOverlay');
+        if (ov && ov.style.display !== 'none') CloseCommandPalette();
+        else OpenCommandPalette();
+        return;
+    }
+    const ov = document.getElementById('cmdPaletteOverlay');
+    if (!ov || ov.style.display === 'none') return;
+
+    if (e.key === 'Escape') {
+        e.preventDefault();
+        CloseCommandPalette();
+    } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (window._cmdPaletteFiltered.length) {
+            window._cmdPaletteSelectedIdx = (window._cmdPaletteSelectedIdx + 1) % window._cmdPaletteFiltered.length;
+            RenderCommandPaletteItems();
+        }
+    } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (window._cmdPaletteFiltered.length) {
+            window._cmdPaletteSelectedIdx = (window._cmdPaletteSelectedIdx - 1 + window._cmdPaletteFiltered.length) % window._cmdPaletteFiltered.length;
+            RenderCommandPaletteItems();
+        }
+    } else if (e.key === 'Enter') {
+        e.preventDefault();
+        ExecuteCommandPaletteIndex(window._cmdPaletteSelectedIdx);
+    }
+});
 
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('diagXTranslateForm')?.addEventListener('submit', (e) => {

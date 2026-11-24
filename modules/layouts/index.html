@@ -33,15 +33,45 @@ APP HEADER NAVIGATION DECK
         
         <div class="modular-tabs">
             <button id="tabDashboard" class="tab-btn active" onclick="SwitchAppLayoutView('dashboard')" title="System Overview Dashboard">📟 Dashboard</button>
-            <button id="tabNetManager" class="tab-btn" onclick="SwitchAppLayoutView('netmanager')" title="Network Adapter Manager">📡 Network</button>
-            <button id="tabStartup" class="tab-btn" onclick="SwitchAppLayoutView('startup')" title="Startup Applications Manager">🚀 Startup</button>
-            <button id="tabSharing" class="tab-btn" onclick="SwitchAppLayoutView('sharing')" title="SMB Sharing Center">📂 Sharing</button>
-            <button id="tabInstalledApps" class="tab-btn" onclick="SwitchAppLayoutView('apps')" title="Installed Applications Manager">📦 Apps</button>
-            <button id="tabDevices" class="tab-btn" onclick="SwitchAppLayoutView('devices')" title="System Devices & Drivers Overview">🧩 Devices</button>
-            <button id="tabOrganizer" class="tab-btn" onclick="SwitchAppLayoutView('organizer')" title="File Organizer">🗂️ Organizer</button>
-            <button id="tabUltimaDiagX" class="tab-btn" onclick="SwitchAppLayoutView('diagx')" title="UltimaDiagX - The Ultimate Diagnostic Logging Tool">🩺 UltimaDiagX</button>
+            <button id="tabNetManager" class="tab-btn" onclick="SwitchAppLayoutView('netmanager')" title="Network Adapters, Active Diagnostics, Wi-Fi & Routing">📡 Network</button>
+            <button id="tabTasksPorts" class="tab-btn" onclick="SwitchAppLayoutView('tasksports')" title="Live Processes, Windows Services & Open TCP/UDP Ports">🧭 Tasks &amp; Ports</button>
+            <button id="tabUltimaDiagX" class="tab-btn" onclick="SwitchAppLayoutView('diagx')" title="UltimaDiagX - System Diagnostics & Crash Analysis">🩺 UltimaDiagX</button>
+            <button id="tabWslManager" class="tab-btn" onclick="SwitchAppLayoutView('wsl')" title="Windows Subsystem for Linux (WSL) Deployments & Management">🐧 WSL</button>
+            <!-- Scalable Grouped System Tools Dropdown (keeps top bar uncluttered as tabs grow) -->
+            <div class="nav-dropdown" id="navSystemDropdown">
+                <button type="button" id="tabSystemMenu" class="tab-btn nav-dropdown-trigger" onclick="ToggleSystemToolsMenu(event)" aria-haspopup="true" aria-expanded="false" title="System & Administration Tools">
+                    <span id="lblSystemMenuText">🧰 System</span> <span class="nav-caret">▾</span>
+                </button>
+                <div class="nav-dropdown-menu" id="navSystemMenu" role="menu">
+                    <button type="button" id="tabSecurityRepair" class="nav-menu-item" role="menuitem" onclick="SelectSystemMenuView('security')">
+                        <span class="nav-mi-icon">🛡️</span>
+                        <span class="nav-mi-body"><strong>Security &amp; Repair</strong><small>BitLocker, TPM, RDP, DISM/SFC &amp; Support ZIP</small></span>
+                    </button>
+                    <button type="button" id="tabStartup" class="nav-menu-item" role="menuitem" onclick="SelectSystemMenuView('startup')">
+                        <span class="nav-mi-icon">🚀</span>
+                        <span class="nav-mi-body"><strong>Startup Apps</strong><small>Boot registry &amp; startup folder entries</small></span>
+                    </button>
+                    <button type="button" id="tabSharing" class="nav-menu-item" role="menuitem" onclick="SelectSystemMenuView('sharing')">
+                        <span class="nav-mi-icon">📂</span>
+                        <span class="nav-mi-body"><strong>Sharing Center</strong><small>SMB folders &amp; network permissions</small></span>
+                    </button>
+                    <button type="button" id="tabInstalledApps" class="nav-menu-item" role="menuitem" onclick="SelectSystemMenuView('apps')">
+                        <span class="nav-mi-icon">📦</span>
+                        <span class="nav-mi-body"><strong>Installed Apps</strong><small>Software inventory, uninstall &amp; mover</small></span>
+                    </button>
+                    <button type="button" id="tabDevices" class="nav-menu-item" role="menuitem" onclick="SelectSystemMenuView('devices')">
+                        <span class="nav-mi-icon">🧩</span>
+                        <span class="nav-mi-body"><strong>Devices &amp; Drivers</strong><small>Hardware tree &amp; driver age inspector</small></span>
+                    </button>
+                    <button type="button" id="tabOrganizer" class="nav-menu-item" role="menuitem" onclick="SelectSystemMenuView('organizer')">
+                        <span class="nav-mi-icon">🗂️</span>
+                        <span class="nav-mi-body"><strong>File Organizer</strong><small>Automated rule-based file sorting</small></span>
+                    </button>
+                </div>
+            </div>
+            <button type="button" class="tab-btn nav-cmdk-btn" onclick="OpenCommandPalette()" title="Quick Command Palette (Ctrl+K)">⌘ Ctrl+K</button>
         </div>
-        <button class="exit-system-btn" onclick="window.chrome.webview.postMessage('Exit-App')">TERMINATE ENGINE</button>
+        <button class="exit-system-btn" onclick="window.chrome.webview.postMessage('Exit-App')" title="Terminate CoreWatch Engine">⏻ EXIT</button>
     </div>
 <!-- =========================================================================
 VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
@@ -130,10 +160,10 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
                 </div>
             </div>
 
-            <!-- [DIAGNOSTIC ADDITION] Top Active Resource Consumer Callout -->
-            <div class="top-process-strip" id="topProcessStrip" title="Top active process by CPU spike or RAM footprint">
+            <!-- [DIAGNOSTIC ADDITION] Top Active Resource Consumer Callout (Click to Inspect/End) -->
+            <div class="top-process-strip" id="topProcessStrip" title="Top active process by CPU spike or RAM footprint — Click to inspect or terminate">
                 <span class="top-proc-label">🔥 Top Process:</span>
-                <strong id="lblTopProcess" class="top-proc-value">Sampling...</strong>
+                <strong id="lblTopProcess" class="top-proc-value clickable-value" onclick="TriggerTopProcessAction()">Sampling...</strong>
             </div>
         </div>
 
@@ -146,7 +176,7 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
             <div class="data-field"><span>📜</span> Build: <strong id="lblWinBuild">Loading...</strong></div>
             <div class="data-field"><span>📅</span> Update: <strong id="lblUpdateLevel">Loading...</strong></div>
             <div class="data-field"><span>🎮</span> DirectX: <strong id="lblDirectX">Loading...</strong></div>
-            <div class="data-field"><span>🔲</span> Virtualization: <strong id="lblVirtualization">Loading...</strong></div>
+            <div class="data-field"><span>🔲</span> Virtualization: <strong id="lblVirtualization">Loading...</strong> <span class="id-inline-sep">·</span> Secure Boot: <strong id="lblSecureBoot">--</strong></div>
             <div class="data-field"><span>❯_</span> Powershell: <strong id="lblPsVersion">Loading...</strong></div>
             <div class="data-field"><span>📡</span> Telemetry: <strong id="lblTelemetry">Loading...</strong></div>
             <!-- [DIAGNOSTIC ADDITION] Elevation Context, Pending Reboot & Last Unexpected Shutdown/BSOD -->
@@ -193,28 +223,37 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
                     <div class="video-metric-item"><span>Night Light:</span> <strong id="lblMonNightLight">--</strong></div>
                     <div class="video-metric-item"><span>Color Profile:</span> <strong id="lblMonColorProfile" class="video-truncate">--</strong></div>
                 </div>
+                <!-- [DYNAMIC CONTROL] Small Night Light Blue-Light Reduction Strength Slider (Active only when Night Light is On) -->
+                <div class="nightlight-slider-row is-disabled" id="nightLightSliderRow" title="Turn Night Light On to adjust blue-light reduction warmth">
+                    <span class="nl-slider-label">🌙 Blue Light:</span>
+                    <input type="range" id="rngNightLightStrength" class="nl-range-slider" min="0" max="100" step="2" value="32" disabled
+                           aria-label="Night Light blue light reduction strength"
+                           oninput="OnNightLightSliderInput(this.value)"
+                           onchange="OnNightLightSliderCommit(this.value)">
+                    <span id="lblNightLightStrength" class="nl-slider-val">Off (4800K)</span>
+                </div>
             </div>
         </div>
         <!-- NETWORK PROFILE SYSTEM -->
         <div class="dashboard-card wide-sub-console">
             <h2>📡 NETWORK PROFILE SYSTEM</h2>
             <div class="network-matrix-grid">
-                <div class="net-node"><span>🏠</span> Int IPv4: <strong id="lblIntIPv4">0.0.0.0</strong></div>
+                <div class="net-node"><span>🏠</span> Int IPv4: <strong id="lblIntIPv4" class="clickable-value" onclick="CopyDashboardValue('lblIntIPv4', 'Internal IPv4')" title="Click to copy Internal IPv4">0.0.0.0</strong></div>
                 <div class="net-node"><span>🔏</span> Subnet Mask: <strong id="lblSubnetMask">0.0.0.0</strong></div>
-                <div class="net-node"><span>🚪</span> Gateway: <strong id="lblGateway">0.0.0.0</strong></div>
-                <div class="net-node"><span>⚙️</span> IP Assignment: <span class="hardware-stat-tag text-assignment" id="lblNetAssignment">DHCP</span></div>
+                <div class="net-node"><span>🚪</span> Gateway: <strong id="lblGateway" class="clickable-value" onclick="CopyDashboardValue('lblGateway', 'Gateway IP')" title="Click to copy Gateway IP">0.0.0.0</strong></div>
+                <div class="net-node"><span>⚙️</span> IP Assignment: <button type="button" class="toggle-pill-btn state-purple" id="lblNetAssignment" onclick="SwitchAppLayoutView('netmanager')" title="Click to configure Static IP / DHCP in Network Manager">DHCP</button></div>
                 <div class="net-node"><span>🛡️</span> Profile Status: <strong id="lblNetworkStatus">Offline</strong></div>
                 <div class="net-node"><span>📶</span> WLAN SSID: <strong id="lblWlanSsid">Disconnected</strong></div>
-                <div class="net-node"><span>🌍</span> Ext IPv4: <strong id="lblExtIPv4">Resolving...</strong></div>
+                <div class="net-node"><span>🌍</span> Ext IPv4: <strong id="lblExtIPv4" class="clickable-value" onclick="CopyDashboardValue('lblExtIPv4', 'External IPv4')" title="Click to copy External IPv4">Resolving...</strong></div>
                 <div class="net-node"><span>🚀</span> Link Capacity: <strong id="lblLinkCap">0 Mbps</strong></div>
                 <div class="net-node"><span>🧱</span> Firewall: <strong id="lblFirewall">Unknown</strong></div>
                 <div class="net-node"><span>👁️</span> Realtime Protection: <strong id="lblRealtime">Unknown</strong></div>
                 <div class="net-node"><span>📣</span> Discovery: <strong id="lblDiscovery">Off</strong></div>
                 <div class="net-node"><span>📂</span> Sharing: <strong id="lblSharing">Off</strong></div>
-                <!-- [DIAGNOSTIC ADDITION] Active DNS Servers, DNS Resolution Check & Gateway ARP Status -->
-                <div class="net-node net-node-span2"><span>🔎</span> DNS Servers: <strong id="lblDnsServers">Resolving...</strong></div>
-                <div class="net-node"><span>🌐</span> DNS Check: <span id="lblDnsStatus" class="diag-pill diag-neutral">Checking...</span></div>
-                <div class="net-node"><span>🔗</span> ARP GW: <span id="lblArpStatus" class="diag-pill diag-neutral" title="Default Gateway ARP Status">Checking...</span></div>
+                <!-- [DIAGNOSTIC ADDITION] Active DNS Servers (Click to Switch), DNS Resolution Check (Click to Flush/Probe) & Gateway ARP Status (Click to Refresh) -->
+                <div class="net-node net-node-span2"><span>🔎</span> DNS Servers: <strong id="lblDnsServers" class="clickable-value" onclick="TriggerQuickDnsMenu()" title="Click to quick-switch DNS presets (Auto, Cloudflare, Google, Quad9, Custom)">Resolving...</strong></div>
+                <div class="net-node"><span>🌐</span> DNS Check: <span id="lblDnsStatus" class="diag-pill diag-neutral clickable-pill" onclick="TriggerFlushAndTestDns()" title="Click to flush Windows DNS cache and run a fresh resolution probe">Checking...</span></div>
+                <div class="net-node"><span>🔗</span> ARP GW: <span id="lblArpStatus" class="diag-pill diag-neutral clickable-pill" onclick="TriggerRefreshArpGateway()" title="Click to clear & re-probe Gateway ARP entry">Checking...</span></div>
                 <div class="net-node multi-driver-row">
                     <span class="driver-inline-group"><span>🌐</span> Ethernet: <strong id="lblEthernet">Checking...</strong></span>
                     <span class="driver-inline-group"><span>📶</span> Wi-Fi: <strong id="lblWifi">Checking...</strong></span>
@@ -261,26 +300,134 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
         <div class="dashboard-card wide-sub-console log-console-card">
             <div class="console-header-row">
                 <h2>📑 LOG PROFILE CONSOLE</h2>
-                <button class="console-clear-btn" onclick="ClearConsoleLogView()">Flush Logs</button>
+                <div style="display: flex; gap: 5px;">
+                    <button class="console-clear-btn" onclick="CopyConsoleLogView()" title="Copy live console log to clipboard">Copy Logs</button>
+                    <button class="console-clear-btn" onclick="ClearConsoleLogView()">Flush Logs</button>
+                </div>
             </div>
             <div id="console-box" class="console-box">[CoreWatch Host Engine Interface Active: Polling live CIM loops...]</div>
         </div>
     </div>
     <!-- =========================================================================
-VIEW 2: NETWORK MANAGER
+VIEW 2: NETWORK MANAGER + ACTIVE NETWORK TROUBLESHOOTING TOOLKIT
 ========================================================================= -->
     <section id="viewNetworkManagerPanel" class="tab-view-panel sharing-panel" style="display: none;" aria-labelledby="netManagerTitle">
         <div class="console-header-row">
-            <h2 id="netManagerTitle">📡 NETWORK MANAGER</h2>
-            <div style="display: flex; gap: 8px;">
+            <h2 id="netManagerTitle">📡 NETWORK MANAGER &amp; DIAGNOSTICS</h2>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
                 <button type="button" class="console-clear-btn" onclick="FlushDnsCache()">Flush DNS Cache</button>
-                <button type="button" class="console-clear-btn" onclick="RequestNetworkAdapters()">Refresh</button>
+                <button type="button" class="console-clear-btn btn-accent-action" onclick="RefreshActiveNetworkSubView()">Refresh</button>
             </div>
         </div>
-        <p>Configure hardware network adapters, static IP allocations, default gateways, DNS resolvers, and hardware link states. Changes may require administrator privileges.</p>
+        <p>Configure network adapters and run live IT path diagnostics: ICMP Ping with latency sparkline, Traceroute, multi-port TCP reachability, DNS record lookups, Wi-Fi radio RSSI/channel analysis, and IPv4 routing/ARP tables.</p>
+
+        <!-- NETWORK SUB-VIEW NAVIGATION PILLS -->
+        <div class="tab-filter-pills" id="netSubViewPills" style="margin-bottom: 8px;">
+            <button type="button" class="filter-pill active" data-netview="adapters" onclick="SetNetworkSubView('adapters')">🔌 Adapters &amp; IP</button>
+            <button type="button" class="filter-pill" data-netview="diagnostics" onclick="SetNetworkSubView('diagnostics')">🧪 Active Diagnostics</button>
+            <button type="button" class="filter-pill" data-netview="wifiroutes" onclick="SetNetworkSubView('wifiroutes')">📶 Wi-Fi &amp; Routing</button>
+        </div>
+
         <div id="netManagerStatus" class="sharing-status" role="status">Evaluating connected network interfaces...</div>
-        <div id="adapterInterfaceContainer" class="sharing-list">
-            <div class="driver-text-node">Awaiting dynamic data mesh stream link from host layer...</div>
+
+        <!-- SUB-VIEW A: ADAPTERS & IP CONFIGURATION -->
+        <div id="netSubAdapters" class="net-subview-pane" style="display: flex;">
+            <div id="adapterInterfaceContainer" class="sharing-list">
+                <div class="driver-text-node">Awaiting dynamic data mesh stream link from host layer...</div>
+            </div>
+        </div>
+
+        <!-- SUB-VIEW B: ACTIVE NETWORK DIAGNOSTICS TOOLKIT -->
+        <div id="netSubDiagnostics" class="organizer-scroll-area" style="display: none;">
+            <!-- Unified Target & Quick Presets Bar -->
+            <div class="organizer-section">
+                <div class="organizer-section-header">
+                    <h3>🎯 Active Path &amp; Protocol Probe</h3>
+                    <div class="wsl-quick-pills" style="margin-top: 0;">
+                        <button type="button" class="diagx-code-btn" onclick="SetNetDiagTarget('1.1.1.1')">1.1.1.1</button>
+                        <button type="button" class="diagx-code-btn" onclick="SetNetDiagTarget('8.8.8.8')">8.8.8.8</button>
+                        <button type="button" class="diagx-code-btn" onclick="SetNetDiagTarget('cloudflare.com')">cloudflare.com</button>
+                        <button type="button" class="diagx-code-btn" onclick="SetNetDiagTarget('github.com')">github.com</button>
+                        <button type="button" class="diagx-code-btn" onclick="SetNetDiagTargetGateway()">Gateway</button>
+                    </div>
+                </div>
+                <div class="net-diag-toolbar">
+                    <input type="text" id="netDiagTargetInput" class="tab-search-input" value="1.1.1.1" placeholder="Target hostname or IP (e.g. 1.1.1.1, google.com, 192.168.1.1)...">
+                    <button type="button" class="console-clear-btn btn-accent-action" onclick="RunNetDiagPing()">Ping (6x)</button>
+                    <button type="button" class="console-clear-btn" onclick="RunNetDiagTraceroute()">Traceroute</button>
+                </div>
+
+                <!-- Port Reachability & DNS Record Row -->
+                <div class="net-diag-secondary-grid">
+                    <div class="net-diag-mini-box">
+                        <span class="net-diag-mini-label">TCP Port Test:</span>
+                        <input type="text" id="netDiagPortsInput" class="tab-search-input" value="80,443,3389,22" placeholder="Ports (e.g. 443 or 22,80,443,3389)">
+                        <button type="button" class="console-clear-btn" onclick="RunNetDiagPortTest()">Test Ports</button>
+                    </div>
+                    <div class="net-diag-mini-box">
+                        <span class="net-diag-mini-label">DNS Lookup:</span>
+                        <select id="selNetDiagDnsType" class="tab-sort-select" aria-label="DNS record type">
+                            <option value="A" selected>A</option>
+                            <option value="AAAA">AAAA</option>
+                            <option value="MX">MX</option>
+                            <option value="TXT">TXT</option>
+                            <option value="NS">NS</option>
+                            <option value="CNAME">CNAME</option>
+                            <option value="SOA">SOA</option>
+                            <option value="PTR">PTR</option>
+                        </select>
+                        <input type="text" id="netDiagDnsServer" class="tab-search-input" style="max-width: 115px;" placeholder="DNS (opt)">
+                        <button type="button" class="console-clear-btn" onclick="RunNetDiagDnsLookup()">Lookup</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Live Results Output Deck -->
+            <div class="organizer-section">
+                <div class="organizer-section-header">
+                    <h3 id="lblNetDiagResultTitle">📊 Diagnostic Output</h3>
+                    <span id="lblNetDiagResultMeta" class="diagx-stamp-text">Ready</span>
+                </div>
+                <div id="netDiagVisualArea">
+                    <div class="driver-text-node">Select a target above and click Ping, Traceroute, Test Ports, or Lookup.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SUB-VIEW C: WI-FI RADIO TELEMETRY, ROUTING TABLE & ARP NEIGHBORS -->
+        <div id="netSubWifiRoutes" class="organizer-scroll-area" style="display: none;">
+            <!-- Wi-Fi Radio Card -->
+            <div class="organizer-section">
+                <div class="organizer-section-header">
+                    <h3>📶 Wi-Fi Radio &amp; Signal Quality Telemetry</h3>
+                    <span id="lblNetWifiStamp" class="diagx-stamp-text">--</span>
+                </div>
+                <div id="netWifiTelemetryBox" class="net-wifi-grid">
+                    <div class="driver-text-node">Click Refresh to inspect Wi-Fi RSSI, channel, band, and cipher details...</div>
+                </div>
+            </div>
+
+            <!-- Routing Table + ARP Table -->
+            <div class="diagx-two-col-row">
+                <div class="organizer-section">
+                    <div class="organizer-section-header">
+                        <h3>🗺️ IPv4 Routing Table</h3>
+                        <span id="lblNetRoutesCount" class="diagx-stamp-text">0 routes</span>
+                    </div>
+                    <div id="netRoutesContainer" class="tp-table-scroll" style="max-height: 280px;">
+                        <div class="driver-text-node" style="padding: 8px;">Loading IPv4 routes...</div>
+                    </div>
+                </div>
+                <div class="organizer-section">
+                    <div class="organizer-section-header">
+                        <h3>🔗 Active ARP Neighbors</h3>
+                        <span id="lblNetArpCount" class="diagx-stamp-text">0 entries</span>
+                    </div>
+                    <div id="netArpContainer" class="tp-table-scroll" style="max-height: 280px;">
+                        <div class="driver-text-node" style="padding: 8px;">Loading ARP neighbors...</div>
+                    </div>
+                </div>
+            </div>
         </div>
     </section>
 
@@ -719,5 +866,446 @@ VIEW 8: ULTIMADIAGX - THE ULTIMATE DIAGNOSTIC LOGGING TOOL
             </div>
         </div>
     </section>
+
+    <!-- =========================================================================
+VIEW 9: WSL — WINDOWS SUBSYSTEM FOR LINUX DEPLOYMENT & MANAGEMENT
+========================================================================= -->
+    <section id="viewWslManagerPanel" class="tab-view-panel sharing-panel" style="display: none;" aria-labelledby="wslManagerTitle">
+        <div class="console-header-row">
+            <h2 id="wslManagerTitle">🐧 WSL — WINDOWS SUBSYSTEM FOR LINUX MANAGER</h2>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                <button type="button" class="console-clear-btn btn-accent-action" onclick="TriggerWslInstallEngine()" title="Install or repair the WSL engine (wsl --install --no-distribution)">Install WSL</button>
+                <button type="button" class="console-clear-btn" onclick="TriggerWslUpdateEngine()" title="Update WSL kernel and engine (wsl --update)">Update Kernel</button>
+                <button type="button" class="console-clear-btn wsl-btn-danger" onclick="TriggerWslShutdownAll()" title="Stop all running Linux distros and the WSL2 lightweight VM">Shutdown All</button>
+                <button type="button" class="console-clear-btn" onclick="RequestWslManager()">Refresh</button>
+            </div>
+        </div>
+        <p>Deploy Linux distributions, inspect VHDX disk footprints and live VM memory, manage global <code>.wslconfig</code> networking &amp; resource caps, export/import backups, and run quick diagnostic commands.</p>
+        <div id="wslStatus" class="sharing-status" role="status">Probing Windows Subsystem for Linux engine...</div>
+
+        <div class="organizer-scroll-area">
+            <!-- ENGINE TELEMETRY & PREREQUISITES STRIP -->
+            <div class="tab-summary-strip" style="margin-bottom: 0;">
+                <span class="summary-chip chip-accent">WSL: <strong id="lblWslVersion">--</strong></span>
+                <span class="summary-chip">Kernel: <strong id="lblWslKernel">--</strong></span>
+                <span class="summary-chip">WSLg: <strong id="lblWslgVersion">--</strong></span>
+                <span class="summary-chip chip-accent">vmmemWSL RAM: <strong id="lblWslVmmem">--</strong></span>
+                <span class="summary-chip">Distros: <strong id="lblWslDistroCount">0 (0 running)</strong></span>
+                <span class="summary-chip">VHDX Total: <strong id="lblWslTotalDisk">0 MB</strong></span>
+                <span class="summary-chip">Default Ver: <button type="button" id="btnWslDefaultVer" class="toggle-pill-btn state-info" onclick="TriggerWslDefaultVersionToggle()" title="Click to toggle default WSL version for new deployments (WSL 2 ↔ WSL 1)">WSL 2</button></span>
+            </div>
+
+            <!-- SETUP / READINESS BANNER (Shown prominently when WSL is not installed yet) -->
+            <div id="wslSetupBanner" class="wsl-setup-banner" style="display: none;">
+                <div class="wsl-setup-header">
+                    <strong>⚠️ WSL Engine Not Installed Yet</strong>
+                    <button type="button" class="console-clear-btn btn-accent-action" onclick="TriggerWslInstallEngine()">Install WSL Engine Now</button>
+                </div>
+                <div class="wsl-setup-text">CoreWatch detected that Windows Subsystem for Linux is not yet installed. Click <strong>Install WSL Engine Now</strong> to launch an elevated installer (<code>wsl --install --no-distribution</code>), then restart Windows if prompted and deploy any Linux distribution below.</div>
+                <div class="tab-summary-strip" style="margin-top: 8px; margin-bottom: 0;">
+                    <span class="summary-chip">Hardware Virtualization: <strong id="lblWslPrereqVirt">--</strong></span>
+                    <span class="summary-chip">WSL Service: <strong id="lblWslPrereqWsl">--</strong></span>
+                    <span class="summary-chip">VM Platform (vmcompute): <strong id="lblWslPrereqVmp">--</strong></span>
+                </div>
+            </div>
+
+            <!-- SECTION 1: INSTALLED DISTRIBUTIONS -->
+            <div class="organizer-section">
+                <div class="organizer-section-header">
+                    <h3>📦 Installed Linux Distributions</h3>
+                    <span id="lblWslDefaultDistro" class="diagx-stamp-text">Default: None</span>
+                </div>
+                <div id="wslDistroList" class="wsl-distro-grid">
+                    <div class="driver-text-node">Checking registered WSL distributions...</div>
+                </div>
+            </div>
+
+            <!-- SECTION 2: DEPLOY NEW DISTRO & IMPORT CUSTOM ARCHIVE -->
+            <div class="diagx-two-col-row">
+                <!-- Online Catalog Deployment -->
+                <div class="organizer-section">
+                    <div class="organizer-section-header">
+                        <h3>🚀 Deploy Linux Distribution</h3>
+                        <button type="button" class="console-clear-btn" onclick="RequestWslOnlineCatalog()">Reload Catalog</button>
+                    </div>
+                    <div class="wsl-inline-form">
+                        <select id="selWslDeployDistro" class="tab-sort-select" style="flex: 1 1 auto; min-width: 0;" aria-label="Select Linux distribution to deploy">
+                            <option value="Ubuntu">Ubuntu (Latest LTS)</option>
+                        </select>
+                        <button type="button" class="console-clear-btn btn-accent-action" onclick="TriggerWslDeployDistro()">Deploy</button>
+                    </div>
+                    <div class="wsl-quick-pills" id="wslQuickDeployPills">
+                        <button type="button" class="diagx-code-btn" onclick="QuickDeployWslDistro('Ubuntu')">+ Ubuntu</button>
+                        <button type="button" class="diagx-code-btn" onclick="QuickDeployWslDistro('Ubuntu-24.04')">+ Ubuntu 24.04</button>
+                        <button type="button" class="diagx-code-btn" onclick="QuickDeployWslDistro('Debian')">+ Debian</button>
+                        <button type="button" class="diagx-code-btn" onclick="QuickDeployWslDistro('kali-linux')">+ Kali</button>
+                        <button type="button" class="diagx-code-btn" onclick="QuickDeployWslDistro('FedoraLinux-42')">+ Fedora</button>
+                        <button type="button" class="diagx-code-btn" onclick="QuickDeployWslDistro('archlinux')">+ Arch</button>
+                    </div>
+                    <div class="wsl-hint-line" id="lblWslCatalogHint">Launches an interactive terminal for first-boot UNIX user setup.</div>
+                </div>
+
+                <!-- Import Custom Tarball / VHDX -->
+                <div class="organizer-section">
+                    <div class="organizer-section-header">
+                        <h3>📥 Import Custom Tarball / VHDX Clone</h3>
+                    </div>
+                    <form id="wslImportForm" class="wsl-import-form">
+                        <div class="wsl-import-row">
+                            <input type="text" id="wslImportName" class="tab-search-input" placeholder="Distro name (e.g. Ubuntu-Dev)" required>
+                            <select id="wslImportVersion" class="tab-sort-select" aria-label="Import WSL Version">
+                                <option value="2" selected>WSL 2</option>
+                                <option value="1">WSL 1</option>
+                            </select>
+                        </div>
+                        <div class="wsl-import-row">
+                            <input type="text" id="wslImportSource" class="tab-search-input" placeholder="Source .tar or .vhdx file path..." required>
+                            <button type="button" class="console-clear-btn" onclick="BrowseWslImportFile()">Browse...</button>
+                        </div>
+                        <div class="wsl-import-row">
+                            <input type="text" id="wslImportInstallDir" class="tab-search-input" placeholder="Target folder for ext4.vhdx (e.g. D:\WSL\Ubuntu-Dev)" required>
+                            <button type="button" class="console-clear-btn" onclick="BrowseOrganizerFolder('wslinstalldir')">Folder...</button>
+                            <button type="submit" class="console-clear-btn btn-accent-action">Import</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- SECTION 3: GLOBAL .WSLCONFIG RESOURCE & NETWORKING EDITOR -->
+            <div class="organizer-section">
+                <div class="organizer-section-header">
+                    <h3>⚙️ Global <code>.wslconfig</code> Resource &amp; Networking Profile</h3>
+                    <div class="organizer-inline-actions">
+                        <span id="lblWslConfigPath" class="diagx-stamp-text">%USERPROFILE%\.wslconfig</span>
+                        <button type="button" class="console-clear-btn" onclick="TriggerWslOpenConfigFile()">Open File</button>
+                        <button type="button" class="console-clear-btn" onclick="SaveWslConfig(false)">Save</button>
+                        <button type="button" class="console-clear-btn btn-accent-action" onclick="SaveWslConfig(true)">Save &amp; Restart WSL</button>
+                    </div>
+                </div>
+                <div class="wsl-config-grid">
+                    <label class="wsl-cfg-field">
+                        <span>Memory Cap (e.g. 8GB, 16GB)</span>
+                        <input type="text" id="wslCfgMemory" placeholder="Default (50% host RAM)">
+                    </label>
+                    <label class="wsl-cfg-field">
+                        <span>CPU Processors Cap</span>
+                        <input type="number" id="wslCfgProcessors" min="1" max="128" placeholder="Default (All cores)">
+                    </label>
+                    <label class="wsl-cfg-field">
+                        <span>Swap Size (e.g. 4GB or 0)</span>
+                        <input type="text" id="wslCfgSwap" placeholder="Default (25% RAM)">
+                    </label>
+                    <label class="wsl-cfg-field">
+                        <span>Networking Mode</span>
+                        <select id="wslCfgNetMode">
+                            <option value="nat">NAT (Default)</option>
+                            <option value="mirrored">Mirrored (Win11 LAN/VPN Sync)</option>
+                        </select>
+                    </label>
+                    <label class="wsl-cfg-field">
+                        <span>Auto Memory Reclaim</span>
+                        <select id="wslCfgMemReclaim">
+                            <option value="disabled">Disabled</option>
+                            <option value="gradual">Gradual (Recommended)</option>
+                            <option value="dropcache">DropCache (Instant)</option>
+                        </select>
+                    </label>
+                </div>
+                <div class="wsl-config-toggles">
+                    <label class="org-checkbox-label"><input type="checkbox" id="wslCfgDnsTunneling" checked> DNS Tunneling</label>
+                    <label class="org-checkbox-label"><input type="checkbox" id="wslCfgFirewall" checked> Windows Firewall Integration</label>
+                    <label class="org-checkbox-label"><input type="checkbox" id="wslCfgAutoProxy" checked> Auto Proxy Sync</label>
+                    <label class="org-checkbox-label"><input type="checkbox" id="wslCfgGuiApps" checked> WSLg GUI Applications</label>
+                    <label class="org-checkbox-label"><input type="checkbox" id="wslCfgNestedVirt" checked> Nested Virtualization</label>
+                    <label class="org-checkbox-label"><input type="checkbox" id="wslCfgSparseVhd"> Sparse VHD Auto-Shrink</label>
+                </div>
+            </div>
+
+            <!-- SECTION 4: QUICK LINUX COMMAND RUNNER -->
+            <div class="organizer-section">
+                <div class="organizer-section-header">
+                    <h3>💻 Quick Linux Diagnostic Shell Runner</h3>
+                    <span id="lblWslCmdMeta" class="diagx-stamp-text">Ready</span>
+                </div>
+                <form id="wslCmdForm" class="wsl-inline-form">
+                    <select id="selWslCmdDistro" class="tab-sort-select" aria-label="Target WSL distribution">
+                        <option value="__default__">Default Distro</option>
+                    </select>
+                    <input type="text" id="wslCmdInput" class="tab-search-input" placeholder="Run a Linux command (e.g. uname -a && free -h && df -h /)...">
+                    <button type="submit" id="btnWslRunCmd" class="console-clear-btn btn-accent-action">Run</button>
+                </form>
+                <div class="wsl-quick-pills">
+                    <button type="button" class="diagx-code-btn" onclick="RunWslPresetCommand('uname -a && cat /etc/os-release | head -n 4')">OS &amp; Kernel</button>
+                    <button type="button" class="diagx-code-btn" onclick="RunWslPresetCommand('free -h')">RAM (free -h)</button>
+                    <button type="button" class="diagx-code-btn" onclick="RunWslPresetCommand('df -h / /mnt/c 2>/dev/null || df -h')">Disk (df -h)</button>
+                    <button type="button" class="diagx-code-btn" onclick="RunWslPresetCommand('ip -br addr && cat /etc/resolv.conf')">Network &amp; DNS</button>
+                    <button type="button" class="diagx-code-btn" onclick="RunWslPresetCommand('ps aux --sort=-%mem | head -n 10')">Top Procs</button>
+                    <button type="button" class="diagx-code-btn" onclick="RunWslPresetCommand('systemctl is-system-running 2>/dev/null || echo systemd-not-active')">Systemd Check</button>
+                </div>
+                <pre id="wslCmdOutput" class="wsl-cmd-output">Select a distro and run a command above to inspect Linux telemetry in-place.</pre>
+            </div>
+        </div>
+    </section>
+
+    <!-- =========================================================================
+VIEW 10: TASKS, WINDOWS SERVICES & OPEN PORTS / SOCKETS INSPECTOR
+========================================================================= -->
+    <section id="viewTasksPortsPanel" class="tab-view-panel sharing-panel" style="display: none;" aria-labelledby="tasksPortsTitle">
+        <div class="console-header-row">
+            <h2 id="tasksPortsTitle">🧭 TASKS, WINDOWS SERVICES &amp; OPEN PORTS INSPECTOR</h2>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                <span id="lblTpTimestamp" class="diagx-stamp-text" style="align-self:center;">Not sampled</span>
+                <button type="button" id="btnTpLiveRefresh" class="console-clear-btn" onclick="ToggleTasksPortsLiveWatch()" title="Auto-refresh Processes, Services & Sockets every 3 seconds while this tab is open">Live: OFF</button>
+                <button type="button" class="console-clear-btn btn-accent-action" onclick="RequestTasksPorts()">Refresh Snapshot</button>
+            </div>
+        </div>
+        <p>Investigate live CPU/RAM/handle consumers, pinpoint stopped Automatic Windows services, and map listening TCP/UDP ports or established sockets directly to their owning process.</p>
+
+        <!-- SUMMARY TELEMETRY STRIP -->
+        <div class="tab-summary-strip" style="margin-bottom: 8px;">
+            <span class="summary-chip chip-accent">Processes: <strong id="sumTpProcs">--</strong></span>
+            <span class="summary-chip">Handles: <strong id="sumTpHandles">--</strong></span>
+            <span class="summary-chip chip-ok">Services Running: <strong id="sumTpSvcRun">--</strong></span>
+            <span class="summary-chip chip-warn" title="Automatic services currently not running">Stopped Auto: <strong id="sumTpSvcFault">--</strong></span>
+            <span class="summary-chip chip-accent">Listening Ports: <strong id="sumTpListen">--</strong></span>
+            <span class="summary-chip">Established TCP: <strong id="sumTpEstab">--</strong></span>
+        </div>
+
+        <!-- SUB-VIEW MODE TABS + SEARCH / SORT -->
+        <div class="tp-subview-bar">
+            <div class="tp-subview-pills" id="tpSubViewPills">
+                <button type="button" class="filter-pill active" data-view="processes" onclick="SetTasksPortsSubView('processes')">⚙️ Processes</button>
+                <button type="button" class="filter-pill" data-view="services" onclick="SetTasksPortsSubView('services')">🛠️ Windows Services</button>
+                <button type="button" class="filter-pill" data-view="sockets" onclick="SetTasksPortsSubView('sockets')">🔌 Ports &amp; Sockets</button>
+            </div>
+            <div class="tp-filter-right">
+                <input type="text" id="tpSearchInput" class="tab-search-input" placeholder="Search process, PID, service, port (e.g. 443, 8080), IP, or path..." oninput="RenderCurrentTasksPortsView()">
+                <select id="selTpSort" class="tab-sort-select" onchange="RenderCurrentTasksPortsView()" aria-label="Sort processes">
+                    <option value="ram">Sort: RAM ↓</option>
+                    <option value="cpu">Sort: CPU ↓</option>
+                    <option value="handles">Sort: Handles ↓</option>
+                    <option value="name">Sort: Name A-Z</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- CONTEXTUAL FILTER PILLS (Services / Sockets sub-filters) -->
+        <div class="tab-filter-pills" id="tpSubFilterPills" style="display: none; margin-bottom: 6px;"></div>
+
+        <div id="tpStatus" class="sharing-status" role="status">Click Refresh or switch views to inspect live processes, services, and ports.</div>
+
+        <!-- SCROLLABLE DATA TABLE CONTAINER -->
+        <div id="tpTableContainer" class="tp-table-scroll">
+            <div class="driver-text-node">Loading live system snapshot...</div>
+        </div>
+    </section>
+
+    <!-- =========================================================================
+VIEW 11: SECURITY POSTURE, WINDOWS REPAIR TOOLKIT & SUPPORT BUNDLE HUB
+========================================================================= -->
+    <section id="viewSecurityRepairPanel" class="tab-view-panel sharing-panel" style="display: none;" aria-labelledby="secRepairTitle">
+        <div class="console-header-row">
+            <h2 id="secRepairTitle">🛡️ SECURITY POSTURE, REPAIR TOOLKIT &amp; SUPPORT BUNDLE</h2>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                <button type="button" class="console-clear-btn btn-accent-action" onclick="TriggerExportSupportBundle()" title="Generate a single ZIP containing Hardware, SMART, Ports, Services, Security, Routes & Event Logs">📦 Export Support ZIP</button>
+                <button type="button" class="console-clear-btn" onclick="RequestSecurityRepair()">Refresh Audit</button>
+            </div>
+        </div>
+        <p>Audit BitLocker, TPM 2.0, Secure Boot, HVCI Memory Integrity, RDP, Local Admins, and non-Microsoft Scheduled Tasks; run safe Windows repair tools (DISM, SFC, WU/Winsock reset); or export a ticket-ready IT support bundle.</p>
+
+        <!-- SUB-VIEW PILLS -->
+        <div class="tab-filter-pills" id="secSubViewPills" style="margin-bottom: 8px;">
+            <button type="button" class="filter-pill active" data-secview="posture" onclick="SetSecuritySubView('posture')">🛡️ Security &amp; Compliance</button>
+            <button type="button" class="filter-pill" data-secview="envhosts" onclick="SetSecuritySubView('envhosts')">🧬 Env, Hosts, Proxy &amp; KBs</button>
+            <button type="button" class="filter-pill" data-secview="repair" onclick="SetSecuritySubView('repair')">🧰 Repair &amp; Health Toolkit</button>
+        </div>
+
+        <div id="secStatus" class="sharing-status" role="status">Auditing Windows security posture &amp; compliance...</div>
+
+        <!-- SUB-VIEW A: SECURITY & COMPLIANCE POSTURE -->
+        <div id="secSubPosture" class="organizer-scroll-area" style="display: flex;">
+            <!-- Hardware & OS Security Summary Strip -->
+            <div class="tab-summary-strip" style="margin-bottom: 0;">
+                <span class="summary-chip">Secure Boot: <strong id="lblSecSecureBoot">--</strong></span>
+                <span class="summary-chip">TPM: <strong id="lblSecTpm">--</strong></span>
+                <span class="summary-chip">Core Isolation (HVCI): <strong id="lblSecHvci">--</strong></span>
+                <span class="summary-chip">RDP (<span id="lblSecRdpPort">3389</span>): <span id="lblSecRdpControl">--</span></span>
+                <span class="summary-chip">Local Admins: <strong id="lblSecAdminCount">--</strong></span>
+                <span class="summary-chip">3rd-Party Tasks: <strong id="lblSecTaskCount">--</strong></span>
+            </div>
+
+            <!-- BitLocker + Local Admins (2 Columns) -->
+            <div class="diagx-two-col-row">
+                <div class="organizer-section">
+                    <div class="organizer-section-header">
+                        <h3>🔐 BitLocker Volume Encryption</h3>
+                    </div>
+                    <div id="secBitlockerContainer">
+                        <div class="driver-text-node">Querying BitLocker protection status...</div>
+                    </div>
+                </div>
+                <div class="organizer-section">
+                    <div class="organizer-section-header">
+                        <h3>👥 Local Administrators Group</h3>
+                    </div>
+                    <div id="secLocalAdminsContainer">
+                        <div class="driver-text-node">Enumerating local Administrator accounts...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Non-Microsoft Scheduled Tasks Audit -->
+            <div class="organizer-section">
+                <div class="organizer-section-header">
+                    <h3>⏱️ Non-Microsoft Scheduled Tasks (Persistence Audit)</h3>
+                    <input type="text" id="secTaskSearchInput" class="tab-search-input" style="max-width: 260px; padding: 3px 8px; font-size: 10.5px;" placeholder="Filter tasks by name, author, or command..." oninput="RenderSecScheduledTasks()">
+                </div>
+                <div id="secTasksContainer" class="tp-table-scroll" style="max-height: 280px;">
+                    <div class="driver-text-node" style="padding: 8px;">Loading scheduled tasks...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SUB-VIEW B: SYSTEM PROXY, HOSTS FILE, PATH AUDIT & RECENT WINDOWS UPDATES (KBs) -->
+        <div id="secSubEnvHosts" class="organizer-scroll-area" style="display: none;">
+            <!-- Proxy Telemetry & Toggle -->
+            <div class="organizer-section">
+                <div class="organizer-section-header">
+                    <h3>🌐 System Proxy Configuration (WinINET &amp; WinHTTP)</h3>
+                    <div style="display: flex; gap: 6px; align-items: center;">
+                        <span id="lblSecProxyControl">--</span>
+                        <button type="button" class="console-clear-btn" onclick="RequestSecEnvHostsProxy()">Refresh</button>
+                    </div>
+                </div>
+                <div id="secProxySummary" class="net-wifi-grid">
+                    <div class="driver-text-node">Click Refresh to inspect WinINET &amp; WinHTTP proxy settings...</div>
+                </div>
+            </div>
+
+            <!-- Hosts File + Recent KBs (2 Columns) -->
+            <div class="diagx-two-col-row">
+                <div class="organizer-section">
+                    <div class="organizer-section-header">
+                        <h3>📄 Active Hosts File Overrides</h3>
+                        <button type="button" class="console-clear-btn" onclick="TriggerSecOpenHostsFile()">Open in Notepad</button>
+                    </div>
+                    <div id="secHostsContainer" class="tp-table-scroll" style="max-height: 210px;">
+                        <div class="driver-text-node" style="padding: 8px;">Loading hosts file...</div>
+                    </div>
+                </div>
+                <div class="organizer-section">
+                    <div class="organizer-section-header">
+                        <h3>🩹 Recent Installed Updates (KBs)</h3>
+                        <span id="lblSecKbCount" class="diagx-stamp-text">0 KBs</span>
+                    </div>
+                    <div id="secHotfixContainer" class="tp-table-scroll" style="max-height: 210px;">
+                        <div class="driver-text-node" style="padding: 8px;">Loading installed hotfixes...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PATH Environment Health Validator -->
+            <div class="organizer-section">
+                <div class="organizer-section-header">
+                    <h3>🛤️ System &amp; User PATH Environment Audit</h3>
+                    <span id="lblSecPathSummary" class="diagx-stamp-text">--</span>
+                </div>
+                <div id="secPathContainer" class="tp-table-scroll" style="max-height: 210px;">
+                    <div class="driver-text-node" style="padding: 8px;">Validating PATH directories...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SUB-VIEW C: ONE-CLICK WINDOWS REPAIR & HEALTH TOOLKIT + TEMP CLEANER -->
+        <div id="secSubRepair" class="organizer-scroll-area" style="display: none;">
+            <!-- Battery Health + Temp Bloat Audit (2 Columns) -->
+            <div class="diagx-two-col-row">
+                <div class="organizer-section">
+                    <div class="organizer-section-header">
+                        <h3>🔋 Battery &amp; Power Health</h3>
+                        <button type="button" class="console-clear-btn" onclick="RunRepairTool('REPAIR_BATTERY_REPORT', 'Battery Health Report')">HTML Report</button>
+                    </div>
+                    <div id="secBatterySummary" class="net-wifi-grid">
+                        <div class="driver-text-node">Checking battery telemetry...</div>
+                    </div>
+                </div>
+                <div class="organizer-section">
+                    <div class="organizer-section-header">
+                        <h3>🧹 Temp &amp; Cache Disk Bloat Audit</h3>
+                        <div style="display: flex; gap: 5px;">
+                            <button type="button" class="console-clear-btn" onclick="RequestSecEnvHostsProxy()">Scan</button>
+                            <button type="button" class="console-clear-btn btn-accent-action" onclick="RunRepairTool('REPAIR_CLEAN_TEMP', 'Safe Temp Cleanup', true)">Clean Temp</button>
+                        </div>
+                    </div>
+                    <div id="secTempBloatContainer">
+                        <div class="driver-text-node">Click Scan to measure %TEMP%, Windows\Temp, WU cache, and dump footprints.</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Repair Action Cards Grid -->
+            <div class="organizer-section">
+                <div class="organizer-section-header">
+                    <h3>🧰 Windows Repair &amp; Remediation Actions</h3>
+                    <span class="diagx-stamp-text">Long scans open elevated progress terminals</span>
+                </div>
+                <div class="sec-repair-grid">
+                    <div class="sec-repair-card">
+                        <strong>DISM Quick CheckHealth</strong>
+                        <p>Fast (~2s) read-only check for Windows component store corruption flags.</p>
+                        <button type="button" class="console-clear-btn btn-accent-action" onclick="RunRepairTool('REPAIR_DISM_CHECK', 'DISM /CheckHealth')">Run CheckHealth</button>
+                    </div>
+                    <div class="sec-repair-card">
+                        <strong>DISM RestoreHealth</strong>
+                        <p>Repairs Windows image corruption via Windows Update in an elevated progress window.</p>
+                        <button type="button" class="console-clear-btn" onclick="RunRepairTool('REPAIR_DISM_RESTORE_TERM', 'DISM /RestoreHealth', true)">Launch RestoreHealth</button>
+                    </div>
+                    <div class="sec-repair-card">
+                        <strong>System File Checker (SFC)</strong>
+                        <p>Scans and repairs protected Windows system files (`sfc /scannow`) in an elevated window.</p>
+                        <button type="button" class="console-clear-btn" onclick="RunRepairTool('REPAIR_SFC_TERM', 'SFC /scannow', true)">Launch SFC Scan</button>
+                    </div>
+                    <div class="sec-repair-card">
+                        <strong>Reset Windows Update</strong>
+                        <p>Stops WU services, backs up `SoftwareDistribution` &amp; `catroot2`, and restarts cleanly.</p>
+                        <button type="button" class="console-clear-btn wsl-btn-danger" onclick="RunRepairTool('REPAIR_WU_RESET', 'Windows Update Reset', true)">Reset WU Cache</button>
+                    </div>
+                    <div class="sec-repair-card">
+                        <strong>Reset Winsock &amp; TCP/IP</strong>
+                        <p>Runs `netsh winsock reset`, `netsh int ip reset`, and flushes DNS (reboot recommended).</p>
+                        <button type="button" class="console-clear-btn wsl-btn-danger" onclick="RunRepairTool('REPAIR_NET_STACK_RESET', 'Winsock & TCP/IP Reset', true)">Reset Net Stack</button>
+                    </div>
+                    <div class="sec-repair-card">
+                        <strong>Winget Package Updates</strong>
+                        <p>Lists outdated installed applications detected by Windows Package Manager (`winget upgrade`).</p>
+                        <button type="button" class="console-clear-btn" onclick="RunRepairTool('REPAIR_WINGET_CHECK', 'Winget Update Check')">Check Updates</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Repair Output Console -->
+            <div class="organizer-section">
+                <div class="organizer-section-header">
+                    <h3 id="lblRepairOutputTitle">📟 Toolkit Output</h3>
+                    <span id="lblRepairOutputMeta" class="diagx-stamp-text">Ready</span>
+                </div>
+                <pre id="repairToolOutput" class="wsl-cmd-output">Select a repair or health check action above to view live output here.</pre>
+            </div>
+        </div>
+    </section>
+
+    <!-- =========================================================================
+    CTRL+K QUICK COMMAND PALETTE OVERLAY
+    ========================================================================= -->
+    <div id="cmdPaletteOverlay" class="cmdk-overlay" style="display: none;" onclick="if(event.target===this) CloseCommandPalette()">
+        <div class="cmdk-dialog" role="dialog" aria-modal="true" aria-label="Quick Command Palette">
+            <div class="cmdk-input-wrap">
+                <span>⌘</span>
+                <input type="text" id="cmdPaletteInput" placeholder="Jump to any tab or run a diagnostic action (Esc to close)..." oninput="RenderCommandPaletteItems()" autocomplete="off">
+                <span class="cmdk-kbd">ESC</span>
+            </div>
+            <div id="cmdPaletteList" class="cmdk-list"></div>
+        </div>
+    </div>
 </body>
 </html>

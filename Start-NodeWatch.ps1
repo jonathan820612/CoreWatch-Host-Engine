@@ -44,11 +44,12 @@ if (-not (Test-Path $UserDataFolder)) { $null = New-Item -ItemType Directory -Pa
 $env:WEBVIEW2_USER_DATA_FOLDER = $UserDataFolder
 
 $global:SharedData = [hashtable]::Synchronized(@{
-    FullPayload = $null
-    FullVersion = 0
-    FastPayload = $null
-    FastVersion = 0
-    IsRunning   = $true
+    FullPayload  = $null
+    FullVersion  = 0
+    FastPayload  = $null
+    FastVersion  = 0
+    ForceRefresh = $false
+    IsRunning    = $true
 })
 
 # =========================================================================
@@ -100,6 +101,14 @@ $RunspaceScript = {
     while ($SharedData.IsRunning) {
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
         try {
+            # [DYNAMIC CONTROL] Immediately expire slow telemetry caches after any user toggle
+            if ($SharedData.ForceRefresh) {
+                $SharedData.ForceRefresh = $false
+                if (Get-Command Reset-NetworkMetricsCache -ErrorAction SilentlyContinue) { Reset-NetworkMetricsCache }
+                if (Get-Command Reset-SystemMetricsCache -ErrorAction SilentlyContinue)  { Reset-SystemMetricsCache }
+                if (Get-Command Reset-InfraMetricsCache -ErrorAction SilentlyContinue)   { Reset-InfraMetricsCache }
+            }
+
             $StaticNet   = Get-NetworkMetrics
             $DynamicNet  = Get-TrafficMetrics
             $SystemFrame = Get-SystemMetrics
@@ -148,7 +157,13 @@ $RunspaceScript = {
             $SharedData.FullVersion++
         }
         $sleepMs = [int][math]::Max(100, 1000 - $sw.ElapsedMilliseconds)
-        [System.Threading.Thread]::Sleep($sleepMs)
+        # Wake early (every 80ms) if a dashboard toggle requested an immediate telemetry refresh
+        $slept = 0
+        while ($slept -lt $sleepMs -and $SharedData.IsRunning -and -not $SharedData.ForceRefresh) {
+            $chunk = [int][math]::Min(80, $sleepMs - $slept)
+            [System.Threading.Thread]::Sleep($chunk)
+            $slept += $chunk
+        }
     }
 }
 
@@ -296,7 +311,7 @@ function Start-AsyncTabTask {
                 }
             } finally {
                 try { $t.PS.Dispose() } catch {}
-                try { $sender.Dispose() } catch {}
+                try { $timerSender.Dispose() } catch {}
                 $null = $global:ActiveTabTasks.Remove($t)
             }
         }
@@ -370,10 +385,45 @@ $HandleUiMessageEvent = {
                 return ($data | ConvertTo-Json -Compress -Depth 6)
             }
         }
+        '^Request-WslManager$' {
+            Start-AsyncTabTask -FallbackType "WSL_NOTICE" -Arguments @($Global:NodeWatchRoot) -ScriptBlock {
+                param($RootPath)
+                . (Join-Path $RootPath "modules\tabs\WslManager.ps1")
+                $data = Get-WslManagerState -IncludeOnlineCatalog
+                return ($data | ConvertTo-Json -Compress -Depth 6)
+            }
+        }
+        '^Request-TasksPorts$' {
+            Start-AsyncTabTask -FallbackType "TASKS_PORTS_NOTICE" -Arguments @($Global:NodeWatchRoot) -ScriptBlock {
+                param($RootPath)
+                . (Join-Path $RootPath "modules\tabs\TasksPortsManager.ps1")
+                $data = Get-TasksPortsSnapshot
+                return ($data | ConvertTo-Json -Compress -Depth 6)
+            }
+        }
+        '^Request-SecurityRepair$' {
+            Start-AsyncTabTask -FallbackType "SECURITY_REPAIR_NOTICE" -Arguments @($Global:NodeWatchRoot) -ScriptBlock {
+                param($RootPath)
+                . (Join-Path $RootPath "modules\tabs\SecurityRepairManager.ps1")
+                $data = Get-SecurityPostureSnapshot
+                return ($data | ConvertTo-Json -Compress -Depth 6)
+            }
+        }
+        '^Browse-SupportBundleZip$' {
+            $sfd = New-Object System.Windows.Forms.SaveFileDialog
+            $sfd.Title = "Save CoreWatch IT Support Bundle Archive"
+            $sfd.Filter = "ZIP Support Bundle (*.zip)|*.zip|All Files (*.*)|*.*"
+            $sfd.FileName = "CoreWatch_SupportBundle_$($env:COMPUTERNAME)_$(Get-Date -Format 'yyyyMMdd_HHmmss').zip"
+            if ($sfd.ShowDialog($MainForm) -eq [System.Windows.Forms.DialogResult]::OK -and $sfd.FileName) {
+                $resp = @{ type = "SUPPORT_BUNDLE_PATH_RESULT"; path = [string]$sfd.FileName } | ConvertTo-Json -Compress
+                $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($resp)))
+            }
+            $sfd.Dispose()
+        }
         '^Browse-Folder:(.+)$' {
             $targetKey = $Matches[1]
             $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
-            $dialog.Description = if ($targetKey -eq "dest") { "Select destination root folder for organized files" } elseif ($targetKey -eq "diagfolder") { "Select external program log folder for UltimaDiagX" } else { "Select folder to include in File Organizer" }
+            $dialog.Description = if ($targetKey -eq "dest") { "Select destination root folder for organized files" } elseif ($targetKey -eq "diagfolder") { "Select external program log folder for UltimaDiagX" } elseif ($targetKey -eq "wslinstalldir") { "Select installation folder for WSL virtual disk (ext4.vhdx)" } else { "Select folder to include in File Organizer" }
             $dialog.UseDescriptionForTitle = $true
             $dialog.ShowNewFolderButton = $true
             if ($dialog.ShowDialog($MainForm) -eq [System.Windows.Forms.DialogResult]::OK -and $dialog.SelectedPath) {
@@ -381,6 +431,28 @@ $HandleUiMessageEvent = {
                 $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($resp)))
             }
             $dialog.Dispose()
+        }
+        '^Browse-WslImportFile$' {
+            $fd = New-Object System.Windows.Forms.OpenFileDialog
+            $fd.Title = "Select Linux Tarball (.tar) or Virtual Disk (.vhdx) to Import into WSL"
+            $fd.Filter = "WSL Archives & Disks (*.tar;*.tar.gz;*.vhdx)|*.tar;*.tar.gz;*.vhdx|All Files (*.*)|*.*"
+            if ($fd.ShowDialog($MainForm) -eq [System.Windows.Forms.DialogResult]::OK -and $fd.FileName) {
+                $resp = @{ type = "WSL_BROWSE_IMPORT_RESULT"; path = [string]$fd.FileName } | ConvertTo-Json -Compress
+                $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($resp)))
+            }
+            $fd.Dispose()
+        }
+        '^Browse-WslExportFile:(.+)$' {
+            $distroName = $Matches[1]
+            $sfd = New-Object System.Windows.Forms.SaveFileDialog
+            $sfd.Title = "Export WSL Distribution '$distroName' Backup Archive"
+            $sfd.Filter = "Tar Archive (*.tar)|*.tar|All Files (*.*)|*.*"
+            $sfd.FileName = "${distroName}_$(Get-Date -Format 'yyyyMMdd').tar"
+            if ($sfd.ShowDialog($MainForm) -eq [System.Windows.Forms.DialogResult]::OK -and $sfd.FileName) {
+                $resp = @{ type = "WSL_BROWSE_EXPORT_RESULT"; distro = $distroName; path = [string]$sfd.FileName } | ConvertTo-Json -Compress
+                $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($resp)))
+            }
+            $sfd.Dispose()
         }
         '^Browse-LogFile$' {
             $fd = New-Object System.Windows.Forms.OpenFileDialog
@@ -504,6 +576,7 @@ $HandleUiMessageEvent = {
                         if (Test-Path $NetTabPath) {
                             . $NetTabPath
                             $UpdateMesh = Invoke-AdapterProvisioningControl -Payload $Payload
+                            $global:SharedData.ForceRefresh = $true
                             $Json = $UpdateMesh | ConvertTo-Json -Compress -Depth 10
                             $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($Json)))
                         }
@@ -550,6 +623,99 @@ $HandleUiMessageEvent = {
                         return
                     }
 
+                    if ($Payload.command -in @(
+                        'WSL_LOAD_ONLINE_CATALOG', 'WSL_INSTALL_ENGINE', 'WSL_UPDATE_ENGINE',
+                        'WSL_SHUTDOWN_ALL', 'WSL_SET_DEFAULT_VERSION', 'WSL_DEPLOY_DISTRO',
+                        'WSL_LAUNCH_DISTRO', 'WSL_EXPLORE_DISTRO', 'WSL_TERMINATE_DISTRO',
+                        'WSL_SET_DEFAULT_DISTRO', 'WSL_CONVERT_VERSION', 'WSL_UNREGISTER_DISTRO',
+                        'WSL_EXPORT_DISTRO', 'WSL_IMPORT_DISTRO', 'WSL_COMPACT_VHDX',
+                        'WSL_SAVE_CONFIG', 'WSL_OPEN_CONFIG_FILE', 'WSL_RUN_COMMAND'
+                    )) {
+                        Start-AsyncTabTask -FallbackType "WSL_NOTICE" -Arguments @($Global:NodeWatchRoot, $RawMessage) -ScriptBlock {
+                            param($RootPath, $RawJson)
+                            . (Join-Path $RootPath "modules\tabs\WslManager.ps1")
+                            $data = Invoke-WslManagerAction -RawJson $RawJson
+                            return ($data | ConvertTo-Json -Compress -Depth 6)
+                        }
+                        return
+                    }
+
+                    if ($Payload.command -in @(
+                        'SEC_TOGGLE_RDP', 'SEC_TOGGLE_TASK',
+                        'SEC_LOAD_ENV_HOSTS_PROXY', 'SEC_TOGGLE_PROXY', 'SEC_OPEN_HOSTS_FILE',
+                        'REPAIR_DISM_CHECK', 'REPAIR_DISM_RESTORE_TERM', 'REPAIR_SFC_TERM',
+                        'REPAIR_WU_RESET', 'REPAIR_NET_STACK_RESET', 'REPAIR_WINGET_CHECK',
+                        'REPAIR_BATTERY_REPORT', 'REPAIR_CLEAN_TEMP', 'EXPORT_SUPPORT_BUNDLE'
+                    )) {
+                        Start-AsyncTabTask -FallbackType "SECURITY_REPAIR_NOTICE" -Arguments @($Global:NodeWatchRoot, $RawMessage) -ScriptBlock {
+                            param($RootPath, $RawJson)
+                            . (Join-Path $RootPath "modules\tabs\SecurityRepairManager.ps1")
+                            $data = Invoke-SecurityRepairAction -RawJson $RawJson -RootPath $RootPath
+                            return ($data | ConvertTo-Json -Compress -Depth 6)
+                        }
+                        return
+                    }
+
+                    if ($Payload.command -in @(
+                        'NET_DIAG_PING', 'NET_DIAG_TRACEROUTE', 'NET_DIAG_PORT_TEST',
+                        'NET_DIAG_DNS_LOOKUP', 'NET_DIAG_WIFI_AND_ROUTES'
+                    )) {
+                        Start-AsyncTabTask -FallbackType "NET_DIAG_ERROR" -Arguments @($Global:NodeWatchRoot, $RawMessage) -ScriptBlock {
+                            param($RootPath, $RawJson)
+                            . (Join-Path $RootPath "modules\tabs\NetworkDiagnostics.ps1")
+                            $data = Invoke-NetworkDiagnosticAction -RawJson $RawJson
+                            return ($data | ConvertTo-Json -Compress -Depth 6)
+                        }
+                        return
+                    }
+
+                    if ($Payload.command -in @(
+                        'TP_KILL_PROCESS', 'TP_OPEN_PROCESS_LOCATION',
+                        'TP_SERVICE_ACTION', 'TP_SERVICE_STARTUP'
+                    )) {
+                        Start-AsyncTabTask -FallbackType "TASKS_PORTS_NOTICE" -Arguments @($Global:NodeWatchRoot, $RawMessage) -ScriptBlock {
+                            param($RootPath, $RawJson)
+                            . (Join-Path $RootPath "modules\tabs\TasksPortsManager.ps1")
+                            $data = Invoke-TasksPortsAction -RawJson $RawJson
+                            return ($data | ConvertTo-Json -Compress -Depth 6)
+                        }
+                        return
+                    }
+
+                    # =========================================================================
+                    # [DYNAMIC CONTROL] UNIFIED ON/OFF TOGGLES & QUICK DASHBOARD ACTIONS
+                    # =========================================================================
+                    if ($Payload.command -in @(
+                        'TOGGLE_TELEMETRY', 'TOGGLE_FIREWALL', 'TOGGLE_REALTIME',
+                        'TOGGLE_DISCOVERY', 'TOGGLE_SHARING', 'TOGGLE_NET_PROFILE',
+                        'SET_QUICK_DNS', 'FLUSH_AND_TEST_DNS', 'REFRESH_ARP_GATEWAY',
+                        'TOGGLE_HDR', 'TOGGLE_NIGHT_LIGHT', 'SET_NIGHT_LIGHT_STRENGTH',
+                        'SET_MONITOR_REFRESH_RATE', 'END_TOP_PROCESS',
+                        'TRIGGER_SYSTEM_REBOOT'
+                    )) {
+                        Start-AsyncTabTask -FallbackType "DASHBOARD_CONTROL_RESULT" -Arguments @($Global:NodeWatchRoot, $RawMessage, $global:SharedData) -ScriptBlock {
+                            param($RootPath, $RawJson, $SharedData)
+                            . (Join-Path $RootPath "modules\telemetry\DashboardControls.ps1")
+                            $res = Invoke-DashboardControlAction -RawJson $RawJson -RootPath $RootPath
+                            $SharedData.ForceRefresh = $true
+                            return ($res | ConvertTo-Json -Compress -Depth 4)
+                        }
+                        return
+                    }
+
+                    if ($Payload.command -eq "RELAUNCH_AS_ADMIN") {
+                        try {
+                            $pwshExe = (Get-Process -Id $PID).MainModule.FileName
+                            $scriptPath = Join-Path $Global:NodeWatchRoot "Start-NodeWatch.ps1"
+                            Start-Process -FilePath $pwshExe -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$scriptPath`"") -Verb RunAs -ErrorAction Stop
+                            $MainForm.Close()
+                        } catch {
+                            $errJson = @{ type = "DASHBOARD_CONTROL_RESULT"; ok = $false; control = "RELAUNCH_AS_ADMIN"; message = "Elevation canceled or failed: $($_.Exception.Message)" } | ConvertTo-Json -Compress
+                            $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($errJson)))
+                        }
+                        return
+                    }
+
                     if ($Payload.command -eq "SET_POWER_PLAN") {
                         $TargetGuid = $Payload.guid
                         if ($TargetGuid -eq "e9a42b02-d5df-448d-aa00-03f14749eb61") {
@@ -564,12 +730,14 @@ $HandleUiMessageEvent = {
                             }
                         }
                         powercfg /setactive $TargetGuid
+                        $global:SharedData.ForceRefresh = $true
                         return
                     }
 
                     if ($Payload.command -eq "DISABLE_TELEMETRY") {
                         Stop-Service -Name DiagTrack, dmwappushservice -Force -ErrorAction SilentlyContinue
                         Set-Service -Name DiagTrack, dmwappushservice -StartupType Disabled -ErrorAction SilentlyContinue
+                        $global:SharedData.ForceRefresh = $true
                         return
                     }
 

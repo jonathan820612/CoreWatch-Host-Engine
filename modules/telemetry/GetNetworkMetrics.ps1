@@ -16,6 +16,13 @@ $script:LastDnsCheck      = [datetime]::MinValue
 $script:CachedDnsStatus   = "Checking"
 $script:CachedDnsText     = "Checking..."
 
+# [DYNAMIC CONTROL] Force-expire cached Firewall/Realtime/Discovery/Sharing/DNS timers after toggle
+function Reset-NetworkMetricsCache {
+    $script:LastSlowNetCheck = [datetime]::MinValue
+    $script:LastDnsCheck     = [datetime]::MinValue
+    $script:LastWlanCheck    = [datetime]::MinValue
+}
+
 function Convert-PrefixLengthToMask {
     param([int]$PrefixLength)
     if ($PrefixLength -le 0) { return "0.0.0.0" }
