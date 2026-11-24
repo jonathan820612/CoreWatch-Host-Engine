@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Source-controlled, auto-versioned Beta build pipeline for CoreWatch.
     Reads & bumps version.json, stamps Git branch/commit SHA into EXEs & build-info.json,
@@ -596,7 +596,7 @@ if ($checksumLines.Count -gt 0) {
 }
 
 $notesContent = $notesSb.ToString()
-[System.IO.File]::WriteAllText($ReleaseNotesPath, $notesContent, [System.Text.Encoding]::UTF8)
+[System.IO.File]::WriteAllText($ReleaseNotesPath, $notesContent, (New-Object System.Text.UTF8Encoding($false)))
 
 # 11. Optional Git Version Commit, Annotated Tag (with full overview), and Push
 if ($GitCommit) {
@@ -616,7 +616,7 @@ if ($GitTag) {
         Write-Host "      Tag $tagName already exists locally — replacing with updated annotation." -ForegroundColor Yellow
         & git -C $ProjectRoot tag -d $tagName | Out-Null
     }
-    & git -C $ProjectRoot tag -a $tagName -F $ReleaseNotesPath
+    & git -C $ProjectRoot tag -a $tagName --cleanup=verbatim -F $ReleaseNotesPath
     if ($LASTEXITCODE -ne 0) { throw "Failed to create annotated tag $tagName." }
 }
 if ($GitPush) {
@@ -634,10 +634,14 @@ if ($PublishGitHub) {
     $isPrerelease = [bool]($pre -match '(?i)alpha|beta|rc|dev|preview')
     Write-Host "[GITHUB] Publishing release $tagName to $repoSlug (Prerelease=$isPrerelease)..." -ForegroundColor Cyan
 
+    $ghExe = $null
     $ghCmd = Get-Command gh -ErrorAction SilentlyContinue
+    if ($ghCmd) { $ghExe = $ghCmd.Source }
+    elseif (Test-Path 'C:\Program Files\GitHub CLI\gh.exe') { $ghExe = 'C:\Program Files\GitHub CLI\gh.exe' }
+
     $ghReady = $false
-    if ($ghCmd) {
-        & gh auth status 2>$null | Out-Null
+    if ($ghExe) {
+        & $ghExe auth status 2>$null | Out-Null
         if ($LASTEXITCODE -eq 0) { $ghReady = $true }
     }
 
@@ -650,7 +654,7 @@ if ($PublishGitHub) {
         if ($isPrerelease) { $ghArgs += "--prerelease" }
         if ($Draft)        { $ghArgs += "--draft" }
 
-        $ghOut = & gh @ghArgs 2>&1
+        $ghOut = & $ghExe @ghArgs 2>&1
         if ($LASTEXITCODE -ne 0) {
             throw "gh release create failed: $($ghOut -join ' ')"
         }
