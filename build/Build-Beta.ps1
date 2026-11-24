@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Source-controlled, auto-versioned Beta build pipeline for CoreWatch.
     Reads & bumps version.json, stamps Git branch/commit SHA into EXEs & build-info.json,
