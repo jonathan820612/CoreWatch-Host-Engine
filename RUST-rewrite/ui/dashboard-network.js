@@ -58,7 +58,7 @@ function createDashboardNetwork(invoke) {
             }
             const enabled = status === "Off";
             const verb = enabled ? "Enable" : "Disable";
-            if (!await askDashboard(`${verb} ${label}`,
+            if (!await confirmDashboardAction(`${verb} ${label}`,
                 `${verb} ${label} firewall rules for all profiles, including Public?`)) return;
             saving = true;
             render();

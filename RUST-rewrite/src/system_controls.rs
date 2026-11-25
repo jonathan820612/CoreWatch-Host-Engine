@@ -39,12 +39,84 @@ pub fn set(setting: Setting, enabled: bool) -> Result<(), String> {
     }
 }
 
-struct Service(SC_HANDLE);
+pub(crate) struct Service(SC_HANDLE);
 
 impl Drop for Service {
     fn drop(&mut self) {
         unsafe { CloseServiceHandle(self.0) };
     }
+}
+
+impl Service {
+    pub(crate) fn manager() -> Result<Self, String> {
+        Self::checked(unsafe { OpenSCManagerW(ptr::null(), ptr::null(), SC_MANAGER_CONNECT) })
+    }
+
+    fn checked(handle: SC_HANDLE) -> Result<Self, String> {
+        if handle.is_null() {
+            Err(std::io::Error::last_os_error().to_string())
+        } else {
+            Ok(Self(handle))
+        }
+    }
+
+    pub(crate) fn open(&self, name: &str, rights: u32) -> Result<Self, String> {
+        Self::checked(unsafe { OpenServiceW(self.0, native::wide(name).as_ptr(), rights) })
+    }
+
+    pub(crate) fn set_startup(&self, startup: u32) -> Result<(), String> {
+        let result = unsafe {
+            ChangeServiceConfigW(
+                self.0,
+                SERVICE_NO_CHANGE,
+                startup,
+                SERVICE_NO_CHANGE,
+                ptr::null(),
+                ptr::null(),
+                ptr::null_mut(),
+                ptr::null(),
+                ptr::null(),
+                ptr::null(),
+                ptr::null(),
+            )
+        };
+        if result == 0 {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        Ok(())
+    }
+
+    pub(crate) fn status(&self) -> Result<u32, String> {
+        let mut status = SERVICE_STATUS::default();
+        if unsafe { QueryServiceStatus(self.0, &mut status) } == 0 {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        Ok(status.dwCurrentState)
+    }
+
+    pub(crate) fn start(&self) -> Result<(), String> {
+        check_service_result(
+            unsafe { StartServiceW(self.0, 0, ptr::null()) },
+            ERROR_SERVICE_ALREADY_RUNNING,
+        )
+    }
+
+    pub(crate) fn stop(&self) -> Result<(), String> {
+        check_service_result(
+            unsafe { ControlService(self.0, SERVICE_CONTROL_STOP, &mut SERVICE_STATUS::default()) },
+            ERROR_SERVICE_NOT_ACTIVE,
+        )
+    }
+}
+
+fn check_service_result(result: i32, already: u32) -> Result<(), String> {
+    if result == 0 {
+        let code = unsafe { GetLastError() };
+        if code != already {
+            return Err(std::io::Error::from_raw_os_error(code as i32).to_string());
+        }
+    }
+    Ok(())
 }
 
 fn set_telemetry(enabled: bool) -> Result<(), String> {

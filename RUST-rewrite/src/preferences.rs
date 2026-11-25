@@ -93,6 +93,8 @@ pub struct Layout {
     #[serde(alias = "collapsedCards")]
     collapsed: Vec<String>,
     hidden_metrics: Vec<String>,
+    #[serde(alias = "dockedCards")]
+    docked: Vec<String>,
 }
 
 impl Default for Layout {
@@ -103,6 +105,7 @@ impl Default for Layout {
             hidden: Vec::new(),
             collapsed: Vec::new(),
             hidden_metrics: Vec::new(),
+            docked: Vec::new(),
         }
     }
 }
@@ -119,6 +122,8 @@ impl Layout {
         retain_unique(&mut self.hidden, CARDS);
         retain_unique(&mut self.collapsed, CARDS);
         retain_unique(&mut self.hidden_metrics, METRICS);
+        retain_unique(&mut self.docked, CARDS);
+        self.docked.retain(|id| !self.hidden.contains(id));
     }
 }
 
@@ -202,7 +207,7 @@ impl Default for Theme {
 }
 
 impl Theme {
-    fn normalize(&mut self) {
+    pub(crate) fn normalize(&mut self) {
         let defaults = Self::default();
         for (value, fallback) in [
             (&mut self.bg_app, defaults.bg_app),
@@ -263,19 +268,96 @@ fn normalize_hex(value: &str) -> Option<String> {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Settings {
     pub layout: Layout,
     pub telemetry: Telemetry,
     pub theme: Theme,
     pub always_on_top: bool,
+    pub opacity: u8,
+    pub general: General,
+    pub directories: Directories,
+    pub modules: Modules,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            layout: Layout::default(),
+            telemetry: Telemetry::default(),
+            theme: Theme::default(),
+            always_on_top: false,
+            opacity: 100,
+            general: General::default(),
+            directories: Directories::default(),
+            modules: Modules::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct General {
+    pub start_with_windows: bool,
+    pub start_minimized: bool,
+    pub minimize_to_tray_on_close: bool,
+    pub confirm_destructive_actions: bool,
+    pub auto_check_core_watch_updates: bool,
+}
+
+impl Default for General {
+    fn default() -> Self {
+        Self {
+            start_with_windows: false,
+            start_minimized: false,
+            minimize_to_tray_on_close: false,
+            confirm_destructive_actions: true,
+            auto_check_core_watch_updates: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Directories {
+    pub projects_root: String,
+    pub exports_root: String,
+    pub wsl_install_root: String,
+    pub organizer_dest_root: String,
+    pub editor_path: String,
+}
+
+impl Default for Directories {
+    fn default() -> Self {
+        let profile = std::env::var_os("USERPROFILE")
+            .map(PathBuf::from)
+            .unwrap_or_default();
+        Self {
+            projects_root: profile.join("Documents").to_string_lossy().into_owned(),
+            exports_root: profile
+                .join("Documents/CoreWatch Exports")
+                .to_string_lossy()
+                .into_owned(),
+            wsl_install_root: r"C:\WSL".into(),
+            organizer_dest_root: profile.join("Organized").to_string_lossy().into_owned(),
+            editor_path: String::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Modules {
+    pub disabled: Vec<String>,
 }
 
 impl Settings {
     fn normalize(&mut self) {
         self.layout.normalize();
         self.theme.normalize();
+        self.opacity = self.opacity.clamp(50, 100);
+        retain_unique(&mut self.modules.disabled, &["netmanager", "tasksports"]);
     }
 }
 
@@ -285,7 +367,12 @@ pub struct Changes {
     layout: Option<Layout>,
     telemetry: Option<Telemetry>,
     theme: Option<Theme>,
-    always_on_top: Option<bool>,
+    pub always_on_top: Option<bool>,
+    pub opacity: Option<u8>,
+    pub general: Option<General>,
+    pub start_with_windows: Option<bool>,
+    directories: Option<Directories>,
+    modules: Option<Modules>,
 }
 
 impl Changes {
@@ -302,6 +389,21 @@ impl Changes {
         if let Some(always_on_top) = self.always_on_top {
             settings.always_on_top = always_on_top;
         }
+        if let Some(opacity) = self.opacity {
+            settings.opacity = opacity;
+        }
+        if let Some(general) = self.general {
+            settings.general = general;
+        }
+        if let Some(enabled) = self.start_with_windows {
+            settings.general.start_with_windows = enabled;
+        }
+        if let Some(directories) = self.directories {
+            settings.directories = directories;
+        }
+        if let Some(modules) = self.modules {
+            settings.modules = modules;
+        }
         settings.normalize();
     }
 }
@@ -309,7 +411,7 @@ impl Changes {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct State {
-    settings: Settings,
+    pub settings: Settings,
     initialized: bool,
     wallpaper_version: Option<u64>,
 }
@@ -396,6 +498,10 @@ impl Store {
             .polling_profile
     }
 
+    pub fn directory(&self) -> Option<&Path> {
+        self.directory.as_deref()
+    }
+
     pub fn update(
         &self,
         changes: Changes,
@@ -424,13 +530,18 @@ impl Store {
         #[derive(Default, Deserialize)]
         struct LegacyApp {
             telemetry: Option<Telemetry>,
+            directories: Option<Directories>,
         }
         let path = self.legacy_directory.as_ref().ok_or_else(|| {
             io::Error::other("CoreWatch's PowerShell preferences are unavailable.")
         })?;
         let ui: LegacyUi = read_json(&path.join("ui-settings.json"))?.unwrap_or_default();
         let app: LegacyApp = read_json(&path.join("settings.json"))?.unwrap_or_default();
-        if ui.layout.is_none() && ui.theme.is_none() && app.telemetry.is_none() {
+        if ui.layout.is_none()
+            && ui.theme.is_none()
+            && app.telemetry.is_none()
+            && app.directories.is_none()
+        {
             return Err(io::Error::other(
                 "No dashboard preferences were found in the PowerShell version.",
             ));
@@ -439,7 +550,9 @@ impl Store {
             layout: ui.layout,
             theme: ui.theme,
             telemetry: app.telemetry,
+            directories: app.directories,
             always_on_top: None,
+            ..Changes::default()
         })
     }
 

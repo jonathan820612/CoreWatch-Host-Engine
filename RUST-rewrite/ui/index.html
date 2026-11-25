@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="dashboard.css">
     <link rel="stylesheet" href="dashboard-preferences.css">
+    <link rel="stylesheet" href="tasks.css">
     <script src="dashboard.js" defer></script>
     <script src="network.js" defer></script>
     <script src="dashboard-network.js" defer></script>
@@ -14,6 +15,8 @@
     <script src="dashboard-layout.js" defer></script>
     <script src="dashboard-theme.js" defer></script>
     <script src="dashboard-preferences.js" defer></script>
+    <script src="app-settings.js" defer></script>
+    <script src="tasks.js" defer></script>
 </head>
 <body>
     <div id="cwWallpaperLayer" aria-hidden="true"></div>
@@ -27,17 +30,19 @@
         <nav class="modular-tabs" aria-label="CoreWatch views">
             <button id="tabDashboard" class="tab-btn active" type="button" aria-controls="viewDashboardGrid" aria-pressed="true">📟 Dashboard</button>
             <button id="tabNetwork" class="tab-btn" type="button" aria-controls="viewNetworkManagerPanel" aria-pressed="false">📡 Network</button>
+            <button id="tabTasksPorts" class="tab-btn" type="button" aria-controls="viewTasksPortsPanel" aria-pressed="false">🧭 Tasks &amp; Ports</button>
         </nav>
         <div class="header-drag-space" data-tauri-drag-region></div>
         <div class="header-right-group">
             <span id="status" role="status">Starting telemetry…</span>
+            <button id="dock-toggle" class="tab-btn" type="button" aria-controls="dashboard-dock" aria-expanded="false" title="Telemetry dock" hidden>◫ <span id="dock-count"></span></button>
             <button id="layout-toggle" class="tab-btn nav-util-btn" type="button" aria-label="Dashboard layout" aria-controls="layout-panel" aria-expanded="false" title="Dashboard layout">✏️<span class="nav-btn-label"> Layout</span></button>
             <button id="appearance-toggle" class="tab-btn" type="button" aria-label="Appearance" aria-controls="appearance-panel" aria-expanded="false" title="Appearance">🎨</button>
-            <button id="preferences-toggle" class="tab-btn nav-settings-btn" type="button" aria-label="Dashboard settings" aria-controls="preferences-panel" aria-expanded="false" title="Dashboard settings">⚙️</button>
             <button id="refresh" class="tab-btn" type="button" aria-label="Refresh telemetry" title="Refresh telemetry">↻<span class="nav-btn-label"> Refresh</span></button>
-            <button id="pin" class="tab-btn nav-pin-btn" type="button" aria-label="Keep CoreWatch on top" aria-pressed="false" title="Keep CoreWatch on top">📌</button>
             <button id="minimize" class="tab-btn window-control" type="button" aria-label="Minimize">−</button>
             <button id="maximize" class="tab-btn window-control" type="button" aria-label="Maximize or restore">□</button>
+            <button id="pin" class="tab-btn nav-pin-btn" type="button" aria-label="Keep CoreWatch on top" aria-pressed="false" title="Keep CoreWatch on top">📌</button>
+            <button id="preferences-toggle" class="tab-btn nav-settings-btn" type="button" aria-label="Settings" aria-controls="preferences-panel" aria-expanded="false" title="Settings (Ctrl+K)">⚙️</button>
             <button id="exit" class="exit-system-btn" type="button" aria-label="Exit CoreWatch">⏻<span class="nav-btn-label"> EXIT</span></button>
         </div>
     </header>
@@ -401,6 +406,28 @@
             </div>
         </div>
     </section>
+    <section id="viewTasksPortsPanel" class="tab-view-panel tasks-panel" hidden aria-labelledby="tasks-title">
+        <header class="tasks-header">
+            <h2 id="tasks-title">🧭 Tasks, Windows Services &amp; Open Ports Inspector</h2>
+            <div class="panel-actions"><span id="tasks-stamp">Snapshot: —</span><button id="tasks-live" type="button" class="console-clear-btn" aria-pressed="false">Live: OFF</button><button id="tasks-refresh" type="button" class="console-clear-btn btn-accent-action">Refresh Snapshot</button></div>
+        </header>
+        <p class="tasks-intro">Inspect local process resources, stopped automatic services, and TCP or UDP sockets by owning process.</p>
+        <div id="tasks-summary" class="tasks-summary"></div>
+        <div class="tasks-toolbar">
+            <div id="tasks-panes" class="panel-actions" aria-label="Task inspector view">
+                <button type="button" class="filter-pill active" data-task-pane="process">⚙️ Processes</button><button type="button" class="filter-pill" data-task-pane="service">🛠 Windows Services</button><button type="button" class="filter-pill" data-task-pane="socket">🔌 Ports &amp; Sockets</button>
+            </div>
+            <input id="tasks-search" class="tab-search-input" type="search" aria-label="Search tasks, services or sockets" placeholder="Search process, PID, service, port, IP, or path…">
+            <select id="tasks-sort" class="tab-sort-select" aria-label="Sort processes"><option value="ram">RAM ↓</option><option value="cpu">CPU ↓</option><option value="handles">Handles ↓</option><option value="threads">Threads ↓</option><option value="pid">PID ↑</option><option value="name">Name A–Z</option></select>
+        </div>
+        <div id="tasks-filters" class="panel-actions" hidden></div>
+        <p id="tasks-status" class="sharing-status" role="status">Loading local snapshot…</p>
+        <div class="tasks-scroll" tabindex="0" aria-label="Task inspector results"><table class="tasks-table"><thead id="tasks-columns"></thead><tbody id="tasks-rows"></tbody></table></div>
+    </section>
+    <aside id="dashboard-dock" class="dashboard-panel" popover="manual" aria-label="Telemetry dock">
+        <header class="dashboard-panel-header"><h2>◫ Telemetry Dock</h2><button id="dock-close" type="button" class="console-clear-btn" aria-label="Close telemetry dock">✕</button></header>
+        <div id="dock-cards" class="dashboard-panel-body dashboard-grid"></div>
+    </aside>
     <dialog id="dashboard-dns-dialog" class="dashboard-dialog" aria-labelledby="dashboard-dns-title">
         <form id="dashboard-dns-form">
             <h2 id="dashboard-dns-title">🔎 DNS servers</h2>
@@ -463,39 +490,41 @@
     </dialog>
     <section id="layout-panel" class="dashboard-panel" popover="manual" aria-labelledby="layout-panel-title" role="dialog">
         <header class="dashboard-panel-header">
-            <h2 id="layout-panel-title">✏️ Dashboard layout</h2>
-            <button type="button" class="console-clear-btn panel-dismiss" aria-label="Close layout">✕</button>
+            <div><h2 id="layout-panel-title">✏️ Customize Dashboard</h2><p class="dashboard-hint">Drag cards on the grid or adjust frames and sections below.</p></div>
+            <button type="button" class="console-clear-btn btn-accent-action panel-dismiss" aria-label="Close layout">Done</button>
         </header>
         <div class="dashboard-panel-body">
-            <div id="layout-presets" class="panel-actions" aria-label="Layout presets"></div>
-            <p class="dashboard-hint">Drag a card by its grip or use the arrows to move it.</p>
-            <ol id="layout-cards" class="layout-card-list" aria-label="Card order and visibility"></ol>
-            <details class="dashboard-option-group">
-                <summary>Visible metrics</summary>
-                <div id="layout-metrics" class="layout-metric-list"></div>
-            </details>
+            <fieldset class="dashboard-option-group"><legend>Layout Presets</legend><div id="layout-presets" class="grid-presets"></div></fieldset>
+            <fieldset class="dashboard-option-group"><legend>Telemetry Frames</legend><ol id="layout-cards" class="layout-card-list" aria-label="Card order, width, and placement"></ol></fieldset>
+            <fieldset class="dashboard-option-group"><legend>Sections Inside Frames</legend><div id="layout-metrics" class="layout-metric-list"></div></fieldset>
+            <fieldset class="dashboard-option-group"><legend>Window Behavior</legend><label class="layout-window-pin"><input id="layout-window-pin" type="checkbox"> 📌 Always on Top</label>
+                <label class="layout-opacity" for="layout-opacity"><span>Window opacity</span><input id="layout-opacity" type="range" min="50" max="100" value="100"><output id="layout-opacity-value">100%</output></label></fieldset>
         </div>
         <footer class="dashboard-panel-footer">
             <span id="layout-save-status" class="dashboard-hint" role="status"></span>
-            <button id="reset-dashboard-layout" class="console-clear-btn" type="button">Reset layout</button>
+            <button id="reset-dashboard-layout" class="console-clear-btn btn-danger" type="button">Reset Default Layout</button>
         </footer>
     </section>
     <section id="appearance-panel" class="dashboard-panel" popover="manual" aria-labelledby="appearance-panel-title" role="dialog">
         <header class="dashboard-panel-header draggable-panel-header">
-            <h2 id="appearance-panel-title">🎨 Appearance</h2>
-            <button type="button" class="console-clear-btn panel-dismiss" aria-label="Close appearance">✕</button>
+            <h2 id="appearance-panel-title">⠿ 🎨 Theme Studio</h2>
+            <div class="panel-actions"><button id="theme-collapse" class="console-clear-btn" type="button" aria-label="Collapse Theme Studio" aria-expanded="true">▾</button><button type="button" class="console-clear-btn panel-dismiss" aria-label="Close Theme Studio">✕</button></div>
         </header>
-        <div class="dashboard-panel-body">
-            <div id="appearance-presets" class="appearance-presets" aria-label="Appearance presets"></div>
-            <details class="dashboard-option-group">
-                <summary>Custom colors</summary>
-                <div id="appearance-colors" class="appearance-colors"></div>
-            </details>
+        <div class="studio-tabs panel-actions" aria-label="Theme Studio view"><button type="button" class="filter-pill active" data-studio-tab="colors">🎨 Presets &amp; Colors</button><button type="button" class="filter-pill" data-studio-tab="wallpaper">🖼 Background Image</button></div>
+        <div class="dashboard-panel-body" id="theme-colors-pane">
+            <p class="theme-protected">🔒 Diagnostic, health, thermal, and network traffic colors keep their coded meanings.</p>
+            <fieldset class="dashboard-option-group"><legend>Quick Theme Presets</legend><div id="appearance-presets" class="appearance-presets"></div></fieldset>
+            <div id="appearance-colors"></div>
+            <fieldset class="dashboard-option-group appearance-effects"><legend>Card Translucency &amp; Glass</legend>
+                <label>Card &amp; panel opacity <input type="range" name="surfaceOpacity" min="35" max="100"> <output></output></label>
+                <label>Card glass blur <input type="range" name="cardBlur" min="0" max="16"> <output></output></label>
+            </fieldset>
+        </div>
+        <div class="dashboard-panel-body" id="theme-wallpaper-pane" hidden>
             <fieldset class="dashboard-option-group">
                 <legend>Local wallpaper</legend>
                 <div class="panel-actions">
                     <button id="choose-wallpaper" type="button" class="console-clear-btn">Choose image…</button>
-                    <input id="wallpaper-file" type="file" accept="image/png,image/jpeg,image/webp" hidden>
                     <button id="remove-wallpaper" type="button" class="console-clear-btn" disabled>Remove</button>
                 </div>
                 <div id="appearance-wallpaper-effects" class="appearance-effects" hidden>
@@ -512,33 +541,41 @@
                     <label>Fade strength <input type="range" name="bgFadeStrength" min="0" max="95"> <output></output></label>
                 </div>
             </fieldset>
-            <fieldset class="dashboard-option-group appearance-effects">
-                <legend>Card surfaces</legend>
-                <label>Opacity <input type="range" name="surfaceOpacity" min="35" max="100"> <output></output></label>
-                <label>Backdrop blur <input type="range" name="cardBlur" min="0" max="16"> <output></output></label>
-            </fieldset>
         </div>
         <footer class="dashboard-panel-footer">
             <span id="appearance-save-status" class="dashboard-hint" role="status"></span>
             <div class="panel-actions">
-                <button id="revert-appearance" type="button" class="console-clear-btn">Revert preview</button>
-                <button id="save-appearance" type="button" class="console-clear-btn btn-accent-action">Apply</button>
+                <button id="export-appearance" type="button" class="console-clear-btn">Export</button><button id="import-appearance" type="button" class="console-clear-btn">Import</button>
+                <button id="reset-appearance" type="button" class="console-clear-btn btn-danger">Reset</button>
             </div>
         </footer>
     </section>
     <section id="preferences-panel" class="dashboard-panel" popover="manual" aria-labelledby="preferences-panel-title" role="dialog">
         <header class="dashboard-panel-header">
-            <h2 id="preferences-panel-title">⚙️ Dashboard settings</h2>
+            <h2 id="preferences-panel-title">⚙️ CoreWatch Settings</h2>
             <button type="button" class="console-clear-btn panel-dismiss" aria-label="Close dashboard settings">✕</button>
         </header>
-        <div class="dashboard-panel-body">
+        <nav id="settings-tabs" class="settings-tabs" role="tablist" aria-label="Settings sections">
+            <button id="settings-tab-general" type="button" class="filter-pill" role="tab" aria-controls="settings-pane-general" data-settings-tab="general">🏠 General</button>
+            <button id="settings-tab-directories" type="button" class="filter-pill" role="tab" aria-controls="settings-pane-directories" data-settings-tab="directories">📁 Directories</button>
+            <button id="settings-tab-telemetry" type="button" class="filter-pill" role="tab" aria-controls="settings-pane-telemetry" data-settings-tab="telemetry">⚡ Telemetry</button>
+            <button id="settings-tab-modules" type="button" class="filter-pill" role="tab" aria-controls="settings-pane-modules" data-settings-tab="modules">🧩 Modules &amp; Tabs</button>
+        </nav>
+        <div class="dashboard-panel-body" id="settings-pane-general" role="tabpanel" aria-labelledby="settings-tab-general">
+            <fieldset class="dashboard-option-group"><legend>Startup &amp; Behavior</legend><div id="settings-general-fields" class="settings-general-fields"></div></fieldset>
+            <fieldset class="dashboard-option-group"><legend>About</legend><div id="settings-version">CoreWatch Rust</div><p id="settings-update-status" class="dashboard-hint" role="status"></p>
+                <div class="panel-actions"><button class="console-clear-btn" id="settings-check-update" type="button">Check for Updates</button><button class="console-clear-btn" id="settings-open-releases" type="button">Release Notes</button><button class="console-clear-btn" id="settings-data-folder" type="button">Open Data Folder</button></div></fieldset>
+            <button id="import-dashboard-settings" type="button" class="console-clear-btn">Import from PowerShell version…</button>
+        </div>
+        <div class="dashboard-panel-body" id="settings-pane-directories" role="tabpanel" aria-labelledby="settings-tab-directories" hidden><div id="settings-directories" class="settings-directories"></div></div>
+        <div class="dashboard-panel-body" id="settings-pane-telemetry" role="tabpanel" aria-labelledby="settings-tab-telemetry" hidden>
             <fieldset class="dashboard-option-group preferences-fields">
                 <legend>Telemetry</legend>
                 <label>Polling profile
                     <select id="dashboard-polling-profile">
                         <option value="fast">Fast · 250 ms</option>
                         <option value="balanced">Balanced · 500 ms</option>
-                        <option value="eco">Eco · 1 s</option>
+                        <option value="eco">Eco · 1000 ms</option>
                     </select>
                 </label>
                 <label>Temperature unit
@@ -548,11 +585,8 @@
                     </select>
                 </label>
             </fieldset>
-            <div class="dashboard-option-group">
-                <button id="import-dashboard-settings" type="button" class="console-clear-btn">Import from PowerShell version…</button>
-                <p class="dashboard-hint">Copy layout, colors, and telemetry preferences into CoreWatch Rust.</p>
-            </div>
         </div>
+        <div class="dashboard-panel-body" id="settings-pane-modules" role="tabpanel" aria-labelledby="settings-tab-modules" hidden><div id="settings-modules" class="settings-modules"></div></div>
         <footer class="dashboard-panel-footer">
             <span id="preferences-save-status" class="dashboard-hint" role="status"></span>
         </footer>

@@ -9,6 +9,7 @@
       "label": "main",
       "title": "CoreWatch · RUST Vers.",
       "decorations": false,
+      "visible": false,
       "width": 1080,
       "height": 970,
       "minWidth": 480,

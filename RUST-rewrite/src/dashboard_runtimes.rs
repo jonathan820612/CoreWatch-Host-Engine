@@ -525,7 +525,7 @@ fn select_release(install: PowerShellInstall, releases: Vec<Release>) -> PowerSh
     }
 }
 
-fn curl(url: &str, limit: &str) -> Result<Command, String> {
+pub(crate) fn curl(url: &str, limit: &str) -> Result<Command, String> {
     let mut command = Command::new(network::system_directory()?.join("curl.exe"));
     command
         .args([

@@ -76,7 +76,7 @@ function createDashboardControls() {
             }
             if (!await ensureAdmin()) return;
             const verb = enabled ? "Enable" : "Disable";
-            if (await askDashboard(`${verb} ${label}`, `${verb} ${scope ? `${label} for ${scope}` : label}?`)) {
+            if (await confirmDashboardAction(`${verb} ${label}`, `${verb} ${scope ? `${label} for ${scope}` : label}?`)) {
                 await apply({ kind: "system_toggle", setting: key, enabled }, `${label} turned ${enabled ? "on" : "off"}.`);
             }
         }));
@@ -90,7 +90,7 @@ function createDashboardControls() {
     byId("lblPendingReboot").addEventListener("click", () => run("restart", async () => {
         if (fields.pendingReboot !== "Yes") return;
         const reasons = fields.pendingRebootDetail ? `Windows flags a restart for ${fields.pendingRebootDetail}. ` : "";
-        if (await askDashboard("Restart Windows?", reasons + "Save any open work before restarting.", null, 0, "Restart")) {
+        if (await confirmDashboardAction("Restart Windows?", reasons + "Save any open work before restarting.", "Restart")) {
             await apply({ kind: "restart" });
         }
     }));

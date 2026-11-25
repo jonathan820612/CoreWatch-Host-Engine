@@ -92,17 +92,22 @@ function applyDashboardTheme(theme, wallpaperUrl) {
 function createDashboardAppearance(core, save) {
     const panel = byId("appearance-panel");
     const status = byId("appearance-save-status");
-    const saveButton = byId("save-appearance");
-    const imageInput = byId("wallpaper-file");
     const pickImage = byId("choose-wallpaper");
     const removeImage = byId("remove-wallpaper");
     const effects = [...panel.querySelectorAll(".appearance-effects [name]")];
     const paletteButtons = new Map();
     const colorInputs = new Map();
+    const colorGroups = ["Surfaces & Chrome", "Accents & Interactive", "Typography"].map((title) => {
+        const group = element("fieldset", "dashboard-option-group appearance-colors");
+        group.append(element("legend", "", title));
+        byId("appearance-colors").append(group);
+        return group;
+    });
     let saved = classicDashboardTheme;
     let draft = saved;
     let wallpaperVersion = null;
-    let saving = false;
+    let timer;
+    let scheduled;
     let imageBusy = false;
 
     function wallpaperUrl() {
@@ -112,7 +117,10 @@ function createDashboardAppearance(core, save) {
 
     function paint() {
         applyDashboardTheme(draft, wallpaperUrl());
-        for (const [key, input] of colorInputs) input.value = draft[key];
+        for (const [key, [input, hex]] of colorInputs) {
+            input.value = draft[key];
+            if (document.activeElement !== hex) hex.value = draft[key].toUpperCase();
+        }
         for (const input of effects) {
             input.value = draft[input.name];
             const output = input.nextElementSibling;
@@ -125,8 +133,6 @@ function createDashboardAppearance(core, save) {
             button.classList.toggle("active", active);
             button.setAttribute("aria-pressed", String(active));
         }
-        saveButton.disabled = draft === saved || saving;
-        byId("revert-appearance").disabled = draft === saved;
         pickImage.disabled = imageBusy;
         removeImage.disabled = imageBusy || wallpaperVersion == null;
         byId("appearance-wallpaper-effects").hidden = wallpaperVersion == null;
@@ -134,14 +140,17 @@ function createDashboardAppearance(core, save) {
 
     function preview(next) {
         draft = next;
-        status.textContent = "Preview";
+        status.textContent = "Live Preview";
         paint();
+        clearTimeout(timer);
+        timer = setTimeout(commit, 220);
     }
 
     function setTheme(theme) {
+        clearTimeout(timer);
         saved = theme;
         draft = theme;
-        status.textContent = "";
+        status.textContent = "Live Preview";
         paint();
     }
 
@@ -156,18 +165,30 @@ function createDashboardAppearance(core, save) {
             square.style.backgroundColor = color;
             swatches.append(square);
         }
-        button.prepend(swatches);
+        button.append(swatches);
         byId("appearance-presets").append(button);
         paletteButtons.set(id, button);
     }
-    for (const [key, caption] of dashboardColors) {
-        const label = element("label", "appearance-color");
+    for (const [index, [key, caption]] of dashboardColors.entries()) {
+        const row = element("div", "appearance-color");
+        const labels = ["App Background", "Header & Cards", "Nested Panels & Inputs", "Buttons & Controls", "Card Borders", "Control Borders",
+            "Primary Accent", "Headings & Highlight", "Soft Accent & Links", "Primary Text", "Secondary Text", "Muted Labels"];
         const input = element("input", "");
         input.type = "color";
+        input.setAttribute("aria-label", caption + " color picker");
+        const hex = element("input", "theme-hex");
+        hex.type = "text";
+        hex.maxLength = 7;
+        hex.setAttribute("aria-label", caption + " hex color");
+        hex.addEventListener("change", () => {
+            const value = hex.value.trim();
+            if (/^#[\da-f]{6}$/i.test(value)) preview({ ...draft, [key]: value.toLowerCase(), presetId: "custom" });
+            else { status.textContent = "Enter a six-digit hex color."; hex.value = draft[key].toUpperCase(); }
+        });
         input.addEventListener("input", () => preview({ ...draft, [key]: input.value, presetId: "custom" }));
-        label.append(element("span", "", caption), input);
-        byId("appearance-colors").append(label);
-        colorInputs.set(key, input);
+        row.append(element("span", "", labels[index]), hex, input);
+        colorGroups[index < 6 ? 0 : index < 9 ? 1 : 2].append(row);
+        colorInputs.set(key, [input, hex]);
     }
     for (const input of effects) {
         input.addEventListener(input.type === "range" ? "input" : "change", () => {
@@ -175,25 +196,58 @@ function createDashboardAppearance(core, save) {
         });
     }
 
-    byId("revert-appearance").addEventListener("click", () => setTheme(saved));
-    saveButton.addEventListener("click", async () => {
-        const choice = draft;
-        saving = true;
-        saveButton.disabled = true;
-        status.textContent = "Saving…";
-        try {
-            const updated = await save({ theme: choice });
-            const waitingForSave = draft === choice || draft === saved;
-            saved = updated.theme;
-            if (waitingForSave) draft = saved;
-            status.textContent = waitingForSave ? "Saved" : "Preview";
-        } catch (error) {
-            status.textContent = "Appearance could not be saved. " + String(error);
-        } finally {
-            saving = false;
-            paint();
-        }
+    byId("reset-appearance").addEventListener("click", async () => {
+        if (await confirmDashboardAction("Reset Theme Studio", "Restore the CoreWatch Classic colors and effects?", "Reset")) preview({ ...classicDashboardTheme });
     });
+    const studioTabs = [...panel.querySelectorAll("[data-studio-tab]")];
+    function selectStudio(next) {
+        for (const tab of studioTabs) {
+            const selected = tab.dataset.studioTab === next;
+            tab.classList.toggle("active", selected);
+            tab.setAttribute("aria-pressed", String(selected));
+        }
+        byId("theme-colors-pane").hidden = next !== "colors";
+        byId("theme-wallpaper-pane").hidden = next !== "wallpaper";
+    }
+    studioTabs.forEach((tab) => tab.addEventListener("click", () => selectStudio(tab.dataset.studioTab)));
+    selectStudio("colors");
+    byId("theme-collapse").addEventListener("click", (event) => {
+        const collapsed = panel.classList.toggle("studio-collapsed");
+        event.currentTarget.setAttribute("aria-expanded", String(!collapsed));
+        event.currentTarget.setAttribute("aria-label", (collapsed ? "Expand" : "Collapse") + " Theme Studio");
+        event.currentTarget.textContent = collapsed ? "▸" : "▾";
+    });
+    for (const [id, kind] of [["export-appearance", "theme_export"], ["import-appearance", "theme_import"]]) {
+        byId(id).addEventListener("click", async (event) => {
+            const button = event.currentTarget;
+            button.disabled = true;
+            try {
+                const value = await core.invoke("settings_action", { action: kind === "theme_export" ? { kind, theme: draft } : { kind } });
+                if (kind === "theme_import" && value) preview(value);
+                if (kind === "theme_export" && value) status.textContent = "Theme exported";
+            } catch (error) { status.textContent = String(error); }
+            finally { button.disabled = false; }
+        });
+    }
+    function commit() {
+        clearTimeout(timer);
+        if (draft === saved || scheduled === draft) return;
+        const choice = draft;
+        scheduled = choice;
+        status.textContent = "Saving…";
+        void save({ theme: choice }).then((updated) => {
+            saved = updated.theme;
+            if (draft === choice) {
+                draft = saved;
+                status.textContent = "Saved";
+                paint();
+            }
+        }).catch((error) => {
+            status.textContent = "Theme could not be saved. " + String(error);
+        }).finally(() => {
+            if (scheduled === choice) scheduled = null;
+        });
+    }
 
     async function changeWallpaper(operation) {
         imageBusy = true;
@@ -209,20 +263,8 @@ function createDashboardAppearance(core, save) {
         }
     }
 
-    pickImage.addEventListener("click", () => imageInput.click());
-    imageInput.addEventListener("change", () => {
-        const file = imageInput.files[0];
-        imageInput.value = "";
-        if (!file || imageBusy) return;
-        void changeWallpaper(async () => {
-            if (file.size > 12 * 1024 * 1024) throw new Error("Choose an image no larger than 12 MiB.");
-            const image = await createImageBitmap(file);
-            const pixels = image.width * image.height;
-            image.close();
-            if (pixels > 40_000_000) throw new Error("Choose an image smaller than 40 megapixels.");
-            return core.invoke("set_dashboard_wallpaper", new Uint8Array(await file.arrayBuffer()));
-        });
-    });
+    pickImage.addEventListener("click", () => changeWallpaper(async () =>
+        (await core.invoke("settings_action", { action: { kind: "wallpaper" } })) ?? wallpaperVersion));
     removeImage.addEventListener("click", () => changeWallpaper(async () => {
         await core.invoke("remove_dashboard_wallpaper");
         return null;
@@ -235,8 +277,6 @@ function createDashboardAppearance(core, save) {
             wallpaperVersion = version;
             paint();
         },
-        discardPreview() {
-            if (draft !== saved) setTheme(saved);
-        }
+        commit
     };
 }

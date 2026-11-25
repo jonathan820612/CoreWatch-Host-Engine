@@ -210,7 +210,7 @@ function renderAdapters(adapters, elevated) {
         if (elevated && (!adapter.enabled || adapter.online)) {
             const badgeControl = actionButton(state.textContent, async () => {
                 const enable = !adapter.enabled;
-                if (!await askDashboard((enable ? "Enable " : "Disable ") + adapter.name,
+                if (!await confirmDashboardAction((enable ? "Enable " : "Disable ") + adapter.name,
                     enable ? "Enable this network adapter?" : "Disabling this adapter can disconnect the computer.")) return;
                 badgeControl.disabled = true;
                 await dashboardCommand("configure_network_adapter", {
@@ -399,23 +399,38 @@ async function start() {
     dashboardNetwork = createDashboardNetwork(invoke);
     dashboardControls = createDashboardControls();
     const nativeWindow = tauri.window.getCurrentWindow();
+    const tasks = createTasksView(invoke);
+    let currentView = "dashboard";
+    let hiddenModules = [];
+    const views = [
+        ["dashboard", "tabDashboard", "viewDashboardGrid"],
+        ["network", "tabNetwork", "viewNetworkManagerPanel", "netmanager"],
+        ["tasks", "tabTasksPorts", "viewTasksPortsPanel", "tasksports"]
+    ];
     const preferences = createDashboardPreferences(tauri.core, nativeWindow, (unit) => {
         temperatureUnit = unit;
         renderTemperatures();
+    }, (disabled) => {
+        hiddenModules = disabled;
+        for (const [, button, , module] of views) byId(button).hidden = disabled.includes(module);
+        if (views.some(([view, , , module]) => view === currentView && disabled.includes(module))) void selectView("dashboard");
     });
     async function selectView(name, subview) {
-        const dashboard = name === "dashboard";
-        byId("viewDashboardGrid").hidden = !dashboard;
-        byId("viewNetworkManagerPanel").hidden = dashboard;
-        preferences.viewChanged(dashboard);
-        for (const [id, active] of [["tabDashboard", dashboard], ["tabNetwork", !dashboard]]) {
-            byId(id).classList.toggle("active", active);
-            byId(id).setAttribute("aria-pressed", String(active));
+        if (views.some(([view, , , module]) => view === name && hiddenModules.includes(module))) return;
+        currentView = name;
+        preferences.viewChanged(name === "dashboard");
+        for (const [view, button, panel] of views) {
+            const active = view === name;
+            byId(panel).hidden = !active;
+            byId(button).classList.toggle("active", active);
+            byId(button).setAttribute("aria-pressed", String(active));
         }
-        if (!dashboard) await networkView.select(subview ?? "adapters");
+        await tasks.show(name === "tasks");
+        if (name === "network") await networkView.select(subview ?? "adapters");
     }
     byId("tabDashboard").addEventListener("click", () => selectView("dashboard"));
     byId("tabNetwork").addEventListener("click", () => selectView("network"));
+    byId("tabTasksPorts").addEventListener("click", () => selectView("tasks"));
     byId("lblNetAssignment").addEventListener("click", () => selectView("network", "adapters"));
     for (const id of ["lblIntIPv4", "lblGateway", "lblExtIPv4"]) {
         byId(id).addEventListener("click", async () => {
@@ -496,6 +511,7 @@ async function start() {
     });
     for (const [id, action] of [["minimize", "minimize"], ["maximize", "toggleMaximize"], ["exit", "close"]]) {
         byId(id).addEventListener("click", async () => {
+            if (id === "exit") await preferences.flush();
             try { await nativeWindow[action](); }
             catch (error) { log(String(error)); }
         });
@@ -671,6 +687,12 @@ async function start() {
                     const diagnostic = await invoke("run_network_diagnostic", { request: { kind: "ping", target: "127.0.0.1" } });
                     renderDiagnostic(diagnostic);
                     if (!diagnostic.replies.some((reply) => reply.status === 0)) throw new Error("Loopback ICMP failed");
+                    await selectView("tasks");
+                    if (!byId("viewTasksPortsPanel").getClientRects().length || !byId("tasks-rows").querySelector("tr")) throw new Error("Tasks & Ports did not render local processes.");
+                    document.querySelector('[data-task-pane="service"]').click();
+                    if (!byId("tasks-rows").querySelector("tr select")) throw new Error("Tasks & Ports did not render Windows services.");
+                    document.querySelector('[data-task-pane="socket"]').click();
+                    if (!byId("tasks-rows").querySelector("tr") || !byId("tasks-status").textContent.includes("sockets")) throw new Error("Tasks & Ports did not render sockets.");
                     await selectView("dashboard");
                     await invoke("finish_dashboard_smoke", { error: null });
                 } catch (error) {

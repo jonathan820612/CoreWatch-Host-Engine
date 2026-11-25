@@ -21,8 +21,21 @@ pub fn relaunch_elevated() -> Result<(), String> {
     shell_open_wide(&exe, None, true)
 }
 
-fn shell_open(target: &str, argument: Option<&str>, admin: bool) -> Result<(), String> {
+pub(crate) fn shell_open(target: &str, argument: Option<&str>, admin: bool) -> Result<(), String> {
     shell_open_wide(&native::wide(target), argument, admin)
+}
+
+pub fn open_directory(path: &Path) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+    if !path.is_absolute() || !path.is_dir() {
+        return Err("The configured directory does not exist.".into());
+    }
+    let target: Vec<_> = path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    shell_open_wide(&target, None, false)
 }
 
 fn shell_open_wide(target: &[u16], argument: Option<&str>, admin: bool) -> Result<(), String> {

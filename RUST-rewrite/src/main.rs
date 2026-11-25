@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod app_settings;
 mod dashboard_actions;
 mod dashboard_runtimes;
 mod details;
@@ -13,6 +14,7 @@ mod night_light;
 mod preferences;
 mod sensors;
 mod system_controls;
+mod tasks;
 
 use preferences::PollingProfile;
 use serde::Serialize;
@@ -69,7 +71,7 @@ impl Dashboard {
                 self.window_shown.store(true, Ordering::Release);
             }
             if self.window_shown.load(Ordering::Acquire) {
-                self.minimize(minimized);
+                self.minimize(minimized || !visible);
             }
         }
     }
@@ -154,6 +156,7 @@ fn dashboard_preferences(
 
 #[tauri::command]
 async fn save_dashboard_preferences(
+    window: tauri::WebviewWindow,
     dashboard: State<'_, Arc<Dashboard>>,
     store: State<'_, Arc<preferences::Store>>,
     changes: preferences::Changes,
@@ -161,9 +164,147 @@ async fn save_dashboard_preferences(
     let store = store.inner().clone();
     let dashboard = dashboard.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        store
+        let previous = store.state().settings;
+        let startup = changes.start_with_windows;
+        if let Some(enabled) = startup
+            && !dashboard.smoke_test
+        {
+            app_settings::set_startup(enabled)?;
+        }
+        if let Some(opacity) = changes.opacity {
+            app_settings::set_opacity(&window, opacity)?;
+        }
+        let result = store
             .update(changes, |profile| dashboard.set_polling_profile(profile))
-            .map_err(|error| error.to_string())
+            .map_err(|error| error.to_string());
+        if result.is_err() {
+            if startup.is_some() && !dashboard.smoke_test {
+                app_settings::set_startup(previous.general.start_with_windows)?;
+            }
+            app_settings::set_opacity(&window, previous.opacity)?;
+        }
+        result
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[derive(serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum SettingsAction {
+    Startup,
+    Catalog,
+    Browse { location: app_settings::Location },
+    Open { location: app_settings::Location },
+    Detect { editor: app_settings::Editor },
+    OpenData,
+    CheckUpdates,
+    OpenReleases,
+    ThemeImport,
+    ThemeExport { theme: Box<preferences::Theme> },
+    Wallpaper,
+}
+
+#[tauri::command]
+async fn settings_action(
+    window: tauri::WebviewWindow,
+    store: State<'_, Arc<preferences::Store>>,
+    dashboard: State<'_, Arc<Dashboard>>,
+    action: SettingsAction,
+) -> Result<serde_json::Value, String> {
+    use app_settings::Picker;
+    let store = store.inner().clone();
+    let smoke = dashboard.smoke_test;
+    let owner = window.hwnd().map_err(|error| error.to_string())?.0 as isize;
+    tauri::async_runtime::spawn_blocking(move || {
+        let dirs = store.state().settings.directories;
+        let json = |result: serde_json::Error| result.to_string();
+        if smoke && !matches!(action, SettingsAction::Startup | SettingsAction::Catalog | SettingsAction::Detect { .. }) {
+            return Err("External settings actions are disabled during smoke tests.".into());
+        }
+        match action {
+            SettingsAction::Catalog => {
+                let catalog: serde_json::Value = serde_json::from_str(include_str!("../docs/modules-catalog.json")).map_err(json)?;
+                Ok(serde_json::json!({ "modules": catalog["modules"], "version": env!("CARGO_PKG_VERSION"), "smoke": smoke }))
+            }
+            SettingsAction::Startup if smoke => Ok(serde_json::json!({ "enabled": store.state().settings.general.start_with_windows, "detail": "Smoke test" })),
+            SettingsAction::Startup => serde_json::to_value(app_settings::startup()?).map_err(json),
+            SettingsAction::Browse { location } => {
+                let picker = if location.is_editor() { Picker::Editor } else { Picker::Directory };
+                serde_json::to_value(app_settings::pick(owner, location.path(&dirs).to_path_buf(), picker)?).map_err(json)
+            }
+            SettingsAction::Open { location } => { app_settings::open_location(location, &dirs)?; Ok(serde_json::Value::Null) }
+            SettingsAction::Detect { editor } => serde_json::to_value(app_settings::detect_editor(editor)).map_err(json),
+            SettingsAction::OpenData => {
+                let path = store.directory().ok_or("The CoreWatch data folder is unavailable.")?;
+                std::fs::create_dir_all(path).map_err(|error| error.to_string())?;
+                dashboard_actions::open_directory(path)?;
+                Ok(serde_json::Value::Null)
+            }
+            SettingsAction::CheckUpdates => serde_json::to_value(app_settings::release_status()?).map_err(json),
+            SettingsAction::OpenReleases => { app_settings::open_releases()?; Ok(serde_json::Value::Null) }
+            SettingsAction::ThemeImport => {
+                let Some(path) = app_settings::pick(owner, dirs.exports_root.into(), Picker::ThemeOpen)? else { return Ok(serde_json::Value::Null); };
+                let bytes = app_settings::read_file(&path, 1024 * 1024)?;
+                let payload: serde_json::Value = serde_json::from_slice(&bytes).map_err(json)?;
+                let theme = payload.get("theme").unwrap_or(&payload);
+                if !theme.is_object() || !["presetId", "bgApp", "bgSurface"].iter().any(|key| theme.get(key).is_some()) {
+                    return Err("The selected JSON does not contain a CoreWatch theme.".into());
+                }
+                let mut theme: preferences::Theme = serde_json::from_value(theme.clone()).map_err(json)?;
+                theme.normalize();
+                serde_json::to_value(theme).map_err(json)
+            }
+            SettingsAction::ThemeExport { mut theme } => {
+                let Some(path) = app_settings::pick(owner, dirs.exports_root.into(), Picker::ThemeSave)? else { return Ok(serde_json::Value::Null); };
+                theme.normalize();
+                app_settings::export_theme(&path, &theme)?;
+                Ok(serde_json::json!(true))
+            }
+            SettingsAction::Wallpaper => {
+                let Some(path) = app_settings::pick(owner, dirs.projects_root.into(), Picker::Image)? else { return Ok(serde_json::Value::Null); };
+                let bytes = app_settings::read_file(&path, preferences::MAX_IMAGE_BYTES)?;
+                serde_json::to_value(store.set_wallpaper(bytes).map_err(|error| error.to_string())?).map_err(json)
+            }
+        }
+    }).await.map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn tasks_snapshot() -> Result<tasks::Snapshot, String> {
+    tauri::async_runtime::spawn_blocking(tasks::snapshot)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[derive(serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum TasksAction {
+    Terminate {
+        pid: u32,
+        token: String,
+    },
+    Folder {
+        pid: u32,
+    },
+    Service {
+        name: String,
+        action: tasks::ServiceAction,
+    },
+}
+
+#[tauri::command]
+async fn tasks_action(
+    dashboard: State<'_, Arc<Dashboard>>,
+    action: TasksAction,
+) -> Result<(), String> {
+    if dashboard.smoke_test {
+        return Err("Task actions are disabled during smoke tests.".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || match action {
+        TasksAction::Terminate { pid, token } => tasks::terminate(pid, &token),
+        TasksAction::Folder { pid } => tasks::process_folder(pid),
+        TasksAction::Service { name, action } => tasks::control_service(&name, action),
     })
     .await
     .map_err(|error| error.to_string())?
@@ -545,7 +686,7 @@ fn finish_dashboard_smoke(
             app.exit(1);
         } else {
             println!(
-                "WebView2 verified dashboard layout, appearance, telemetry preferences, network controls, and Network views."
+                "WebView2 verified Settings, Theme Studio, Customize Dashboard, Network, and Tasks & Ports."
             );
             app.exit(0);
         }
@@ -655,6 +796,9 @@ fn main() {
             refresh,
             dashboard_preferences,
             save_dashboard_preferences,
+            settings_action,
+            tasks_snapshot,
+            tasks_action,
             import_dashboard_preferences,
             set_dashboard_wallpaper,
             remove_dashboard_wallpaper,
@@ -698,10 +842,26 @@ fn main() {
                 .unwrap()
         })
         .on_window_event(|window, event| {
-            if window.label() == "main"
-                && matches!(event, WindowEvent::Resized(_) | WindowEvent::Focused(_))
+            if window.label() != "main" {
+                return;
+            }
+            let state = window.state::<Arc<Dashboard>>();
+            if let WindowEvent::CloseRequested { api, .. } = event
+                && window.app_handle().tray_by_id("corewatch").is_some()
+                && window
+                    .state::<Arc<preferences::Store>>()
+                    .state()
+                    .settings
+                    .general
+                    .minimize_to_tray_on_close
             {
-                window.state::<Arc<Dashboard>>().observe_window(window);
+                api.prevent_close();
+                if window.hide().is_ok() {
+                    state.minimize(true);
+                }
+            }
+            if matches!(event, WindowEvent::Resized(_) | WindowEvent::Focused(_)) {
+                state.observe_window(window);
             }
         })
         .setup(move |app| {
@@ -715,11 +875,24 @@ fn main() {
             };
             let store = Arc::new(preferences::Store::open(directory, legacy_directory));
             state.set_polling_profile(store.polling_profile());
+            let initial = store.state().settings;
             app.manage(store);
+            let tray_ready = app_settings::tray(app.handle())
+                .map_err(|error| eprintln!("CoreWatch tray: {error}"))
+                .is_ok();
             if narrow_smoke && let Some(window) = app.get_webview_window("main") {
                 window.set_size(tauri::LogicalSize::new(480.0, 720.0))?;
             }
             state.sensors.start();
+            if let Some(window) = app.get_webview_window("main") {
+                app_settings::set_opacity(&window, initial.opacity)
+                    .map_err(std::io::Error::other)?;
+                if !state.smoke_test && tray_ready && initial.general.start_minimized {
+                    state.minimize(true);
+                } else {
+                    window.show()?;
+                }
+            }
             start_fast_worker(state.clone());
             start_details_worker(state.clone());
             if state.smoke_test {

@@ -59,7 +59,7 @@ function createNetworkView(invoke) {
     }
 
     async function configure(adapter, action, description) {
-        if (busy || description && !await askDashboard("Update network adapter", adapter.name + " · " + description)) return;
+        if (busy || description && !await confirmDashboardAction("Update network adapter", adapter.name + " · " + description)) return;
         busy = true;
         const buttons = [...cards.querySelectorAll("button")];
         for (const button of buttons) button.disabled = true;
