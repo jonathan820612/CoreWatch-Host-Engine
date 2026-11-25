@@ -41,7 +41,20 @@ $BuildDir    = $PSScriptRoot
 $DistRoot    = Join-Path $ProjectRoot "dist"
 $VersionFile = Join-Path $ProjectRoot "version.json"
 
-# 1. Load & Increment Single-Digit Rollover Version from version.json (0-9 per segment; avoids confusing .10)
+# 1. Capture Git Source-Control Metadata BEFORE mutating version.json so clean releases are never stamped .dirty
+$gitBranch = "unknown"
+$gitSha    = "nogit"
+$gitDirty  = $false
+try {
+    $b = (& git -C $ProjectRoot rev-parse --abbrev-ref HEAD 2>$null)
+    if ($LASTEXITCODE -eq 0 -and $b) { $gitBranch = $b.Trim() }
+    $s = (& git -C $ProjectRoot rev-parse --short HEAD 2>$null)
+    if ($LASTEXITCODE -eq 0 -and $s) { $gitSha = $s.Trim() }
+    $st = (& git -C $ProjectRoot status --porcelain 2>$null)
+    if ($LASTEXITCODE -eq 0 -and $st) { $gitDirty = $true }
+} catch {}
+
+# 2. Load & Increment Single-Digit Rollover Version from version.json (0-9 per segment; avoids confusing .10)
 if (Test-Path -LiteralPath $VersionFile) {
     $verObj = Get-Content -LiteralPath $VersionFile -Raw | ConvertFrom-Json
 } else {
@@ -100,19 +113,6 @@ $SemVer = if ($pre) {
 }
 $AssemblyVer = "$major.$minor.$patch.$build"
 $BuildLabel  = if ($pre) { "$($pre.Substring(0,1).ToUpper())$($pre.Substring(1)) #$buildNumber" } else { "Build #$buildNumber" }
-
-# 2. Capture Git Source-Control Metadata
-$gitBranch = "unknown"
-$gitSha    = "nogit"
-$gitDirty  = $false
-try {
-    $b = (& git -C $ProjectRoot rev-parse --abbrev-ref HEAD 2>$null)
-    if ($LASTEXITCODE -eq 0 -and $b) { $gitBranch = $b.Trim() }
-    $s = (& git -C $ProjectRoot rev-parse --short HEAD 2>$null)
-    if ($LASTEXITCODE -eq 0 -and $s) { $gitSha = $s.Trim() }
-    $st = (& git -C $ProjectRoot status --porcelain 2>$null)
-    if ($LASTEXITCODE -eq 0 -and $st) { $gitDirty = $true }
-} catch {}
 
 $InfoVersion = "$SemVer+$gitSha$(if ($gitDirty) { '.dirty' })"
 $BuiltUtc    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
@@ -241,11 +241,15 @@ Copy-Item -LiteralPath $VersionFile -Destination $StageDir -Force
 if (Test-Path -LiteralPath $SourcePng) {
     Copy-Item -LiteralPath $SourcePng -Destination (Join-Path $StageDir "images\Icon.png") -Force
 }
-foreach ($sub in @("layouts", "tabs", "telemetry")) {
+foreach ($sub in @("core", "layouts", "tabs", "telemetry")) {
     $srcSub = Join-Path $ProjectRoot "modules\$sub"
     if (Test-Path -LiteralPath $srcSub) {
         Copy-Item -LiteralPath $srcSub -Destination (Join-Path $StageDir "modules\$sub") -Recurse -Force
     }
+}
+$CatalogSrc = Join-Path $ProjectRoot "modules\modules-catalog.json"
+if (Test-Path -LiteralPath $CatalogSrc -PathType Leaf) {
+    Copy-Item -LiteralPath $CatalogSrc -Destination (Join-Path $StageDir "modules\modules-catalog.json") -Force
 }
 
 # Copy required WebView2 + LibreHardwareMonitor companion DLLs (omit WebView2UserData & optionally WebView2FixedRuntime)
@@ -409,9 +413,52 @@ $PawnIoRunLine = if ($HasPawnIoRedist) {
     'Filename: "winget.exe"; Parameters: "install --id namazso.PawnIO --source winget --accept-package-agreements --accept-source-agreements"; StatusMsg: "Installing PawnIO sensor driver via winget..."; Flags: waituntilterminated; Tasks: installpawnio; Check: not IsPawnIoInstalled'
 }
 
+# Build dynamic Inno Setup [Types], [Components], per-module [Files], and installed-modules.json writer
+$CatalogObj = $null
+if (Test-Path -LiteralPath $CatalogSrc -PathType Leaf) {
+    $CatalogObj = Get-Content -LiteralPath $CatalogSrc -Raw | ConvertFrom-Json
+}
+$CatalogModules = if ($CatalogObj -and $CatalogObj.modules) { @($CatalogObj.modules) } else { @() }
+
+$IssComponentsSb = New-Object System.Text.StringBuilder
+[void]$IssComponentsSb.AppendLine('Name: "core"; Description: "CoreWatch Dashboard & Telemetry Engine (Required)"; Types: full essentials itpro developer custom; Flags: fixed')
+[void]$IssComponentsSb.AppendLine('Name: "tabs"; Description: "Feature Tabs & Optional Modules"; Types: full essentials itpro developer')
+
+$IssModuleFilesSb = New-Object System.Text.StringBuilder
+$IssCodeChecksSb  = New-Object System.Text.StringBuilder
+
+foreach ($mod in $CatalogModules) {
+    $mId    = [string]$mod.id
+    $mName  = ([string]$mod.name).Replace('"', '""')
+    $mTypes = if ($mod.installerTypes -and $mod.installerTypes.Count -gt 0) { ($mod.installerTypes -join ' ') } else { 'full' }
+    [void]$IssComponentsSb.AppendLine("Name: `"tabs\$mId`"; Description: `"$mName`"; Types: $mTypes")
+
+    foreach ($relPath in @($mod.files)) {
+        $relWin = ([string]$relPath) -replace '/', '\'
+        $relDir = Split-Path -Path $relWin -Parent
+        $destDir = if ($relDir) { "{app}\$relDir" } else { "{app}" }
+        [void]$IssModuleFilesSb.AppendLine("Source: `"..\dist\CoreWatch-{#MyAppVersion}\$relWin`"; DestDir: `"$destDir`"; Flags: ignoreversion; Components: tabs\$mId")
+    }
+
+    [void]$IssCodeChecksSb.AppendLine("    if WizardIsComponentSelected('tabs\$mId') then begin")
+    [void]$IssCodeChecksSb.AppendLine("      if NotFirst then ModList := ModList + ',';")
+    [void]$IssCodeChecksSb.AppendLine("      ModList := ModList + '`"$mId`"';")
+    [void]$IssCodeChecksSb.AppendLine("      NotFirst := True;")
+    [void]$IssCodeChecksSb.AppendLine("    end else begin")
+    foreach ($relPath in @($mod.files)) {
+        $relWin = (([string]$relPath) -replace '/', '\').Replace("'", "''")
+        [void]$IssCodeChecksSb.AppendLine("      DeleteFile(ExpandConstant('{app}\$relWin'));")
+    }
+    [void]$IssCodeChecksSb.AppendLine("    end;")
+}
+
+$IssComponentsBlock  = $IssComponentsSb.ToString().TrimEnd()
+$IssModuleFilesBlock = $IssModuleFilesSb.ToString().TrimEnd()
+$IssCodeChecksBlock  = $IssCodeChecksSb.ToString().TrimEnd()
+
 $IssPath = Join-Path $BuildDir "CoreWatch.iss"
 $IssContent = @"
-; CoreWatch Installer Script for Inno Setup (https://jrsoftware.org/isinfo.php)
+; CoreWatch Modular Installer Script for Inno Setup (https://jrsoftware.org/isinfo.php)
 #define MyAppName "CoreWatch"
 #define MyAppVersion "$SemVer"
 #define MyAppExeName "CoreWatch.exe"
@@ -436,13 +483,38 @@ PrivilegesRequired=$(if ($RequireAdmin) { "admin" } else { "lowest" })
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
+[Types]
+Name: "full"; Description: "Full Installation — All Tabs & Modules (Recommended)"
+Name: "essentials"; Description: "Home & Essentials (Dashboard, Tasks, DiagX, Security, Apps, Disk Map, Organizer)"
+Name: "itpro"; Description: "IT & SysAdmin Suite (Dashboard, Network, Tasks, DiagX, Security, Sharing, Devices, Apps)"
+Name: "developer"; Description: "Developer Workstation (Dashboard, Network, Tasks, DiagX, WSL, Apps, Disk Map)"
+Name: "custom"; Description: "Custom — Pick & Choose Individual Tabs"; Flags: iscustom
+
+[Components]
+$IssComponentsBlock
+
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 Name: "installpawnio"; Description: "Install PawnIO signed kernel driver (required by LibreHardwareMonitor for live CPU temps)"; GroupDescription: "Hardware Sensors:"; Check: not IsPawnIoInstalled
 
 [Files]
-Source: "..\dist\CoreWatch-{#MyAppVersion}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Core Engine & Required Runtime Files
+Source: "..\dist\CoreWatch-{#MyAppVersion}\CoreWatch.exe"; DestDir: "{app}"; Flags: ignoreversion; Components: core
+Source: "..\dist\CoreWatch-{#MyAppVersion}\Start-NodeWatch.ps1"; DestDir: "{app}"; Flags: ignoreversion; Components: core
+Source: "..\dist\CoreWatch-{#MyAppVersion}\version.json"; DestDir: "{app}"; Flags: ignoreversion; Components: core
+Source: "..\dist\CoreWatch-{#MyAppVersion}\build-info.json"; DestDir: "{app}"; Flags: ignoreversion; Components: core
+Source: "..\dist\CoreWatch-{#MyAppVersion}\bin\*"; DestDir: "{app}\bin"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: core
+Source: "..\dist\CoreWatch-{#MyAppVersion}\images\*"; DestDir: "{app}\images"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: core
+Source: "..\dist\CoreWatch-{#MyAppVersion}\modules\core\*"; DestDir: "{app}\modules\core"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: core
+Source: "..\dist\CoreWatch-{#MyAppVersion}\modules\layouts\*"; DestDir: "{app}\modules\layouts"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: core
+Source: "..\dist\CoreWatch-{#MyAppVersion}\modules\telemetry\*"; DestDir: "{app}\modules\telemetry"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: core
+Source: "..\dist\CoreWatch-{#MyAppVersion}\modules\modules-catalog.json"; DestDir: "{app}\modules"; Flags: ignoreversion; Components: core
+; Optional Pick-and-Choose Feature Modules
+$IssModuleFilesBlock
 $PawnIoFilesLine
+
+[UninstallDelete]
+Type: files; Name: "{app}\installed-modules.json"
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
@@ -457,6 +529,28 @@ function IsPawnIoInstalled(): Boolean;
 begin
   Result := DirExists(ExpandConstant('{commonpf}\PawnIO')) or
             RegKeyExists(HKLM, 'SYSTEM\CurrentControlSet\Services\PawnIO');
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  ModList: String;
+  JsonText: String;
+  SetupType: String;
+  NotFirst: Boolean;
+begin
+  if CurStep = ssPostInstall then begin
+    ModList := '';
+    NotFirst := False;
+$IssCodeChecksBlock
+    SetupType := WizardSetupType(False);
+    if SetupType = '' then SetupType := 'full';
+    JsonText := '{' + #13#10 +
+      '  "schemaVersion": 1,' + #13#10 +
+      '  "installType": "' + SetupType + '",' + #13#10 +
+      '  "installedModules": [' + ModList + ']' + #13#10 +
+      '}' + #13#10;
+    SaveStringToFile(ExpandConstant('{app}\installed-modules.json'), JsonText, False);
+  end;
 end;
 "@
 [System.IO.File]::WriteAllText($IssPath, $IssContent, [System.Text.Encoding]::UTF8)

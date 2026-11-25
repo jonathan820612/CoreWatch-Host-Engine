@@ -2,7 +2,8 @@
 param(
     [switch]$Release,
     [switch]$DevTools,
-    [switch]$ShowConsole
+    [switch]$ShowConsole,
+    [switch]$Minimized
 )
 
 try { if ($Host.Name -eq "ConsoleHost" -and -not [Console]::IsOutputRedirected) { Clear-Host } } catch {}
@@ -231,7 +232,7 @@ function Save-CoreWatchUiSettings {
     } catch {}
 }
 
-function Ensure-CoreWatchMultiSizeIco {
+function Initialize-CoreWatchMultiSizeIco {
     param(
         [string]$SourcePngPath,
         [string]$DestIcoPath
@@ -306,16 +307,41 @@ function Ensure-CoreWatchMultiSizeIco {
 
 $Global:SavedUiSettings = Get-CoreWatchUiSettings
 
+# [CORE SETTINGS & MODULAR REGISTRY ENGINE]
+$CoreSettingsScript = Join-Path $Global:NodeWatchRoot "modules\core\CoreWatchSettings.ps1"
+if (Test-Path -LiteralPath $CoreSettingsScript -PathType Leaf) {
+    . $CoreSettingsScript
+}
+$Global:AppSettings  = Get-CoreWatchAppSettings
+$Global:ModulesState = Get-CoreWatchModulesState -RootPath $Global:NodeWatchRoot -Settings $Global:AppSettings
+$Global:VersionInfo  = Get-CoreWatchVersionInfo -RootPath $Global:NodeWatchRoot
+$Global:ForceExitApp     = $false
+$Global:MainFormHasShown = $false
+$Global:KeepAwakeActive  = $false
+$Global:WindowLockMode   = "none" # none | position | all
+
+$ProfilesScriptPath = Join-Path $Global:NodeWatchRoot "modules\tabs\ProfilesManager.ps1"
+$Global:ProfilesModuleAvailable = Test-Path -LiteralPath $ProfilesScriptPath -PathType Leaf
+if ($Global:ProfilesModuleAvailable) {
+    try { . $ProfilesScriptPath } catch { $Global:ProfilesModuleAvailable = $false }
+}
+
+$initCadence = Get-CoreWatchTelemetryCadence -Profile $Global:AppSettings.telemetry.pollingProfile
+
 $global:SharedData = [hashtable]::Synchronized(@{
-    FullPayload  = $null
-    FullVersion  = 0
-    FastPayload  = $null
-    FastVersion  = 0
-    ForceRefresh = $false
-    ActiveView   = "dashboard"
-    SideDockOpen = $false
-    IsMinimized  = $false
-    IsRunning    = $true
+    FullPayload    = $null
+    FullVersion    = 0
+    FastPayload    = $null
+    FastVersion    = 0
+    ForceRefresh   = $false
+    ActiveView     = "dashboard"
+    SideDockOpen   = $false
+    IsMinimized    = $false
+    IsRunning      = $true
+    PollingProfile = [string]$Global:AppSettings.telemetry.pollingProfile
+    FastCadenceMs  = [int]$initCadence.fastMs
+    FullDashMs     = [int]$initCadence.fullDashMs
+    FullBgMs       = [int]$initCadence.fullBgMs
 })
 
 # =========================================================================
@@ -378,7 +404,9 @@ $RunspaceScript = {
                 $SharedData.FastVersion++
             }
 
-            $fullIntervalMs = if ($onDashboard) { 2000 } else { 4000 }
+            $fullDashMs = if ($SharedData.FullDashMs -ge 500) { [int]$SharedData.FullDashMs } else { 2000 }
+            $fullBgMs   = if ($SharedData.FullBgMs -ge 1000)  { [int]$SharedData.FullBgMs }   else { 4000 }
+            $fullIntervalMs = if ($onDashboard) { $fullDashMs } else { $fullBgMs }
             $elapsedSinceFull = ([datetime]::Now - $lastFullSample).TotalMilliseconds
 
             if ($forceNow -or $elapsedSinceFull -ge $fullIntervalMs) {
@@ -445,7 +473,8 @@ $RunspaceScript = {
             $SharedData.FullVersion++
         }
 
-        $targetCadence = if ($onDashboard) { 500 } else { 1000 }
+        $fastBaseMs = if ($SharedData.FastCadenceMs -ge 200) { [int]$SharedData.FastCadenceMs } else { 500 }
+        $targetCadence = if ($onDashboard) { $fastBaseMs } else { [int][math]::Max(1000, $fastBaseMs * 2) }
         $sleepMs = [int][math]::Max(80, $targetCadence - $sw.ElapsedMilliseconds)
         $slept = 0
         while ($slept -lt $sleepMs -and $SharedData.IsRunning -and -not $SharedData.ForceRefresh) {
@@ -510,6 +539,10 @@ try {
             $opVal = [double]$Global:SavedUiSettings["opacity"]
             if ($opVal -ge 0.70 -and $opVal -le 1.0) { $MainForm.Opacity = $opVal }
         }
+        if ($Global:SavedUiSettings.ContainsKey("windowLockMode")) {
+            $lm = ([string]$Global:SavedUiSettings["windowLockMode"]).ToLowerInvariant()
+            if ($lm -in @("none", "position", "all")) { $Global:WindowLockMode = $lm }
+        }
         $wb = $Global:SavedUiSettings["windowBounds"]
         if ($wb -is [hashtable] -and $wb["width"] -and $wb["height"]) {
             $rx = [int]$wb["x"]; $ry = [int]$wb["y"]
@@ -557,7 +590,7 @@ $AppIconInstance = $null
 $TrayIconInstance = $null
 if (Test-Path $IconPath) {
     try {
-        if (Ensure-CoreWatchMultiSizeIco -SourcePngPath $IconPath -DestIcoPath $CoreWatchIcoPath) {
+        if (Initialize-CoreWatchMultiSizeIco -SourcePngPath $IconPath -DestIcoPath $CoreWatchIcoPath) {
             $AppIconInstance = New-Object System.Drawing.Icon($CoreWatchIcoPath)
         } else {
             $IconBitmap = New-Object System.Drawing.Bitmap($IconPath)
@@ -574,19 +607,26 @@ if (Test-Path $IconPath) {
 # Apply per-window AppUserModel properties once the native HWND exists so Windows separates
 # CoreWatch from PowerShell consoles and supports right-click "Pin to Taskbar" with custom icon.
 $MainForm.Add_Shown({
+    $Global:MainFormHasShown = $true
     try {
-        $pwshExe = (Get-Process -Id $PID).MainModule.FileName
-        $scriptFull = Join-Path $Global:NodeWatchRoot "Start-NodeWatch.ps1"
-        $relaunchCmd = "`"$pwshExe`" -NoProfile -ExecutionPolicy Bypass -File `"$scriptFull`""
+        $launchSpec = Get-CoreWatchLaunchSpec -RootPath $Global:NodeWatchRoot -Minimized $false
+        $relaunchCmd = $launchSpec.command
         $iconRes = if (Test-Path -LiteralPath $CoreWatchIcoPath) { "$CoreWatchIcoPath,0" } else { "" }
         $null = [CoreWatch.Win32]::SetWindowAppUserModelProperties($MainForm.Handle, $Global:CoreWatchAppUserModelId, "CoreWatch", $iconRes, $relaunchCmd)
     } catch {}
+    if ($Minimized -or ($Global:AppSettings -and $Global:AppSettings.general.startMinimized)) {
+        $MainForm.WindowState = [System.Windows.Forms.FormWindowState]::Minimized
+        $MainForm.ShowInTaskbar = $false
+        $MainForm.Hide()
+    }
+    Sync-CoreWatchVisibilityState
 })
 
 $global:IsFormDragging = $false
 $global:FormDragCursorOffset = [System.Drawing.Point]::Empty
 $MainForm.Add_MouseDown({
     param($evtSource, $evtArgs)
+    if ($Global:WindowLockMode -ne "none") { return }
     if ($evtArgs.Button -eq [System.Windows.Forms.MouseButtons]::Left -and $evtArgs.Y -le 50) {
         $global:IsFormDragging = $true
         $global:FormDragCursorOffset = New-Object System.Drawing.Point($evtArgs.X, $evtArgs.Y)
@@ -594,7 +634,7 @@ $MainForm.Add_MouseDown({
 })
 $MainForm.Add_MouseMove({
     param($evtSource, $evtArgs)
-    if ($global:IsFormDragging) {
+    if ($global:IsFormDragging -and $Global:WindowLockMode -eq "none") {
         $ScreenMousePos = [System.Windows.Forms.Cursor]::Position
         $MainForm.Location = New-Object System.Drawing.Point(($ScreenMousePos.X - $global:FormDragCursorOffset.X), ($ScreenMousePos.Y - $global:FormDragCursorOffset.Y))
     }
@@ -625,8 +665,116 @@ $global:FlushTelemetryToUi = {
 }
 
 $global:TelemetryLoopTimer = New-Object System.Windows.Forms.Timer
-$global:TelemetryLoopTimer.Interval = 500
+$global:TelemetryLoopTimer.Interval = [int]$initCadence.uiTimerMs
 $global:TelemetryLoopTimer.Add_Tick($global:FlushTelemetryToUi)
+
+function Send-CoreWatchMessageToUi {
+    param([Parameter(Mandatory)]$PayloadObj)
+    if ($null -eq $global:WebViewControl -or $null -eq $global:WebViewControl.CoreWebView2) { return }
+    try {
+        $json = $PayloadObj | ConvertTo-Json -Compress -Depth 10
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+        $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String($bytes))
+    } catch {}
+}
+
+function Send-AppSettingsStateToUi {
+    param(
+        [string]$Notice = "",
+        [bool]$NoticeError = $false
+    )
+    $Global:ModulesState = Get-CoreWatchModulesState -RootPath $Global:NodeWatchRoot -Settings $Global:AppSettings
+    $autoInfo = Get-CoreWatchAutoStartStatus
+    $Global:AppSettings.general.startWithWindows = [bool]$autoInfo.enabled
+    Send-CoreWatchMessageToUi -PayloadObj @{
+        type         = "APP_SETTINGS_STATE"
+        settings     = $Global:AppSettings
+        autoStart    = $autoInfo
+        modulesState = $Global:ModulesState
+        versionInfo  = $Global:VersionInfo
+        notice       = $Notice
+        noticeError  = $NoticeError
+    }
+}
+
+function Sync-CoreWatchKeepAwake {
+    param([bool]$Enable)
+    $Global:KeepAwakeActive = [bool]$Enable
+    if ("CoreWatch.ProfileNative" -as [type]) {
+        try { $null = [CoreWatch.ProfileNative]::SetKeepAwake([bool]$Enable) } catch {}
+    }
+}
+
+function Update-TrayProfilesSubmenu {
+    if ($null -eq $global:TrayModesSubMenu -or -not $Global:ProfilesModuleAvailable) { return }
+    try {
+        $store = Get-CoreWatchProfilesStore
+        $activeId = [string]$store["activeProfileId"]
+        $global:TrayModesSubMenu.DropDownItems.Clear()
+        foreach ($p in @($store["profiles"])) {
+            $profId = [string]$p["id"]
+            $label = "$($p['icon']) $($p['name'])"
+            $mi = New-Object System.Windows.Forms.ToolStripMenuItem($label)
+            $mi.Checked = ($profId -eq $activeId)
+            $mi.Tag = $profId
+            $mi.Add_Click({
+                param($s, $e)
+                try {
+                    $tid = [string]$s.Tag
+                    $res = Invoke-ApplySystemProfile -ProfileId $tid -RootPath $Global:NodeWatchRoot -CurrentKeepAwake $Global:KeepAwakeActive
+                    Sync-CoreWatchKeepAwake -Enable ([bool]$res.keepAwakeActive)
+                    $global:SharedData.ForceRefresh = $true
+                    Update-TrayProfilesSubmenu
+                    Send-ProfilesStateToUi -Notice $res.notice
+                } catch {}
+            })
+            $null = $global:TrayModesSubMenu.DropDownItems.Add($mi)
+        }
+        if ($null -ne $store["baselineSnapshot"]) {
+            $null = $global:TrayModesSubMenu.DropDownItems.Add((New-Object System.Windows.Forms.ToolStripSeparator))
+            $revItem = New-Object System.Windows.Forms.ToolStripMenuItem("Revert to Baseline")
+            $revItem.Add_Click({
+                try {
+                    $res = Invoke-RevertSystemProfileBaseline -RootPath $Global:NodeWatchRoot -CurrentKeepAwake $Global:KeepAwakeActive
+                    Sync-CoreWatchKeepAwake -Enable ([bool]$res.keepAwakeActive)
+                    $global:SharedData.ForceRefresh = $true
+                    Update-TrayProfilesSubmenu
+                    Send-ProfilesStateToUi -Notice $res.notice
+                } catch {}
+            })
+            $null = $global:TrayModesSubMenu.DropDownItems.Add($revItem)
+        }
+    } catch {}
+}
+
+function Send-ProfilesStateToUi {
+    param(
+        [string]$Notice = "",
+        [bool]$NoticeError = $false
+    )
+    if (-not $Global:ProfilesModuleAvailable) { return }
+    try {
+        $state = Get-ProfilesManagerState -RootPath $Global:NodeWatchRoot -KeepAwakeActive $Global:KeepAwakeActive -Notice $Notice -NoticeError $NoticeError
+        Send-CoreWatchMessageToUi -PayloadObj $state
+    } catch {
+        Send-CoreWatchMessageToUi -PayloadObj @{ type = "PROFILES_NOTICE"; ok = $false; error = $_.Exception.Message; message = $_.Exception.Message }
+    }
+}
+
+function Restore-CoreWatchMainWindow {
+    if (-not $MainForm.Visible) { $MainForm.Show() }
+    $MainForm.ShowInTaskbar = $true
+    if ($MainForm.WindowState -eq [System.Windows.Forms.FormWindowState]::Minimized) {
+        $MainForm.WindowState = [System.Windows.Forms.FormWindowState]::Normal
+    }
+    $MainForm.Activate()
+    $global:SharedData.IsMinimized = $false
+    $global:SharedData.ForceRefresh = $true
+    if ($null -ne $global:TelemetryLoopTimer -and -not $global:TelemetryLoopTimer.Enabled) {
+        $global:TelemetryLoopTimer.Start()
+    }
+    & $global:FlushTelemetryToUi
+}
 
 $global:ActiveTabTasks = New-Object System.Collections.ArrayList
 
@@ -691,11 +839,31 @@ $HandleUiMessageEvent = {
     if ($null -eq $RawMessage) { return }
     
     switch -regex ($RawMessage) {
-        '^Exit-App$'      { $MainForm.Close() }
+        '^Exit-App$' {
+            if ($Global:AppSettings -and $Global:AppSettings.general.minimizeToTrayOnClose) {
+                $MainForm.WindowState = [System.Windows.Forms.FormWindowState]::Minimized
+                $MainForm.ShowInTaskbar = $false
+                $MainForm.Hide()
+            } else {
+                $Global:ForceExitApp = $true
+                $MainForm.Close()
+            }
+        }
+        '^Force-Exit-App$' {
+            $Global:ForceExitApp = $true
+            $MainForm.Close()
+        }
         '^Minimize-App$'  { $MainForm.WindowState = [System.Windows.Forms.FormWindowState]::Minimized }
-        '^Maximize-App$'  { $MainForm.WindowState = if ($MainForm.WindowState -eq [System.Windows.Forms.FormWindowState]::Maximized) { [System.Windows.Forms.FormWindowState]::Normal } else { [System.Windows.Forms.FormWindowState]::Maximized } }
+        '^Maximize-App$'  {
+            if ($Global:WindowLockMode -ne "none") { return }
+            $MainForm.WindowState = if ($MainForm.WindowState -eq [System.Windows.Forms.FormWindowState]::Maximized) { [System.Windows.Forms.FormWindowState]::Normal } else { [System.Windows.Forms.FormWindowState]::Maximized }
+        }
         
         '^\s*UI-Ready\s*$' {
+            if ($MainForm.Visible -and $MainForm.WindowState -ne [System.Windows.Forms.FormWindowState]::Minimized) {
+                $global:SharedData.IsMinimized = $false
+                $global:SharedData.ForceRefresh = $true
+            }
             if (-not $global:TelemetryLoopTimer.Enabled) { $global:TelemetryLoopTimer.Start() }
             # Push persisted UI layout & window state immediately on load
             try {
@@ -703,11 +871,19 @@ $HandleUiMessageEvent = {
                     type           = "UI_SETTINGS_STATE"
                     alwaysOnTop    = [bool]$MainForm.TopMost
                     opacity        = [math]::Round([double]$MainForm.Opacity, 2)
+                    windowLockMode = [string]$Global:WindowLockMode
                     layout         = if ($Global:SavedUiSettings -is [hashtable] -and $Global:SavedUiSettings.ContainsKey("layout")) { $Global:SavedUiSettings["layout"] } else { $null }
                     diagxDismissed = if ($Global:SavedUiSettings -is [hashtable] -and $Global:SavedUiSettings.ContainsKey("diagxDismissed")) { $Global:SavedUiSettings["diagxDismissed"] } else { $null }
                 } | ConvertTo-Json -Compress -Depth 8
                 $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($uiPayload)))
             } catch {}
+            # Push unified App Settings, Modular Tab Registry & Version metadata
+            Send-AppSettingsStateToUi
+            # Push System Profiles / Modes state for Header Mode Pill & Profiles view
+            if ($Global:ProfilesModuleAvailable) {
+                Update-TrayProfilesSubmenu
+                Send-ProfilesStateToUi
+            }
             # Immediately push any already-sampled telemetry so startup is instant
             & $global:FlushTelemetryToUi
         }
@@ -804,6 +980,8 @@ $HandleUiMessageEvent = {
             $sfd.Title = "Save CoreWatch IT Support Bundle Archive"
             $sfd.Filter = "ZIP Support Bundle (*.zip)|*.zip|All Files (*.*)|*.*"
             $sfd.FileName = "CoreWatch_SupportBundle_$($env:COMPUTERNAME)_$(Get-Date -Format 'yyyyMMdd_HHmmss').zip"
+            $defExp = [string]($Global:AppSettings.directories.exportsRoot)
+            if ($defExp -and (Test-Path -LiteralPath $defExp -PathType Container)) { $sfd.InitialDirectory = $defExp }
             if ($sfd.ShowDialog($MainForm) -eq [System.Windows.Forms.DialogResult]::OK -and $sfd.FileName) {
                 $resp = @{ type = "SUPPORT_BUNDLE_PATH_RESULT"; path = [string]$sfd.FileName } | ConvertTo-Json -Compress
                 $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($resp)))
@@ -813,7 +991,33 @@ $HandleUiMessageEvent = {
         '^Browse-Folder:(.+)$' {
             $targetKey = $Matches[1]
             $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
-            $dialog.Description = if ($targetKey -eq "dest") { "Select destination root folder for organized files" } elseif ($targetKey -eq "diagfolder") { "Select external program log folder for UltimaDiagX" } elseif ($targetKey -eq "wslinstalldir") { "Select installation folder for WSL virtual disk (ext4.vhdx)" } elseif ($targetKey -eq "diskmap") { "Select folder or drive to map visually in Disk Map" } else { "Select folder to include in File Organizer" }
+            $dialog.Description = switch ($targetKey) {
+                "dest"               { "Select destination root folder for organized files" }
+                "diagfolder"         { "Select external program log folder for UltimaDiagX" }
+                "wslinstalldir"      { "Select installation folder for WSL virtual disk (ext4.vhdx)" }
+                "diskmap"            { "Select folder or drive to map visually in Disk Map" }
+                "settings_projects"    { "Select default Git / Projects root folder" }
+                "settings_exports"     { "Select default Exports & Support Bundles folder" }
+                "settings_wsl"         { "Select default WSL installation & backup folder" }
+                "settings_organizer"   { "Select default File Organizer destination folder" }
+                "github_clone_dest"    { "Select destination folder to clone Git repository into" }
+                "github_projects_root" { "Select local Git projects folder to scan" }
+                default                { "Select folder to include in File Organizer" }
+            }
+            $seedDir = switch ($targetKey) {
+                "settings_projects"    { [string]$Global:AppSettings.directories.projectsRoot }
+                "github_clone_dest"    { [string]$Global:AppSettings.directories.projectsRoot }
+                "github_projects_root" { [string]$Global:AppSettings.directories.projectsRoot }
+                "settings_exports"     { [string]$Global:AppSettings.directories.exportsRoot }
+                "settings_wsl"       { [string]$Global:AppSettings.directories.wslInstallRoot }
+                "wslinstalldir"      { [string]$Global:AppSettings.directories.wslInstallRoot }
+                "settings_organizer" { [string]$Global:AppSettings.directories.organizerDestRoot }
+                "dest"               { [string]$Global:AppSettings.directories.organizerDestRoot }
+                default              { "" }
+            }
+            if ($seedDir -and (Test-Path -LiteralPath $seedDir -PathType Container)) {
+                $dialog.InitialDirectory = $seedDir
+            }
             $dialog.UseDescriptionForTitle = $true
             $dialog.ShowNewFolderButton = $true
             if ($dialog.ShowDialog($MainForm) -eq [System.Windows.Forms.DialogResult]::OK -and $dialog.SelectedPath) {
@@ -821,6 +1025,38 @@ $HandleUiMessageEvent = {
                 $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($resp)))
             }
             $dialog.Dispose()
+        }
+        '^Browse-File:settings_editor$' {
+            $fd = New-Object System.Windows.Forms.OpenFileDialog
+            $fd.Title  = "Select Code Editor Executable (VS Code, Cursor, etc.)"
+            $fd.Filter = "Executables (*.exe;*.cmd)|*.exe;*.cmd|All Files (*.*)|*.*"
+            $curEd = [string]$Global:AppSettings.directories.editorPath
+            if ($curEd -and (Test-Path -LiteralPath (Split-Path -Parent $curEd) -PathType Container)) {
+                $fd.InitialDirectory = (Split-Path -Parent $curEd)
+            }
+            if ($fd.ShowDialog($MainForm) -eq [System.Windows.Forms.DialogResult]::OK -and $fd.FileName) {
+                Send-CoreWatchMessageToUi -PayloadObj @{ type = "BROWSE_FILE_RESULT"; target = "settings_editor"; path = [string]$fd.FileName }
+            }
+            $fd.Dispose()
+        }
+        '^Browse-File:github_release_assets$' {
+            $fd = New-Object System.Windows.Forms.OpenFileDialog
+            $fd.Title       = "Select Release Asset File(s) to Attach"
+            $fd.Filter      = "All Files (*.*)|*.*|Archives & Installers (*.zip;*.exe;*.msi;*.txt)|*.zip;*.exe;*.msi;*.txt"
+            $fd.Multiselect = $true
+            if ($fd.ShowDialog($MainForm) -eq [System.Windows.Forms.DialogResult]::OK -and $fd.FileNames) {
+                Send-CoreWatchMessageToUi -PayloadObj @{ type = "BROWSE_FILE_RESULT"; target = "github_release_assets"; paths = @($fd.FileNames) }
+            }
+            $fd.Dispose()
+        }
+        '^Browse-File:github_upload_asset$' {
+            $fd = New-Object System.Windows.Forms.OpenFileDialog
+            $fd.Title  = "Select Asset File to Upload to Release"
+            $fd.Filter = "All Files (*.*)|*.*|Archives & Installers (*.zip;*.exe;*.msi;*.txt)|*.zip;*.exe;*.msi;*.txt"
+            if ($fd.ShowDialog($MainForm) -eq [System.Windows.Forms.DialogResult]::OK -and $fd.FileName) {
+                Send-CoreWatchMessageToUi -PayloadObj @{ type = "BROWSE_FILE_RESULT"; target = "github_upload_asset"; path = [string]$fd.FileName }
+            }
+            $fd.Dispose()
         }
         '^Browse-WslImportFile$' {
             $fd = New-Object System.Windows.Forms.OpenFileDialog
@@ -1014,11 +1250,16 @@ $HandleUiMessageEvent = {
             $global:SpeedTestTimer.Start()
         }
         '^Window-DragStart$' {
+            if ($Global:WindowLockMode -ne "none") { return }
             $null = [CoreWatch.Win32]::ReleaseCapture()
             $null = [CoreWatch.Win32]::SendMessage($MainForm.Handle, [CoreWatch.Win32]::WM_NCLBUTTONDOWN, [IntPtr]2, [IntPtr]::Zero)
         }
         '^Window-ResizeHit:(\d+)$' {
             $hitCode = [int]$Matches[1]
+            if ($Global:WindowLockMode -eq "all") { return }
+            # When Position is locked, only allow Right (11), Bottom (15), and Bottom-Right (17)
+            # so width/height can still be adjusted while keeping window (X, Y) anchored in place.
+            if ($Global:WindowLockMode -eq "position" -and ($hitCode -notin @(11, 15, 17))) { return }
             # Native Win32 HTLEFT(10)..HTBOTTOMRIGHT(17)
             if ($hitCode -ge 10 -and $hitCode -le 17) {
                 $null = [CoreWatch.Win32]::ReleaseCapture()
@@ -1026,6 +1267,7 @@ $HandleUiMessageEvent = {
             }
         }
         '^Window-Drag:(.+)' {
+            if ($Global:WindowLockMode -ne "none") { return }
             $Delta = $Matches[1].Split('|')
             if ($Delta.Count -eq 2) {
                 $CursorPos = [System.Windows.Forms.Cursor]::Position
@@ -1033,6 +1275,7 @@ $HandleUiMessageEvent = {
             }
         }
         '^Window-Resize:(.+)' {
+            if ($Global:WindowLockMode -eq "all") { return }
             $Dimensions = $Matches[1].Split('|')
             if ($Dimensions.Count -eq 2) {
                 $Width  = [Math]::Max($script:MinWindowWidth,  [Math]::Min($script:MaxWindowWidth,  [int]$Dimensions[0]))
@@ -1109,7 +1352,7 @@ $HandleUiMessageEvent = {
                         return
                     }
 
-                    if ($Payload.command -in @('APPSTORE_LOAD', 'APPSTORE_INSTALL_ONE', 'APPSTORE_INSTALL_BATCH', 'APPSTORE_UPGRADE_ALL', 'APPSTORE_SEARCH_WINGET', 'APPSTORE_OPEN_URL')) {
+                    if ($Payload.command -in @('APPSTORE_LOAD', 'APPSTORE_INSTALL_ONE', 'APPSTORE_INSTALL_BATCH', 'APPSTORE_UPGRADE_ALL', 'APPSTORE_SEARCH_WINGET', 'APPSTORE_OPEN_URL', 'APPSTORE_LAUNCH_APP')) {
                         Start-AsyncTabTask -FallbackType "APPSTORE_NOTICE" -Arguments @($Global:NodeWatchRoot, $RawMessage) -ScriptBlock {
                             param($RootPath, $RawJson)
                             . (Join-Path $RootPath "modules\tabs\AppInstallerManager.ps1")
@@ -1231,13 +1474,58 @@ $HandleUiMessageEvent = {
                         return
                     }
 
+                    if ($Payload.command -in @(
+                        'GH_LOAD', 'GH_SAVE_PAT', 'GH_CLEAR_PAT', 'GH_OPEN_VSCODE', 'GH_OPEN_TERMINAL',
+                        'GH_OPEN_EXPLORER', 'GH_GIT_PULL', 'GH_RUN_LOCAL_PUBLISH', 'GH_CLONE_REPO',
+                        'GH_LOAD_RELEASES', 'GH_GENERATE_RELEASE_NOTES', 'GH_CREATE_RELEASE',
+                        'GH_UPLOAD_RELEASE_ASSET', 'GH_DELETE_RELEASE'
+                    )) {
+                        Start-AsyncTabTask -FallbackType "GITHUB_NOTICE" -Arguments @($Global:NodeWatchRoot, $RawMessage) -ScriptBlock {
+                            param($RootPath, $RawJson)
+                            . (Join-Path $RootPath "modules\tabs\GitHubManager.ps1")
+                            $data = Invoke-GitHubManagerAction -RawJson $RawJson -RootPath $RootPath
+                            return ($data | ConvertTo-Json -Compress -Depth 8)
+                        }
+                        return
+                    }
+
+                    if ($Payload.command -in @(
+                        'JIRA_LOAD', 'JIRA_SIGN_IN', 'JIRA_SIGN_OUT', 'JIRA_GET_ISSUE_DETAIL',
+                        'JIRA_TRANSITION_ISSUE', 'JIRA_ADD_COMMENT', 'JIRA_LOG_WORK',
+                        'JIRA_ASSIGN_TO_ME', 'JIRA_CREATE_ISSUE'
+                    )) {
+                        Start-AsyncTabTask -FallbackType "JIRA_NOTICE" -Arguments @($Global:NodeWatchRoot, $RawMessage) -ScriptBlock {
+                            param($RootPath, $RawJson)
+                            . (Join-Path $RootPath "modules\tabs\JiraManager.ps1")
+                            $data = Invoke-JiraManagerAction -RawJson $RawJson -RootPath $RootPath
+                            return ($data | ConvertTo-Json -Compress -Depth 8)
+                        }
+                        return
+                    }
+
+                    if ($Payload.command -eq "SET_WINDOW_LOCK_MODE") {
+                        $wantMode = ([string]($Payload.mode ?? "none")).ToLowerInvariant()
+                        if ($wantMode -notin @("none", "position", "all")) { $wantMode = "none" }
+                        $Global:WindowLockMode = $wantMode
+                        if (-not ($Global:SavedUiSettings -is [hashtable])) { $Global:SavedUiSettings = @{} }
+                        $Global:SavedUiSettings["windowLockMode"] = $wantMode
+                        Save-CoreWatchUiSettings -Settings $Global:SavedUiSettings
+                        Send-CoreWatchMessageToUi -PayloadObj @{
+                            type           = "UI_WINDOW_STATE"
+                            alwaysOnTop    = [bool]$MainForm.TopMost
+                            opacity        = [math]::Round([double]$MainForm.Opacity, 2)
+                            windowLockMode = [string]$Global:WindowLockMode
+                        }
+                        return
+                    }
+
                     if ($Payload.command -eq "SET_ALWAYS_ON_TOP") {
                         $wantTop = [bool]$Payload.enabled
                         $MainForm.TopMost = $wantTop
                         if (-not ($Global:SavedUiSettings -is [hashtable])) { $Global:SavedUiSettings = @{} }
                         $Global:SavedUiSettings["alwaysOnTop"] = $wantTop
                         Save-CoreWatchUiSettings -Settings $Global:SavedUiSettings
-                        $resp = @{ type = "UI_WINDOW_STATE"; alwaysOnTop = [bool]$MainForm.TopMost; opacity = [math]::Round([double]$MainForm.Opacity, 2) } | ConvertTo-Json -Compress
+                        $resp = @{ type = "UI_WINDOW_STATE"; alwaysOnTop = [bool]$MainForm.TopMost; opacity = [math]::Round([double]$MainForm.Opacity, 2); windowLockMode = [string]$Global:WindowLockMode } | ConvertTo-Json -Compress
                         $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($resp)))
                         return
                     }
@@ -1265,11 +1553,264 @@ $HandleUiMessageEvent = {
                         return
                     }
 
+                    if ($Payload.command -in @('PROFILES_LOAD', 'PROFILES_APPLY', 'PROFILES_REVERT', 'PROFILES_SAVE', 'PROFILES_DELETE', 'PROFILES_RESET_PRESET', 'PROFILES_CAPTURE_CURRENT', 'PROFILES_EXPORT', 'PROFILES_IMPORT')) {
+                        if (-not $Global:ProfilesModuleAvailable) {
+                            Send-CoreWatchMessageToUi -PayloadObj @{ type = "PROFILES_NOTICE"; ok = $false; message = "System Profiles module is not installed." }
+                            return
+                        }
+                        try {
+                            switch ($Payload.command) {
+                                'PROFILES_LOAD' {
+                                    Update-TrayProfilesSubmenu
+                                    Send-ProfilesStateToUi
+                                }
+                                'PROFILES_APPLY' {
+                                    $pidTarget = ([string]$Payload.profileId).Trim()
+                                    $res = Invoke-ApplySystemProfile -ProfileId $pidTarget -RootPath $Global:NodeWatchRoot -CurrentKeepAwake $Global:KeepAwakeActive
+                                    Sync-CoreWatchKeepAwake -Enable ([bool]$res.keepAwakeActive)
+                                    $global:SharedData.ForceRefresh = $true
+                                    Update-TrayProfilesSubmenu
+                                    Send-ProfilesStateToUi -Notice $res.notice
+                                }
+                                'PROFILES_REVERT' {
+                                    $res = Invoke-RevertSystemProfileBaseline -RootPath $Global:NodeWatchRoot -CurrentKeepAwake $Global:KeepAwakeActive
+                                    Sync-CoreWatchKeepAwake -Enable ([bool]$res.keepAwakeActive)
+                                    $global:SharedData.ForceRefresh = $true
+                                    Update-TrayProfilesSubmenu
+                                    Send-ProfilesStateToUi -Notice $res.notice
+                                }
+                                'PROFILES_SAVE' {
+                                    $profHash = ($RawMessage | ConvertFrom-Json -AsHashtable)["profile"]
+                                    $savedProf = Save-CustomOrEditedProfile -ProfileHash $profHash
+                                    Update-TrayProfilesSubmenu
+                                    Send-ProfilesStateToUi -Notice "Saved profile '$($savedProf.name)'."
+                                }
+                                'PROFILES_DELETE' {
+                                    $pidDel = ([string]$Payload.profileId).Trim()
+                                    Remove-CustomProfile -ProfileId $pidDel
+                                    Update-TrayProfilesSubmenu
+                                    Send-ProfilesStateToUi -Notice "Deleted custom profile."
+                                }
+                                'PROFILES_RESET_PRESET' {
+                                    $pidReset = ([string]$Payload.profileId).Trim()
+                                    $resetProf = Reset-BuiltInProfilePreset -ProfileId $pidReset
+                                    Update-TrayProfilesSubmenu
+                                    Send-ProfilesStateToUi -Notice "Reset '$($resetProf.name)' preset to factory defaults."
+                                }
+                                'PROFILES_CAPTURE_CURRENT' {
+                                    $liveSnap = Get-LiveSystemProfileSnapshot -RootPath $Global:NodeWatchRoot -KeepAwakeActive $Global:KeepAwakeActive
+                                    Send-CoreWatchMessageToUi -PayloadObj @{
+                                        type     = "PROFILES_CAPTURED_SNAPSHOT"
+                                        snapshot = $liveSnap
+                                    }
+                                }
+                                'PROFILES_EXPORT' {
+                                    $sfd = New-Object System.Windows.Forms.SaveFileDialog
+                                    $sfd.Title    = "Export CoreWatch System Profiles (JSON)"
+                                    $sfd.Filter   = "JSON Profiles (*.json)|*.json|All Files (*.*)|*.*"
+                                    $sfd.FileName = "CoreWatch_Profiles_$($env:COMPUTERNAME)_$(Get-Date -Format 'yyyyMMdd').json"
+                                    $defExp = [string]$Global:AppSettings.directories.exportsRoot
+                                    if ($defExp -and (Test-Path -LiteralPath $defExp -PathType Container)) { $sfd.InitialDirectory = $defExp }
+                                    if ($sfd.ShowDialog($MainForm) -eq [System.Windows.Forms.DialogResult]::OK -and $sfd.FileName) {
+                                        $store = Get-CoreWatchProfilesStore
+                                        $expObj = [ordered]@{ schemaVersion = 1; exportedUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ"); profiles = @($store["profiles"]) }
+                                        [System.IO.File]::WriteAllText($sfd.FileName, ($expObj | ConvertTo-Json -Depth 10), (New-Object System.Text.UTF8Encoding($false)))
+                                        Send-ProfilesStateToUi -Notice "Exported profiles to $($sfd.FileName)."
+                                    }
+                                    $sfd.Dispose()
+                                }
+                                'PROFILES_IMPORT' {
+                                    $fd = New-Object System.Windows.Forms.OpenFileDialog
+                                    $fd.Title  = "Import CoreWatch System Profiles (JSON)"
+                                    $fd.Filter = "JSON Profiles (*.json)|*.json|All Files (*.*)|*.*"
+                                    if ($fd.ShowDialog($MainForm) -eq [System.Windows.Forms.DialogResult]::OK -and $fd.FileName) {
+                                        $rawImp = Get-Content -LiteralPath $fd.FileName -Raw -ErrorAction Stop | ConvertFrom-Json -AsHashtable
+                                        $impList = if ($rawImp -is [hashtable] -and $rawImp.ContainsKey("profiles")) { @($rawImp["profiles"]) } else { @($rawImp) }
+                                        $cnt = 0
+                                        foreach ($ip in $impList) {
+                                            if ($ip -is [hashtable]) {
+                                                $null = Save-CustomOrEditedProfile -ProfileHash $ip
+                                                $cnt++
+                                            }
+                                        }
+                                        Update-TrayProfilesSubmenu
+                                        Send-ProfilesStateToUi -Notice "Imported $cnt profile(s) from $(Split-Path -Leaf $fd.FileName)."
+                                    }
+                                    $fd.Dispose()
+                                }
+                            }
+                        } catch {
+                            Send-ProfilesStateToUi -Notice ("Profiles error: " + $_.Exception.Message) -NoticeError $true
+                        }
+                        return
+                    }
+
+                    if ($Payload.command -eq "GET_APP_SETTINGS") {
+                        Send-AppSettingsStateToUi
+                        return
+                    }
+
+                    if ($Payload.command -eq "SAVE_APP_SETTINGS") {
+                        try {
+                            $incomingHash = ($RawMessage | ConvertFrom-Json -AsHashtable)["settings"]
+                            $prevAutoStart = [bool]$Global:AppSettings.general.startWithWindows
+                            $prevStartMin  = [bool]$Global:AppSettings.general.startMinimized
+                            $saved = Save-CoreWatchAppSettings -Settings $incomingHash
+                            $Global:AppSettings = $saved
+
+                            # Apply live telemetry cadence immediately without restarting CoreWatch
+                            $cad = Get-CoreWatchTelemetryCadence -Profile $Global:AppSettings.telemetry.pollingProfile
+                            $global:SharedData.PollingProfile = [string]$Global:AppSettings.telemetry.pollingProfile
+                            $global:SharedData.FastCadenceMs  = [int]$cad.fastMs
+                            $global:SharedData.FullDashMs     = [int]$cad.fullDashMs
+                            $global:SharedData.FullBgMs       = [int]$cad.fullBgMs
+                            if ($null -ne $global:TelemetryLoopTimer) {
+                                $global:TelemetryLoopTimer.Interval = [int]$cad.uiTimerMs
+                            }
+                            $global:SharedData.ForceRefresh = $true
+
+                            $noticeMsg = "Settings saved."
+                            $noticeErr = $false
+
+                            $wantAutoStart = [bool]$Global:AppSettings.general.startWithWindows
+                            $wantStartMin  = [bool]$Global:AppSettings.general.startMinimized
+                            if ($wantAutoStart -ne $prevAutoStart -or ($wantAutoStart -and $wantStartMin -ne $prevStartMin)) {
+                                $autoRes = Set-CoreWatchAutoStart -Enable $wantAutoStart -RootPath $Global:NodeWatchRoot -Minimized $wantStartMin
+                                $Global:AppSettings.general.startWithWindows = [bool]$autoRes.enabled
+                                $Global:AppSettings = Save-CoreWatchAppSettings -Settings $Global:AppSettings
+                                $noticeMsg = "Settings saved. $($autoRes.message)"
+                                if (-not $autoRes.ok) { $noticeErr = $true }
+                            }
+
+                            Send-AppSettingsStateToUi -Notice $noticeMsg -NoticeError $noticeErr
+                        } catch {
+                            Send-AppSettingsStateToUi -Notice ("Failed to save settings: " + $_.Exception.Message) -NoticeError $true
+                        }
+                        return
+                    }
+
+                    if ($Payload.command -eq "DETECT_DEFAULT_EDITOR") {
+                        $detected = Get-CoreWatchDefaultEditorPath
+                        Send-CoreWatchMessageToUi -PayloadObj @{
+                            type   = "BROWSE_FILE_RESULT"
+                            target = "settings_editor"
+                            path   = $detected
+                            notice = if ($detected) { "Detected editor: $detected" } else { "Could not auto-detect VS Code or Cursor. Use Browse to select manually." }
+                        }
+                        return
+                    }
+
+                    if ($Payload.command -eq "OPEN_APPDATA_FOLDER") {
+                        try { Start-Process explorer.exe -ArgumentList "`"$(Get-CoreWatchAppDataDir)`"" } catch {}
+                        return
+                    }
+
+                    if ($Payload.command -eq "OPEN_DIRECTORY_PATH") {
+                        $dirToOpen = ([string]$Payload.path).Trim()
+                        if ($dirToOpen) {
+                            try {
+                                if (-not (Test-Path -LiteralPath $dirToOpen)) {
+                                    $null = New-Item -ItemType Directory -Path $dirToOpen -Force
+                                }
+                                Start-Process explorer.exe -ArgumentList "`"$dirToOpen`""
+                            } catch {}
+                        }
+                        return
+                    }
+
+                    if ($Payload.command -eq "OPEN_EXTERNAL_URL") {
+                        $url = ([string]$Payload.url).Trim()
+                        if ($url -match '^https?://') {
+                            try { Start-Process $url } catch {}
+                        }
+                        return
+                    }
+
+                    if ($Payload.command -eq "CHECK_APP_UPDATE") {
+                        Start-AsyncTabTask -FallbackType "APP_UPDATE_STATUS" -Arguments @($Global:NodeWatchRoot) -ScriptBlock {
+                            param($RootPath)
+                            . (Join-Path $RootPath "modules\core\CoreWatchSettings.ps1")
+                            $res = Test-CoreWatchAppUpdate -RootPath $RootPath
+                            return ($res | ConvertTo-Json -Compress -Depth 5)
+                        }
+                        return
+                    }
+
+                    if ($Payload.command -eq "EXPORT_APP_SETTINGS") {
+                        $sfd = New-Object System.Windows.Forms.SaveFileDialog
+                        $sfd.Title    = "Export CoreWatch Settings Backup (JSON)"
+                        $sfd.Filter   = "JSON Settings (*.json)|*.json|All Files (*.*)|*.*"
+                        $sfd.FileName = "CoreWatch_Settings_$($env:COMPUTERNAME)_$(Get-Date -Format 'yyyyMMdd').json"
+                        $defExp = [string]$Global:AppSettings.directories.exportsRoot
+                        if ($defExp -and (Test-Path -LiteralPath $defExp -PathType Container)) { $sfd.InitialDirectory = $defExp }
+                        if ($sfd.ShowDialog($MainForm) -eq [System.Windows.Forms.DialogResult]::OK -and $sfd.FileName) {
+                            try {
+                                $json = $Global:AppSettings | ConvertTo-Json -Depth 8
+                                [System.IO.File]::WriteAllText($sfd.FileName, $json, (New-Object System.Text.UTF8Encoding($false)))
+                                Send-AppSettingsStateToUi -Notice "Exported settings to $($sfd.FileName)."
+                            } catch {
+                                Send-AppSettingsStateToUi -Notice ("Export failed: " + $_.Exception.Message) -NoticeError $true
+                            }
+                        }
+                        $sfd.Dispose()
+                        return
+                    }
+
+                    if ($Payload.command -eq "IMPORT_APP_SETTINGS") {
+                        $fd = New-Object System.Windows.Forms.OpenFileDialog
+                        $fd.Title  = "Import CoreWatch Settings Backup (JSON)"
+                        $fd.Filter = "JSON Settings (*.json)|*.json|All Files (*.*)|*.*"
+                        if ($fd.ShowDialog($MainForm) -eq [System.Windows.Forms.DialogResult]::OK -and $fd.FileName) {
+                            try {
+                                $rawTxt = Get-Content -LiteralPath $fd.FileName -Raw -ErrorAction Stop
+                                $impHash = $rawTxt | ConvertFrom-Json -AsHashtable
+                                $Global:AppSettings = Save-CoreWatchAppSettings -Settings $impHash
+                                $cad = Get-CoreWatchTelemetryCadence -Profile $Global:AppSettings.telemetry.pollingProfile
+                                $global:SharedData.PollingProfile = [string]$Global:AppSettings.telemetry.pollingProfile
+                                $global:SharedData.FastCadenceMs  = [int]$cad.fastMs
+                                $global:SharedData.FullDashMs     = [int]$cad.fullDashMs
+                                $global:SharedData.FullBgMs       = [int]$cad.fullBgMs
+                                if ($null -ne $global:TelemetryLoopTimer) { $global:TelemetryLoopTimer.Interval = [int]$cad.uiTimerMs }
+                                $autoRes = Set-CoreWatchAutoStart -Enable ([bool]$Global:AppSettings.general.startWithWindows) -RootPath $Global:NodeWatchRoot -Minimized ([bool]$Global:AppSettings.general.startMinimized)
+                                $Global:AppSettings.general.startWithWindows = [bool]$autoRes.enabled
+                                $Global:AppSettings = Save-CoreWatchAppSettings -Settings $Global:AppSettings
+                                $global:SharedData.ForceRefresh = $true
+                                Send-AppSettingsStateToUi -Notice "Imported settings from $(Split-Path -Leaf $fd.FileName)."
+                            } catch {
+                                Send-AppSettingsStateToUi -Notice ("Import failed: " + $_.Exception.Message) -NoticeError $true
+                            }
+                        }
+                        $fd.Dispose()
+                        return
+                    }
+
+                    if ($Payload.command -eq "RESET_APP_SETTINGS") {
+                        try {
+                            $null = Set-CoreWatchAutoStart -Enable $false -RootPath $Global:NodeWatchRoot -Minimized $false
+                            $Global:AppSettings = Save-CoreWatchAppSettings -Settings (Get-CoreWatchDefaultSettingsObject)
+                            $cad = Get-CoreWatchTelemetryCadence -Profile $Global:AppSettings.telemetry.pollingProfile
+                            $global:SharedData.PollingProfile = [string]$Global:AppSettings.telemetry.pollingProfile
+                            $global:SharedData.FastCadenceMs  = [int]$cad.fastMs
+                            $global:SharedData.FullDashMs     = [int]$cad.fullDashMs
+                            $global:SharedData.FullBgMs       = [int]$cad.fullBgMs
+                            if ($null -ne $global:TelemetryLoopTimer) { $global:TelemetryLoopTimer.Interval = [int]$cad.uiTimerMs }
+                            $global:SharedData.ForceRefresh = $true
+                            Send-AppSettingsStateToUi -Notice "All application settings reset to defaults."
+                        } catch {
+                            Send-AppSettingsStateToUi -Notice ("Reset failed: " + $_.Exception.Message) -NoticeError $true
+                        }
+                        return
+                    }
+
                     if ($Payload.command -eq "RELAUNCH_AS_ADMIN") {
                         try {
-                            $pwshExe = (Get-Process -Id $PID).MainModule.FileName
-                            $scriptPath = Join-Path $Global:NodeWatchRoot "Start-NodeWatch.ps1"
-                            Start-Process -FilePath $pwshExe -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$scriptPath`"") -Verb RunAs -ErrorAction Stop
+                            $spec = Get-CoreWatchLaunchSpec -RootPath $Global:NodeWatchRoot -Minimized $false
+                            if ($spec.arguments) {
+                                Start-Process -FilePath $spec.filePath -ArgumentList $spec.arguments -Verb RunAs -ErrorAction Stop
+                            } else {
+                                Start-Process -FilePath $spec.filePath -Verb RunAs -ErrorAction Stop
+                            }
+                            $Global:ForceExitApp = $true
                             $MainForm.Close()
                         } catch {
                             $errJson = @{ type = "DASHBOARD_CONTROL_RESULT"; ok = $false; control = "RELAUNCH_AS_ADMIN"; message = "Elevation canceled or failed: $($_.Exception.Message)" } | ConvertTo-Json -Compress
@@ -1327,23 +1868,42 @@ $global:SystemTrayIcon.Visible = $true
 $global:SystemTrayIcon.Icon = if ($null -ne $TrayIconInstance) { $TrayIconInstance } else { $AppIconInstance }
 
 $TrayContextMenu = New-Object System.Windows.Forms.ContextMenuStrip
+$ShowMenuItem = $TrayContextMenu.Items.Add("Show CoreWatch")
+$ShowMenuItem.Add_Click({ Restore-CoreWatchMainWindow })
+$global:TrayModesSubMenu = $null
+if ($Global:ProfilesModuleAvailable) {
+    $global:TrayModesSubMenu = New-Object System.Windows.Forms.ToolStripMenuItem("Switch Mode")
+    $null = $TrayContextMenu.Items.Add($global:TrayModesSubMenu)
+    Update-TrayProfilesSubmenu
+}
+$SettingsMenuItem = $TrayContextMenu.Items.Add("Settings...")
+$SettingsMenuItem.Add_Click({
+    Restore-CoreWatchMainWindow
+    Send-CoreWatchMessageToUi -PayloadObj @{ type = "OPEN_SETTINGS_MODAL" }
+})
+$null = $TrayContextMenu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
 $ExitMenuItem = $TrayContextMenu.Items.Add("Terminate Engine")
-$ExitMenuItem.Add_Click({ $MainForm.Close() })
+$ExitMenuItem.Add_Click({
+    $Global:ForceExitApp = $true
+    $MainForm.Close()
+})
 $global:SystemTrayIcon.ContextMenuStrip = $TrayContextMenu
 
 $global:SystemTrayIcon.Add_Click({
     param($evtSource, $evtArgs)
     if ($evtArgs.Button -eq [System.Windows.Forms.MouseButtons]::Left) {
-        if ($MainForm.WindowState -eq [System.Windows.Forms.FormWindowState]::Minimized) { $MainForm.WindowState = [System.Windows.Forms.FormWindowState]::Normal }
-        $MainForm.Activate()
+        Restore-CoreWatchMainWindow
     }
 })
 
 # =========================================================================
 # VISIBILITY-AWARE THROTTLING & WEBVIEW2 SUSPEND ON MINIMIZE
 # =========================================================================
-$MainForm.Add_Resize({
-    $isMin = ($MainForm.WindowState -eq [System.Windows.Forms.FormWindowState]::Minimized)
+function Sync-CoreWatchVisibilityState {
+    # WinForms fires Resize while Visible is still $false before initial Shown;
+    # ignore pre-Shown visibility checks so startup never falsely pauses telemetry.
+    if (-not $Global:MainFormHasShown) { return }
+    $isMin = ($MainForm.WindowState -eq [System.Windows.Forms.FormWindowState]::Minimized) -or (-not $MainForm.Visible)
     if ($isMin -ne $global:SharedData.IsMinimized) {
         $global:SharedData.IsMinimized = $isMin
         if ($isMin) {
@@ -1362,27 +1922,48 @@ $MainForm.Add_Resize({
             & $global:FlushTelemetryToUi
         }
     }
-})
+}
+
+$MainForm.Add_Resize({ Sync-CoreWatchVisibilityState })
+$MainForm.Add_VisibleChanged({ Sync-CoreWatchVisibilityState })
 
 # =========================================================================
 # TEARDOWN & LIFECYCLE DESTRUCTOR CLEANUP ROUTINES
 # =========================================================================
 $MainForm.Add_FormClosing({
+    param($evtSource, $evtArgs)
+    if (-not $Global:ForceExitApp -and
+        $evtArgs.CloseReason -eq [System.Windows.Forms.CloseReason]::UserClosing -and
+        $Global:AppSettings -and $Global:AppSettings.general.minimizeToTrayOnClose) {
+        $evtArgs.Cancel = $true
+        $MainForm.WindowState = [System.Windows.Forms.FormWindowState]::Minimized
+        $MainForm.ShowInTaskbar = $false
+        $MainForm.Hide()
+        return
+    }
     # [PHASE 1] Persist final window bounds & preferences before teardown
     try {
         if (-not ($Global:SavedUiSettings -is [hashtable])) { $Global:SavedUiSettings = @{} }
-        if ($MainForm.WindowState -eq [System.Windows.Forms.FormWindowState]::Normal) {
+        $saveRect = if ($MainForm.WindowState -eq [System.Windows.Forms.FormWindowState]::Normal) {
+            $MainForm.Bounds
+        } else {
+            $MainForm.RestoreBounds
+        }
+        if ($saveRect.Width -ge 320 -and $saveRect.Height -ge 320) {
             $Global:SavedUiSettings["windowBounds"] = @{
-                x      = [int]$MainForm.Location.X
-                y      = [int]$MainForm.Location.Y
-                width  = [int]$MainForm.Size.Width
-                height = [int]$MainForm.Size.Height
+                x      = [int]$saveRect.X
+                y      = [int]$saveRect.Y
+                width  = [int]$saveRect.Width
+                height = [int]$saveRect.Height
             }
         }
-        $Global:SavedUiSettings["alwaysOnTop"] = [bool]$MainForm.TopMost
-        $Global:SavedUiSettings["opacity"]     = [math]::Round([double]$MainForm.Opacity, 2)
+        $Global:SavedUiSettings["alwaysOnTop"]    = [bool]$MainForm.TopMost
+        $Global:SavedUiSettings["opacity"]        = [math]::Round([double]$MainForm.Opacity, 2)
+        $Global:SavedUiSettings["windowLockMode"] = [string]$Global:WindowLockMode
         Save-CoreWatchUiSettings -Settings $Global:SavedUiSettings
     } catch {}
+    # Always release Keep Screen Awake execution state cleanly on exit
+    Sync-CoreWatchKeepAwake -Enable $false
     if ($null -ne $global:SystemTrayIcon) { $global:SystemTrayIcon.Visible = $false; $global:SystemTrayIcon.Dispose() }
     if ($null -ne $TrayIconInstance) { $TrayIconInstance.Dispose() }
     if ($null -ne $IconHandle) { [CoreWatch.Win32]::DestroyIcon($IconHandle) }

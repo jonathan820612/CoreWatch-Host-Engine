@@ -4,6 +4,13 @@
 window._activeViewKey = 'dashboard';
 
 window.SwitchAppLayoutView = function(targetViewId) {
+    const requested = targetViewId || 'dashboard';
+    if (requested !== 'dashboard' && typeof IsModuleEnabled === 'function' && !IsModuleEnabled(requested)) {
+        if (typeof AppendConsoleLogEntry === 'function') {
+            AppendConsoleLogEntry(`[MODULES] '${requested}' is disabled or not installed. Open ⚙️ Settings → Modules & Tabs to enable it.`);
+        }
+        targetViewId = 'dashboard';
+    }
     window._activeViewKey = targetViewId || 'dashboard';
     if (window.chrome && window.chrome.webview) {
         window.chrome.webview.postMessage(`Active-View:${window._activeViewKey}`);
@@ -21,7 +28,10 @@ window.SwitchAppLayoutView = function(targetViewId) {
         diagx: document.getElementById('viewUltimaDiagXPanel'),
         tasksports: document.getElementById('viewTasksPortsPanel'),
         wsl: document.getElementById('viewWslManagerPanel'),
-        security: document.getElementById('viewSecurityRepairPanel')
+        github: document.getElementById('viewGitHubPanel'),
+        jira: document.getElementById('viewJiraPanel'),
+        security: document.getElementById('viewSecurityRepairPanel'),
+        profiles: document.getElementById('viewProfilesPanel')
     };
 
     const buttons = {
@@ -37,7 +47,10 @@ window.SwitchAppLayoutView = function(targetViewId) {
         diagx: document.getElementById('tabUltimaDiagX'),
         tasksports: document.getElementById('tabTasksPorts'),
         wsl: document.getElementById('tabWslManager'),
-        security: document.getElementById('tabSecurityRepair')
+        github: document.getElementById('tabGitHubManager'),
+        jira: document.getElementById('tabJiraManager'),
+        security: document.getElementById('tabSecurityRepair'),
+        profiles: document.getElementById('tabProfiles')
     };
 
     Object.values(panels).forEach(p => { if (p) p.style.display = 'none'; });
@@ -58,6 +71,7 @@ window.SwitchAppLayoutView = function(targetViewId) {
         sysTrigger.setAttribute('aria-expanded', 'false');
     }
     const systemMenuLabels = {
+        profiles: '⚡ Profiles',
         security: '🛡️ Security',
         startup: '🚀 Startup',
         sharing: '📂 Sharing',
@@ -72,6 +86,27 @@ window.SwitchAppLayoutView = function(targetViewId) {
         if (sysLabel) sysLabel.textContent = systemMenuLabels[targetViewId];
     } else if (sysLabel) {
         sysLabel.textContent = '🧰 System';
+    }
+
+    // Close Dev & Work dropdown and update grouped trigger label/active highlight
+    const devDrop = document.getElementById('navDevDropdown');
+    const devTrigger = document.getElementById('tabDevMenu');
+    const devLabel = document.getElementById('lblDevMenuText');
+    if (devDrop) devDrop.classList.remove('open');
+    if (devTrigger) {
+        devTrigger.classList.remove('active');
+        devTrigger.setAttribute('aria-expanded', 'false');
+    }
+    const devMenuLabels = {
+        github: '🐙 GitHub',
+        jira: '📋 Jira',
+        wsl: '🐧 WSL'
+    };
+    if (devMenuLabels[targetViewId]) {
+        if (devTrigger) devTrigger.classList.add('active');
+        if (devLabel) devLabel.textContent = devMenuLabels[targetViewId];
+    } else if (devLabel) {
+        devLabel.textContent = '💻 Dev & Work';
     }
 
     if (targetViewId === 'netmanager') {
@@ -148,6 +183,25 @@ window.SwitchAppLayoutView = function(targetViewId) {
         if (buttons.security) buttons.security.classList.add('active');
         if (!window._secRepairLoaded) {
             RequestSecurityRepair();
+        }
+    }
+    else if (targetViewId === 'profiles') {
+        if (panels.profiles) panels.profiles.style.display = 'flex';
+        if (buttons.profiles) buttons.profiles.classList.add('active');
+        RequestProfilesState();
+    }
+    else if (targetViewId === 'github') {
+        if (panels.github) panels.github.style.display = 'flex';
+        if (buttons.github) buttons.github.classList.add('active');
+        if (!window._ghManagerLoaded) {
+            RequestGitHubManagerState();
+        }
+    }
+    else if (targetViewId === 'jira') {
+        if (panels.jira) panels.jira.style.display = 'flex';
+        if (buttons.jira) buttons.jira.classList.add('active');
+        if (!window._jiraManagerLoaded) {
+            RequestJiraManagerState();
         }
     }
     else {
@@ -377,7 +431,49 @@ const msgType = stats.type || stats.Type;
         ApplyHostUiSettingsState(stats);
     }
     else if (msgType === "UI_WINDOW_STATE") {
-        SyncWindowPinAndOpacityUi(stats.alwaysOnTop, stats.opacity);
+        SyncWindowPinAndOpacityUi(stats.alwaysOnTop, stats.opacity, stats.windowLockMode);
+    }
+    else if (msgType === "APP_SETTINGS_STATE") {
+        ApplyAppSettingsState(stats);
+    }
+    else if (msgType === "APP_UPDATE_STATUS") {
+        HandleAppUpdateStatus(stats);
+    }
+    else if (msgType === "BROWSE_FILE_RESULT") {
+        HandleBrowseFileResult(stats);
+    }
+    else if (msgType === "OPEN_SETTINGS_MODAL") {
+        OpenSettingsModal();
+    }
+    else if (msgType === "PROFILES_STATE") {
+        RenderProfilesState(stats);
+    }
+    else if (msgType === "PROFILES_CAPTURED_SNAPSHOT") {
+        OpenProfileEditorFromSnapshot(stats.snapshot);
+    }
+    else if (msgType === "PROFILES_NOTICE") {
+        HandleProfilesNotice(stats);
+    }
+    else if (msgType === "GITHUB_MANAGER_STATE") {
+        RenderGitHubManagerState(stats);
+    }
+    else if (msgType === "GITHUB_RELEASES_STATE") {
+        RenderGitHubReleasesState(stats);
+    }
+    else if (msgType === "GITHUB_GENERATED_NOTES") {
+        ApplyGitHubGeneratedNotes(stats);
+    }
+    else if (msgType === "GITHUB_NOTICE") {
+        HandleGitHubNotice(stats);
+    }
+    else if (msgType === "JIRA_MANAGER_STATE") {
+        RenderJiraManagerState(stats);
+    }
+    else if (msgType === "JIRA_ISSUE_DETAIL") {
+        RenderJiraIssueDetail(stats);
+    }
+    else if (msgType === "JIRA_NOTICE") {
+        HandleJiraNotice(stats);
     }
     else {
         // Dashboard Full Telemetry (1s cadence)
@@ -932,8 +1028,18 @@ function ApplyHardwareDiagnosticsUi(sys) {
     }
 }
 
+function FormatCoreWatchTempDisplay(rawTemp) {
+    const num = Number(rawTemp);
+    const unit = (window._cwAppSettings && window._cwAppSettings.telemetry && window._cwAppSettings.telemetry.temperatureUnit === 'F') ? 'F' : 'C';
+    if (!Number.isFinite(num)) return { text: rawTemp, unitText: `°${unit}`, rawC: NaN };
+    const shown = unit === 'F' ? Math.round((num * 9 / 5) + 32) : Math.round(num);
+    return { text: String(shown), unitText: `°${unit}`, rawC: num };
+}
+
 function updateFastTelemetryMesh(stats) {
-    if (!stats || window._activeViewKey !== 'dashboard') return;
+    const dockEl = document.getElementById('sideTelemetryDock');
+    const isSideDockOpen = !!(dockEl && dockEl.style.display !== 'none');
+    if (!stats || (window._activeViewKey !== 'dashboard' && !isSideDockOpen)) return;
 
     const sys = stats.SystemFrame;
     if (sys) {
@@ -941,14 +1047,16 @@ function updateFastTelemetryMesh(stats) {
         SetDomStyleWidth('barCpuLoad', `${sys.CpuLoad}%`);
         if (sys.CpuClock) SetDomText('lblCpuClock', sys.CpuClock);
         if (sys.CpuTemp !== undefined && sys.CpuTemp !== null) {
-            const cpuTempNum = Number(sys.CpuTemp);
-            SetDomText('lblCpuTemp', Number.isFinite(cpuTempNum) ? cpuTempNum : sys.CpuTemp);
+            window._cwLastRawCpuTemp = sys.CpuTemp;
+            const ct = FormatCoreWatchTempDisplay(sys.CpuTemp);
+            SetDomText('lblCpuTemp', ct.text);
+            SetDomText('lblCpuTempUnit', ct.unitText);
             const cpuBadge = document.getElementById('badgeCpuTemp');
             if (cpuBadge) {
-                cpuBadge.classList.toggle('therm-hot', Number.isFinite(cpuTempNum) && cpuTempNum >= 75);
-                cpuBadge.classList.toggle('therm-cool', !Number.isFinite(cpuTempNum) || cpuTempNum < 75);
+                cpuBadge.classList.toggle('therm-hot', Number.isFinite(ct.rawC) && ct.rawC >= 75);
+                cpuBadge.classList.toggle('therm-cool', !Number.isFinite(ct.rawC) || ct.rawC < 75);
                 if (sys.CpuTempSource) cpuBadge.title = sys.CpuTempSource;
-                const needsPawnIo = !Number.isFinite(cpuTempNum) && sys.LhmBundled === true && sys.PawnIoInstalled === false;
+                const needsPawnIo = !Number.isFinite(ct.rawC) && sys.LhmBundled === true && sys.PawnIoInstalled === false;
                 cpuBadge.style.cursor = needsPawnIo ? 'pointer' : '';
                 cpuBadge.onclick = needsPawnIo ? TriggerInstallPawnIo : null;
             }
@@ -960,12 +1068,14 @@ function updateFastTelemetryMesh(stats) {
         }
         if (sys.GpuPower !== undefined && sys.GpuPower !== null) SetDomText('lblGpuPower', sys.GpuPower);
         if (sys.GpuTemp !== undefined && sys.GpuTemp !== null) {
-            const gpuTempNum = Number(sys.GpuTemp);
-            SetDomText('lblGpuTemp', Number.isFinite(gpuTempNum) ? gpuTempNum : sys.GpuTemp);
+            window._cwLastRawGpuTemp = sys.GpuTemp;
+            const gt = FormatCoreWatchTempDisplay(sys.GpuTemp);
+            SetDomText('lblGpuTemp', gt.text);
+            SetDomText('lblGpuTempUnit', gt.unitText);
             const gpuBadge = document.getElementById('badgeGpuTemp');
             if (gpuBadge) {
-                gpuBadge.classList.toggle('therm-hot', Number.isFinite(gpuTempNum) && gpuTempNum >= 75);
-                gpuBadge.classList.toggle('therm-cool', !Number.isFinite(gpuTempNum) || gpuTempNum < 75);
+                gpuBadge.classList.toggle('therm-hot', Number.isFinite(gt.rawC) && gt.rawC >= 75);
+                gpuBadge.classList.toggle('therm-cool', !Number.isFinite(gt.rawC) || gt.rawC < 75);
             }
         }
 
@@ -1088,9 +1198,10 @@ function updateDashboardUiMesh(stats) {
         SetDomText('lblCpuLoad',        `${sys.CpuLoad}%`);
         SetDomStyleWidth('barCpuLoad',  `${sys.CpuLoad}%`);
         SetDomText('lblCpuClock',       sys.CpuClock);
-        SetDomText('lblCpuTemp',        sys.CpuTemp);
-        SetDomText('lblPagefileUsage', sys.PagefileUsageText); 
-        SetDomStyleWidth('barPagefileUsage', `${sys.PagefilePercent}%`);
+        window._cwLastRawCpuTemp = sys.CpuTemp;
+        const ctFull = FormatCoreWatchTempDisplay(sys.CpuTemp);
+        SetDomText('lblCpuTemp',        ctFull.text);
+        SetDomText('lblCpuTempUnit',    ctFull.unitText);
         // [DYNAMIC CONTROL] Windows Telemetry Bidirectional On <-> Off Toggle Pill
         const telElem = document.getElementById('lblTelemetry');
         if (telElem) {
@@ -1108,13 +1219,12 @@ function updateDashboardUiMesh(stats) {
         SetDomText('lblPagefileUsage', sys.PagefileUsageText);
         SetDomStyleWidth('barPagefileUsage', `${sys.PagefilePercent}%`);
 
-        const cpuTempNum = Number(sys.CpuTemp);
         const cpuBadge = document.getElementById('badgeCpuTemp');
         if (cpuBadge) {
-            cpuBadge.classList.toggle('therm-hot', Number.isFinite(cpuTempNum) && cpuTempNum >= 75);
-            cpuBadge.classList.toggle('therm-cool', !Number.isFinite(cpuTempNum) || cpuTempNum < 75);
+            cpuBadge.classList.toggle('therm-hot', Number.isFinite(ctFull.rawC) && ctFull.rawC >= 75);
+            cpuBadge.classList.toggle('therm-cool', !Number.isFinite(ctFull.rawC) || ctFull.rawC < 75);
             if (sys.CpuTempSource) cpuBadge.title = sys.CpuTempSource;
-            const needsPawnIo = !Number.isFinite(cpuTempNum) && sys.LhmBundled === true && sys.PawnIoInstalled === false;
+            const needsPawnIo = !Number.isFinite(ctFull.rawC) && sys.LhmBundled === true && sys.PawnIoInstalled === false;
             cpuBadge.style.cursor = needsPawnIo ? 'pointer' : '';
             cpuBadge.onclick = needsPawnIo ? TriggerInstallPawnIo : null;
         }
@@ -1124,13 +1234,15 @@ function updateDashboardUiMesh(stats) {
         SetDomText('lblGpuModel',       sys.GpuModel);
         SetDomText('lblGpuDriver',      sys.GpuDriverVersion);
         SetDomText('lblGpuPower',       sys.GpuPower);
-        SetDomText('lblGpuTemp',        sys.GpuTemp);
+        window._cwLastRawGpuTemp = sys.GpuTemp;
+        const gtFull = FormatCoreWatchTempDisplay(sys.GpuTemp);
+        SetDomText('lblGpuTemp',        gtFull.text);
+        SetDomText('lblGpuTempUnit',    gtFull.unitText);
 
-        const gpuTempNum = Number(sys.GpuTemp);
         const gpuBadge = document.getElementById('badgeGpuTemp');
         if (gpuBadge) {
-            gpuBadge.classList.toggle('therm-hot', Number.isFinite(gpuTempNum) && gpuTempNum >= 75);
-            gpuBadge.classList.toggle('therm-cool', !Number.isFinite(gpuTempNum) || gpuTempNum < 75);
+            gpuBadge.classList.toggle('therm-hot', Number.isFinite(gtFull.rawC) && gtFull.rawC >= 75);
+            gpuBadge.classList.toggle('therm-cool', !Number.isFinite(gtFull.rawC) || gtFull.rawC < 75);
         }
 
         ApplyHardwareDiagnosticsUi(sys);
@@ -2037,6 +2149,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Maps pointer position to native Win32 HT* resize hit-test codes & CSS cursors
     function DetectWindowEdgeHit(x, y) {
+        const lockMode = window._cwWindowLockMode || 'none';
+        if (lockMode === 'all') return null;
+
         const w = window.innerWidth;
         const h = window.innerHeight;
         const onLeft   = x <= EDGE_THICKNESS;
@@ -2049,21 +2164,29 @@ document.addEventListener("DOMContentLoaded", () => {
         const inTopCorner    = y <= CORNER_THICKNESS;
         const inBottomCorner = y >= (h - CORNER_THICKNESS);
 
-        if ((onTop && inLeftCorner) || (onLeft && inTopCorner))       return { hit: 13, cursor: 'nw-resize' }; // HTTOPLEFT
-        if ((onTop && inRightCorner) || (onRight && inTopCorner))     return { hit: 14, cursor: 'ne-resize' }; // HTTOPRIGHT
-        if ((onBottom && inLeftCorner) || (onLeft && inBottomCorner)) return { hit: 16, cursor: 'sw-resize' }; // HTBOTTOMLEFT
-        if ((onBottom && inRightCorner) || (onRight && inBottomCorner)) return { hit: 17, cursor: 'se-resize' }; // HTBOTTOMRIGHT
-        if (onLeft)   return { hit: 10, cursor: 'w-resize' };  // HTLEFT
-        if (onRight)  return { hit: 11, cursor: 'e-resize' };  // HTRIGHT
-        if (onTop)    return { hit: 12, cursor: 'n-resize' };  // HTTOP
-        if (onBottom) return { hit: 15, cursor: 's-resize' };  // HTBOTTOM
-        return null;
+        let hitObj = null;
+        if ((onTop && inLeftCorner) || (onLeft && inTopCorner))         hitObj = { hit: 13, cursor: 'nw-resize' }; // HTTOPLEFT
+        else if ((onTop && inRightCorner) || (onRight && inTopCorner))  hitObj = { hit: 14, cursor: 'ne-resize' }; // HTTOPRIGHT
+        else if ((onBottom && inLeftCorner) || (onLeft && inBottomCorner)) hitObj = { hit: 16, cursor: 'sw-resize' }; // HTBOTTOMLEFT
+        else if ((onBottom && inRightCorner) || (onRight && inBottomCorner)) hitObj = { hit: 17, cursor: 'se-resize' }; // HTBOTTOMRIGHT
+        else if (onLeft)   hitObj = { hit: 10, cursor: 'w-resize' };  // HTLEFT
+        else if (onRight)  hitObj = { hit: 11, cursor: 'e-resize' };  // HTRIGHT
+        else if (onTop)    hitObj = { hit: 12, cursor: 'n-resize' };  // HTTOP
+        else if (onBottom) hitObj = { hit: 15, cursor: 's-resize' };  // HTBOTTOM
+
+        // When Position is locked, only allow Right (11), Bottom (15), and Bottom-Right (17)
+        // so width/height can resize without shifting the top-left (X, Y) window position.
+        if (hitObj && lockMode === 'position' && ![11, 15, 17].includes(hitObj.hit)) {
+            return null;
+        }
+        return hitObj;
     }
 
     const headerDeck = document.querySelector('.app-header-deck');
     if (headerDeck && window.chrome && window.chrome.webview) {
         headerDeck.addEventListener('mousedown', (e) => {
             if (e.button !== 0) return;
+            if ((window._cwWindowLockMode || 'none') !== 'none') return;
             if (DetectWindowEdgeHit(e.clientX, e.clientY)) return;
             if (e.target.closest('.tab-btn') || e.target.closest('.exit-system-btn') || e.target.closest('.nav-dropdown')) return;
             e.preventDefault();
@@ -2071,6 +2194,7 @@ document.addEventListener("DOMContentLoaded", () => {
         });
 
         headerDeck.addEventListener('dblclick', (e) => {
+            if ((window._cwWindowLockMode || 'none') !== 'none') return;
             if (e.target.closest('.tab-btn') || e.target.closest('.exit-system-btn') || e.target.closest('.nav-dropdown')) return;
             window.chrome.webview.postMessage('Maximize-App');
         });
@@ -2280,13 +2404,20 @@ window.TriggerScaleChange = function(deviceName, targetPct, previousPct) {
     DispatchDashboardControl('SET_MONITOR_SCALE', { deviceName, scalePct: targetPct }, `Applying Windows display scale -> ${targetPct}%...`);
 };
 
+function ConfirmDestructiveAction(message) {
+    if (window._cwAppSettings && window._cwAppSettings.general && window._cwAppSettings.general.confirmDestructiveActions === false) {
+        return true;
+    }
+    return confirm(message);
+}
+
 window.TriggerOrientationChange = function(deviceName, targetCode, previousCode) {
     if (!deviceName || !Number.isFinite(targetCode) || targetCode < 0 || targetCode > 3) return;
     if (Number.isFinite(previousCode) && targetCode === previousCode) return;
     const labels = ['Landscape', 'Portrait', 'Landscape (Flipped)', 'Portrait (Flipped)'];
     const label = labels[targetCode] || 'Landscape';
     const sel = document.querySelector('#lblMonOrientation select.infra-refresh-select');
-    if (!confirm(`Rotate display (${deviceName}) to ${label}?`)) {
+    if (!ConfirmDestructiveAction(`Rotate display (${deviceName}) to ${label}?`)) {
         if (sel && Number.isFinite(previousCode)) sel.value = String(previousCode);
         return;
     }
@@ -2350,7 +2481,7 @@ window.TriggerTopProcessAction = function() {
         `• Footprint: ${meta.text}\n` +
         (meta.detail ? `• Snapshot: ${meta.detail}\n\n` : '\n') +
         `Force-terminate ${meta.name} (PID ${meta.pid})?`;
-    if (!confirm(msg)) return;
+    if (!ConfirmDestructiveAction(msg)) return;
     DispatchDashboardControl('END_TOP_PROCESS', { pid: meta.pid, name: meta.name }, `Terminating ${meta.name} (PID ${meta.pid})...`);
 };
 
@@ -3264,6 +3395,25 @@ function HandleBrowseFolderResult(data) {
         const inp = document.getElementById('diskMapTargetPath');
         if (inp) inp.value = data.path;
         TriggerDiskMapScan(data.path);
+    } else if (data.target === 'settings_projects') {
+        const inp = document.getElementById('inpSetProjectsRoot');
+        if (inp) inp.value = data.path;
+    } else if (data.target === 'settings_exports') {
+        const inp = document.getElementById('inpSetExportsRoot');
+        if (inp) inp.value = data.path;
+    } else if (data.target === 'settings_wsl') {
+        const inp = document.getElementById('inpSetWslRoot');
+        if (inp) inp.value = data.path;
+    } else if (data.target === 'settings_organizer') {
+        const inp = document.getElementById('inpSetOrgDestRoot');
+        if (inp) inp.value = data.path;
+    } else if (data.target === 'github_clone_dest') {
+        const inp = document.getElementById('inpGhCloneDest');
+        if (inp) inp.value = data.path;
+    } else if (data.target === 'github_projects_root') {
+        const inp = document.getElementById('inpGhProjectsRoot');
+        if (inp) inp.value = data.path;
+        ScanGitHubProjectsRoot();
     } else {
         const inp = document.getElementById('orgCustomFolderInput');
         if (inp) inp.value = data.path;
@@ -5471,7 +5621,7 @@ window.RenderCurrentTasksPortsView = function() {
 };
 
 window.TriggerTpKillProcess = function(pid, name) {
-    if (!confirm(`Force-terminate process '${name}' (PID ${pid})?`)) return;
+    if (!ConfirmDestructiveAction(`Force-terminate process '${name}' (PID ${pid})?`)) return;
     SetTpStatus(`Terminating ${name} (PID ${pid})...`);
     window.chrome?.webview?.postMessage(JSON.stringify({ command: 'TP_KILL_PROCESS', pid }));
 };
@@ -5481,7 +5631,7 @@ window.TriggerTpOpenLocation = function(path) {
 };
 
 window.TriggerTpServiceAction = function(serviceName, action) {
-    if (action === 'stop' && !confirm(`Stop Windows service '${serviceName}'?`)) return;
+    if (action === 'stop' && !ConfirmDestructiveAction(`Stop Windows service '${serviceName}'?`)) return;
     SetTpStatus(`Running '${action}' on service '${serviceName}'...`);
     window.chrome?.webview?.postMessage(JSON.stringify({ command: 'TP_SERVICE_ACTION', serviceName, action }));
 };
@@ -6358,29 +6508,39 @@ window._cmdPaletteFiltered = [];
 
 const COREWATCH_PALETTE_ITEMS = [
     { label: '📟 Dashboard — System Overview', cat: 'Tab', run: () => SwitchAppLayoutView('dashboard') },
+    { label: '⚙️ Application Settings — Startup, Directories, Telemetry & Modules', cat: 'Settings', run: () => OpenSettingsModal() },
+    { label: '⚡ System Profiles & Modes (Work, Gaming, Streaming, Night & Custom)', cat: 'Tab', moduleId: 'profiles', run: () => SwitchAppLayoutView('profiles') },
+    { label: '🎮 Switch Mode → Gaming', cat: 'Mode', moduleId: 'profiles', run: () => TriggerApplyProfile('gaming') },
+    { label: '💼 Switch Mode → Work / Focus (DnD On)', cat: 'Mode', moduleId: 'profiles', run: () => TriggerApplyProfile('work') },
+    { label: '🎙️ Switch Mode → Presentation / Streaming (DnD + Keep Awake)', cat: 'Mode', moduleId: 'profiles', run: () => TriggerApplyProfile('presentation') },
+    { label: '🌙 Switch Mode → Night / Quiet (Night Light + DnD)', cat: 'Mode', moduleId: 'profiles', run: () => TriggerApplyProfile('night') },
+    { label: '🖥️ Switch Mode → Normal / Default', cat: 'Mode', moduleId: 'profiles', run: () => TriggerApplyProfile('normal') },
     { label: '✏️ Customize Dashboard Layout (Grid / Side Dock / Hide)', cat: 'UI', run: () => { SwitchAppLayoutView('dashboard'); OpenLayoutCustomizer(); } },
     { label: '◫ Toggle Side Pop-Out Telemetry Dock', cat: 'UI', run: () => ToggleSideTelemetryDock() },
     { label: '📌 Toggle Always on Top (Pin Window)', cat: 'Window', run: () => ToggleWindowAlwaysOnTop() },
-    { label: '📡 Network — Adapters, Diagnostics & Routing', cat: 'Tab', run: () => SwitchAppLayoutView('netmanager') },
-    { label: '🧪 Network — Active Diagnostics (Ping / Trace / Ports / DNS)', cat: 'Tool', run: () => { SwitchAppLayoutView('netmanager'); SetNetworkSubView('diagnostics'); } },
-    { label: '📶 Network — Wi-Fi RSSI, Routing Table & ARP', cat: 'Tool', run: () => { SwitchAppLayoutView('netmanager'); SetNetworkSubView('wifiroutes'); } },
-    { label: '🧭 Tasks & Ports — Live Processes, Services & Sockets', cat: 'Tab', run: () => SwitchAppLayoutView('tasksports') },
-    { label: '🔌 Open Listening Ports & Sockets', cat: 'Tool', run: () => { SwitchAppLayoutView('tasksports'); SetTasksPortsSubView('sockets'); } },
-    { label: '🛠️ Windows Services (Stopped Auto Fault Check)', cat: 'Tool', run: () => { SwitchAppLayoutView('tasksports'); SetTasksPortsSubView('services'); SetTpServiceFilter('faulty'); } },
-    { label: '🩺 UltimaDiagX — Event Logs & BSOD Translator', cat: 'Tab', run: () => SwitchAppLayoutView('diagx') },
-    { label: '🐧 WSL — Windows Subsystem for Linux Manager', cat: 'Tab', run: () => SwitchAppLayoutView('wsl') },
-    { label: '🛡️ Security & Compliance Posture (BitLocker, TPM, RDP)', cat: 'Tab', run: () => { SwitchAppLayoutView('security'); SetSecuritySubView('posture'); } },
-    { label: '🧬 Env, Hosts File, System Proxy & Recent KBs Audit', cat: 'Tool', run: () => { SwitchAppLayoutView('security'); SetSecuritySubView('envhosts'); } },
-    { label: '🧰 Windows Repair Toolkit (DISM, SFC, WU/Winsock, Temp Clean)', cat: 'Tool', run: () => { SwitchAppLayoutView('security'); SetSecuritySubView('repair'); } },
-    { label: '🧹 Clean Safe Temp Files (%TEMP% & Windows\\Temp)', cat: 'Action', run: () => { SwitchAppLayoutView('security'); SetSecuritySubView('repair'); RunRepairTool('REPAIR_CLEAN_TEMP', 'Safe Temp Cleanup', true); } },
-    { label: '📦 Export 1-Click IT Support Bundle (.zip)', cat: 'Action', run: () => TriggerExportSupportBundle() },
-    { label: '🚀 Startup Apps Manager', cat: 'Tab', run: () => SwitchAppLayoutView('startup') },
-    { label: '📂 SMB Sharing Center', cat: 'Tab', run: () => SwitchAppLayoutView('sharing') },
-    { label: '📦 Installed Applications Manager', cat: 'Tab', run: () => SwitchAppLayoutView('apps') },
-    { label: '⬇️ App Downloader & Package Installer (Steam, VS Code, Python, Rust, C++)', cat: 'Tab', run: () => SwitchAppLayoutView('appstore') },
-    { label: '🗺️ Disk Map — Visual Storage Explorer & Treemap (WizTree-style)', cat: 'Tab', run: () => SwitchAppLayoutView('diskmap') },
-    { label: '🧩 System Devices & Drivers Tree (with Official Driver Links)', cat: 'Tab', run: () => SwitchAppLayoutView('devices') },
-    { label: '🗂️ File Organizer', cat: 'Tab', run: () => SwitchAppLayoutView('organizer') },
+    { label: '🔒 Cycle Window Lock (Unlocked → Position → Position & Size)', cat: 'Window', run: () => CycleWindowLockMode() },
+    { label: '🐙 GitHub Manager — Local Projects, Clone & Releases', cat: 'Tab', moduleId: 'github', run: () => SwitchAppLayoutView('github') },
+    { label: '📋 Jira Manager — Work Tasks, Transitions & Comments', cat: 'Tab', moduleId: 'jira', run: () => SwitchAppLayoutView('jira') },
+    { label: '📡 Network — Adapters, Diagnostics & Routing', cat: 'Tab', moduleId: 'netmanager', run: () => SwitchAppLayoutView('netmanager') },
+    { label: '🧪 Network — Active Diagnostics (Ping / Trace / Ports / DNS)', cat: 'Tool', moduleId: 'netmanager', run: () => { SwitchAppLayoutView('netmanager'); SetNetworkSubView('diagnostics'); } },
+    { label: '📶 Network — Wi-Fi RSSI, Routing Table & ARP', cat: 'Tool', moduleId: 'netmanager', run: () => { SwitchAppLayoutView('netmanager'); SetNetworkSubView('wifiroutes'); } },
+    { label: '🧭 Tasks & Ports — Live Processes, Services & Sockets', cat: 'Tab', moduleId: 'tasksports', run: () => SwitchAppLayoutView('tasksports') },
+    { label: '🔌 Open Listening Ports & Sockets', cat: 'Tool', moduleId: 'tasksports', run: () => { SwitchAppLayoutView('tasksports'); SetTasksPortsSubView('sockets'); } },
+    { label: '🛠️ Windows Services (Stopped Auto Fault Check)', cat: 'Tool', moduleId: 'tasksports', run: () => { SwitchAppLayoutView('tasksports'); SetTasksPortsSubView('services'); SetTpServiceFilter('faulty'); } },
+    { label: '🩺 UltimaDiagX — Event Logs & BSOD Translator', cat: 'Tab', moduleId: 'diagx', run: () => SwitchAppLayoutView('diagx') },
+    { label: '🐧 WSL — Windows Subsystem for Linux Manager', cat: 'Tab', moduleId: 'wsl', run: () => SwitchAppLayoutView('wsl') },
+    { label: '🛡️ Security & Compliance Posture (BitLocker, TPM, RDP)', cat: 'Tab', moduleId: 'security', run: () => { SwitchAppLayoutView('security'); SetSecuritySubView('posture'); } },
+    { label: '🧬 Env, Hosts File, System Proxy & Recent KBs Audit', cat: 'Tool', moduleId: 'security', run: () => { SwitchAppLayoutView('security'); SetSecuritySubView('envhosts'); } },
+    { label: '🧰 Windows Repair Toolkit (DISM, SFC, WU/Winsock, Temp Clean)', cat: 'Tool', moduleId: 'security', run: () => { SwitchAppLayoutView('security'); SetSecuritySubView('repair'); } },
+    { label: '🧹 Clean Safe Temp Files (%TEMP% & Windows\\Temp)', cat: 'Action', moduleId: 'security', run: () => { SwitchAppLayoutView('security'); SetSecuritySubView('repair'); RunRepairTool('REPAIR_CLEAN_TEMP', 'Safe Temp Cleanup', true); } },
+    { label: '📦 Export 1-Click IT Support Bundle (.zip)', cat: 'Action', moduleId: 'security', run: () => TriggerExportSupportBundle() },
+    { label: '🚀 Startup Apps Manager', cat: 'Tab', moduleId: 'startup', run: () => SwitchAppLayoutView('startup') },
+    { label: '📂 SMB Sharing Center', cat: 'Tab', moduleId: 'sharing', run: () => SwitchAppLayoutView('sharing') },
+    { label: '📦 Installed Applications Manager', cat: 'Tab', moduleId: 'apps', run: () => SwitchAppLayoutView('apps') },
+    { label: '⬇️ App Downloader & Package Installer (Steam, VS Code, Python, Rust, C++)', cat: 'Tab', moduleId: 'appstore', run: () => SwitchAppLayoutView('appstore') },
+    { label: '🗺️ Disk Map — Visual Storage Explorer & Treemap (WizTree-style)', cat: 'Tab', moduleId: 'diskmap', run: () => SwitchAppLayoutView('diskmap') },
+    { label: '🧩 System Devices & Drivers Tree (with Official Driver Links)', cat: 'Tab', moduleId: 'devices', run: () => SwitchAppLayoutView('devices') },
+    { label: '🗂️ File Organizer', cat: 'Tab', moduleId: 'organizer', run: () => SwitchAppLayoutView('organizer') },
     { label: '🌐 Flush DNS Cache & Probe Resolution', cat: 'Action', run: () => TriggerFlushAndTestDns() },
     { label: '🚀 Run Speed / Jitter / Packet Loss Test', cat: 'Action', run: () => { SwitchAppLayoutView('dashboard'); TriggerNetworkSpeedAnalysis(); } }
 ];
@@ -6407,7 +6567,8 @@ window.RenderCommandPaletteItems = function() {
     if (!listEl) return;
 
     const matches = COREWATCH_PALETTE_ITEMS.filter(item =>
-        !q || item.label.toLowerCase().includes(q) || item.cat.toLowerCase().includes(q)
+        (!item.moduleId || IsModuleEnabled(item.moduleId)) &&
+        (!q || item.label.toLowerCase().includes(q) || item.cat.toLowerCase().includes(q))
     );
     window._cmdPaletteFiltered = matches;
     if (window._cmdPaletteSelectedIdx >= matches.length) window._cmdPaletteSelectedIdx = 0;
@@ -6496,11 +6657,12 @@ function RenderAppInstallerData(data) {
     window._appStoreApps = apps;
 
     const sum = data.summary || {};
-    SetDomText('sumStoreTotal',     sum.total ?? apps.length);
-    SetDomText('sumStoreInstalled', sum.installed ?? apps.filter(a => a.installed).length);
-    SetDomText('sumStoreOutdated',  sum.outdated ?? apps.filter(a => a.versionTier === 'update' || a.versionTier === 'critical').length);
-    SetDomText('sumStoreAvailable', sum.available ?? apps.filter(a => !a.installed).length);
-    SetDomText('lblStoreWingetVer', data.wingetAvailable ? (data.wingetVersion || 'Ready') : 'Not Installed');
+    SetDomText('sumStoreTotal',      sum.total ?? apps.length);
+    SetDomText('sumStoreInstalled',  sum.installed ?? apps.filter(a => a.installed).length);
+    SetDomText('sumStoreLaunchable', sum.launchable ?? apps.filter(a => a.canLaunch).length);
+    SetDomText('sumStoreOutdated',   sum.outdated ?? apps.filter(a => a.versionTier === 'update' || a.versionTier === 'critical').length);
+    SetDomText('sumStoreAvailable',  sum.available ?? apps.filter(a => !a.installed).length);
+    SetDomText('lblStoreWingetVer',  data.wingetAvailable ? (data.wingetVersion || 'Ready') : 'Not Installed');
 
     const st = document.getElementById('appStoreStatus');
     if (st) {
@@ -6572,8 +6734,9 @@ window.ApplyAppInstallerFilter = function() {
     const list = window._appStoreApps.filter(app => {
         if (cat === 'requested' && !app.requested) return false;
         else if (cat === 'installed' && !app.installed) return false;
+        else if (cat === 'launchable' && !app.canLaunch) return false;
         else if (cat === 'not_installed' && app.installed) return false;
-        else if (cat !== 'all' && cat !== 'requested' && cat !== 'installed' && cat !== 'not_installed' && app.category !== cat) return false;
+        else if (cat !== 'all' && cat !== 'requested' && cat !== 'installed' && cat !== 'launchable' && cat !== 'not_installed' && app.category !== cat) return false;
 
         if (q) {
             const hay = `${app.name} ${app.id} ${app.category} ${app.desc}`.toLowerCase();
@@ -6655,16 +6818,26 @@ window.ApplyAppInstallerFilter = function() {
         const actions = document.createElement('div');
         actions.className = 'appstore-card-actions';
 
+        if (app.installed && app.canLaunch) {
+            const launchBtn = document.createElement('button');
+            launchBtn.type = 'button';
+            launchBtn.className = 'btn-store-launch';
+            launchBtn.textContent = '▶ Launch';
+            launchBtn.title = `Launch ${app.name}`;
+            launchBtn.addEventListener('click', () => TriggerLaunchInstalledApp(app.id, app.name));
+            actions.appendChild(launchBtn);
+        }
+
         const mainBtn = document.createElement('button');
         mainBtn.type = 'button';
-        if (app.installed && app.customType !== 'pawnio') {
+        if (app.installed && app.customType !== 'pawnio' && app.customType !== 'github_msi') {
             mainBtn.className = 'btn-store-upgrade';
             mainBtn.textContent = '⬆️ Upgrade';
             mainBtn.title = `Upgrade ${app.name} via WinGet`;
             mainBtn.addEventListener('click', () => TriggerInstallOneApp(app.id, app.name, 'upgrade'));
         } else {
             mainBtn.className = 'btn-store-install';
-            mainBtn.textContent = app.installed ? '↻ Reinstall' : '⬇️ Install';
+            mainBtn.textContent = app.installed ? (app.customType === 'github_msi' ? '⬆️ Update' : '↻ Reinstall') : '⬇️ Install';
             mainBtn.title = `Download & install ${app.name}`;
             mainBtn.addEventListener('click', () => TriggerInstallOneApp(app.id, app.name, 'install'));
         }
@@ -6712,6 +6885,15 @@ window.TriggerInstallSelectedApps = function() {
 window.TriggerUpgradeAllApps = function() {
     if (!confirm("Launch elevated 'winget upgrade --all' to update all installed WinGet packages?")) return;
     window.chrome?.webview?.postMessage(JSON.stringify({ command: 'APPSTORE_UPGRADE_ALL' }));
+};
+
+window.TriggerLaunchInstalledApp = function(pkgId, appName) {
+    const st = document.getElementById('appStoreStatus');
+    if (st) {
+        st.classList.remove('sharing-error');
+        st.textContent = `Launching ${appName}...`;
+    }
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'APPSTORE_LAUNCH_APP', id: pkgId }));
 };
 
 window.OpenAppOfficialUrl = function(url, name) {
@@ -7221,7 +7403,7 @@ window.DiskMapOpenInExplorer = function(path) {
 
 window.DiskMapRecyclePath = function(path) {
     if (!path) return;
-    if (!confirm(`Move to Windows Recycle Bin?\n\n${path}\n\n(Protected OS system folders are automatically blocked.)`)) return;
+    if (!ConfirmDestructiveAction(`Move to Windows Recycle Bin?\n\n${path}\n\n(Protected OS system folders are automatically blocked.)`)) return;
     window.chrome?.webview?.postMessage(JSON.stringify({ command: 'DISKMAP_RECYCLE', path }));
 };
 
@@ -8041,13 +8223,53 @@ window.ToggleLayoutCustomizer = function() {
     else OpenLayoutCustomizer();
 };
 
+window._cwWindowLockMode = 'none';
+
+function SyncWindowLockModeUi(lockMode) {
+    if (lockMode === 'none' || lockMode === 'position' || lockMode === 'all') {
+        window._cwWindowLockMode = lockMode;
+    }
+    const mode = window._cwWindowLockMode || 'none';
+    const btn = document.getElementById('btnLockWindow');
+    if (btn) {
+        btn.classList.toggle('lock-pos', mode === 'position');
+        btn.classList.toggle('lock-all', mode === 'all');
+        if (mode === 'position') {
+            btn.textContent = '🔒';
+            btn.title = 'Position Locked (Resize still allowed) — Click to lock position & size';
+        } else if (mode === 'all') {
+            btn.textContent = '🔐';
+            btn.title = 'Position & Size Locked — Click to unlock window';
+        } else {
+            btn.textContent = '🔓';
+            btn.title = 'Window Unlocked — Click to lock window position';
+        }
+    }
+    if (mode === 'all') {
+        document.documentElement.style.cursor = '';
+        document.body.style.cursor = '';
+    }
+}
+
+window.CycleWindowLockMode = function() {
+    const cur = window._cwWindowLockMode || 'none';
+    const next = cur === 'none' ? 'position' : (cur === 'position' ? 'all' : 'none');
+    SyncWindowLockModeUi(next);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'SET_WINDOW_LOCK_MODE', mode: next }));
+    const label = next === 'position' ? 'Position Locked' : (next === 'all' ? 'Position & Size Locked' : 'Unlocked');
+    AppendConsoleLogEntry(`[WINDOW] Lock state: ${label}`);
+};
+
 // Window Always-on-Top & Opacity Controls (Phase 1)
-function SyncWindowPinAndOpacityUi(alwaysOnTop, opacity) {
+function SyncWindowPinAndOpacityUi(alwaysOnTop, opacity, windowLockMode) {
     if (alwaysOnTop !== undefined && alwaysOnTop !== null) {
         window._cwWindowAlwaysOnTop = !!alwaysOnTop;
     }
     if (opacity !== undefined && opacity !== null && Number.isFinite(Number(opacity))) {
         window._cwWindowOpacity = Math.max(0.7, Math.min(1.0, Number(opacity)));
+    }
+    if (windowLockMode !== undefined && windowLockMode !== null) {
+        SyncWindowLockModeUi(windowLockMode);
     }
     const pinBtn = document.getElementById('btnPinOnTop');
     if (pinBtn) {
@@ -8087,7 +8309,7 @@ window.OnWindowOpacityCommit = function(rawPct) {
 
 function ApplyHostUiSettingsState(data) {
     if (!data) return;
-    SyncWindowPinAndOpacityUi(data.alwaysOnTop, data.opacity);
+    SyncWindowPinAndOpacityUi(data.alwaysOnTop, data.opacity, data.windowLockMode);
     if (data.layout && typeof data.layout === 'object') {
         window._cwLayoutState = NormalizeLayoutState(data.layout);
         try { localStorage.setItem(CW_LAYOUT_STORAGE_KEY, JSON.stringify(window._cwLayoutState)); } catch {}
@@ -8112,6 +8334,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
+        const jiraModal = document.getElementById('jiraCreateIssueModal');
+        if (jiraModal && jiraModal.style.display !== 'none') {
+            CloseJiraCreateIssueModal();
+            return;
+        }
+        const profModal = document.getElementById('profileEditorModal');
+        if (profModal && profModal.style.display !== 'none') {
+            CloseProfileEditorModal();
+            return;
+        }
+        const setModal = document.getElementById('coreWatchSettingsModal');
+        if (setModal && setModal.style.display !== 'none') {
+            CloseSettingsModal();
+            return;
+        }
         const drawer = document.getElementById('layoutCustomizerDrawer');
         if (drawer && drawer.style.display !== 'none') {
             CloseLayoutCustomizer();
@@ -8122,3 +8359,1538 @@ document.addEventListener('keydown', (e) => {
         }
     }
 });
+
+// =========================================================================
+// UNIFIED APPLICATION SETTINGS & MODULAR TAB REGISTRY CONTROLLER
+// =========================================================================
+window._cwAppSettings = null;
+window._cwModulesState = null;
+window._cwVersionInfo = null;
+window._cwAutoStartInfo = null;
+window._cwUpdateReleaseUrl = '';
+window._cwAutoUpdateCheckedOnce = false;
+window._cwDraftDisabledModules = new Set();
+
+function IsModuleEnabled(moduleId) {
+    if (!moduleId || moduleId === 'dashboard') return true;
+    const ms = window._cwModulesState;
+    if (!ms || !Array.isArray(ms.modules) || ms.modules.length === 0) return true;
+    const rec = ms.modules.find(m => m.id === moduleId);
+    return rec ? !!rec.enabled : true;
+}
+
+function ApplyModularTabsVisibility() {
+    const ms = window._cwModulesState;
+    if (!ms || !Array.isArray(ms.modules) || ms.modules.length === 0) return;
+
+    let anySystemEnabled = false;
+    let anyDevEnabled = false;
+    ms.modules.forEach(m => {
+        const btn = m.tabButtonId ? document.getElementById(m.tabButtonId) : null;
+        if (btn) {
+            btn.style.display = m.enabled ? '' : 'none';
+        }
+        if (m.navSlot === 'system' && m.enabled) {
+            anySystemEnabled = true;
+        }
+        if (m.navSlot === 'dev' && m.enabled) {
+            anyDevEnabled = true;
+        }
+    });
+
+    const sysDrop = document.getElementById('navSystemDropdown');
+    if (sysDrop) {
+        sysDrop.style.display = anySystemEnabled ? '' : 'none';
+    }
+
+    const devDrop = document.getElementById('navDevDropdown');
+    if (devDrop) {
+        devDrop.style.display = anyDevEnabled ? '' : 'none';
+    }
+
+    const modeDrop = document.getElementById('navModePillDropdown');
+    if (modeDrop) {
+        modeDrop.style.display = IsModuleEnabled('profiles') ? '' : 'none';
+    }
+
+    // If the currently active tab was disabled, gracefully return to Dashboard
+    if (window._activeViewKey && window._activeViewKey !== 'dashboard' && !IsModuleEnabled(window._activeViewKey)) {
+        SwitchAppLayoutView('dashboard');
+    }
+}
+
+function SetSettingsStatusBanner(msg, isErr = false) {
+    const el = document.getElementById('lblSettingsSaveStatus');
+    if (!el) return;
+    el.textContent = msg || '';
+    el.classList.toggle('is-err', !!isErr);
+}
+
+function RenderSettingsModulesChecklist() {
+    const host = document.getElementById('settingsModulesList');
+    const summaryEl = document.getElementById('lblSetModulesSummary');
+    const ms = window._cwModulesState;
+    if (!host) return;
+
+    if (!ms || !Array.isArray(ms.modules) || ms.modules.length === 0) {
+        host.innerHTML = '<div class="driver-text-node">Module catalog unavailable.</div>';
+        return;
+    }
+
+    const total = ms.modules.length;
+    const installedCount = ms.modules.filter(m => m.installed).length;
+    const enabledCount = ms.modules.filter(m => m.installed && !window._cwDraftDisabledModules.has(m.id)).length;
+    if (summaryEl) {
+        summaryEl.textContent = `${enabledCount} Active · ${installedCount} / ${total} Installed (${window._cwVersionInfo?.installMode || ms.installMode || 'Full'})`;
+    }
+
+    const groups = new Map();
+    ms.modules.forEach(m => {
+        const g = m.group || 'Modules';
+        if (!groups.has(g)) groups.set(g, []);
+        groups.get(g).push(m);
+    });
+
+    let html = '';
+    groups.forEach((items, groupName) => {
+        html += `<div class="cw-mod-group"><div class="cw-mod-group-title">${EscapeHtmlTp(groupName)}</div>`;
+        items.forEach(m => {
+            const isInstalled = !!m.installed;
+            const isEnabled = isInstalled && !window._cwDraftDisabledModules.has(m.id);
+            const rowCls = isInstalled ? '' : 'is-uninstalled';
+            const pill = !isInstalled
+                ? '<span class="cw-mod-pill is-missing">Not Installed</span>'
+                : (isEnabled ? '<span class="cw-mod-pill is-on">Enabled</span>' : '<span class="cw-mod-pill is-off">Hidden</span>');
+            html += `<label class="cw-mod-row ${rowCls}">
+                <span class="cw-mod-row-left">
+                    <input type="checkbox" data-mod-id="${EscapeHtmlTp(m.id)}" ${isEnabled ? 'checked' : ''} ${isInstalled ? '' : 'disabled'} onchange="OnSettingsModuleToggle('${EscapeHtmlTp(m.id)}', this.checked)">
+                    <span>
+                        <div class="cw-mod-name">${m.icon || '🧩'} ${EscapeHtmlTp(m.name)}</div>
+                        <div class="cw-mod-desc">${EscapeHtmlTp(m.description || '')}</div>
+                    </span>
+                </span>
+                ${pill}
+            </label>`;
+        });
+        html += '</div>';
+    });
+    host.innerHTML = html;
+}
+
+window.OnSettingsModuleToggle = function(modId, checked) {
+    if (!modId) return;
+    if (checked) window._cwDraftDisabledModules.delete(modId);
+    else window._cwDraftDisabledModules.add(modId);
+    RenderSettingsModulesChecklist();
+};
+
+window.EnableAllInstalledModules = function() {
+    window._cwDraftDisabledModules.clear();
+    RenderSettingsModulesChecklist();
+    SetSettingsStatusBanner('All installed modules enabled (click Save Settings to apply).');
+};
+
+function PopulateSettingsModalInputs() {
+    const s = window._cwAppSettings;
+    if (!s) return;
+
+    const gen = s.general || {};
+    const tel = s.telemetry || {};
+    const dir = s.directories || {};
+    const mod = s.modules || {};
+
+    const setChk = (id, val) => { const el = document.getElementById(id); if (el) el.checked = !!val; };
+    const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
+
+    setChk('chkSetStartWithWindows', gen.startWithWindows);
+    setChk('chkSetStartMinimized', gen.startMinimized);
+    setChk('chkSetMinToTrayOnClose', gen.minimizeToTrayOnClose);
+    setChk('chkSetConfirmDestructive', gen.confirmDestructiveActions !== false);
+    setChk('chkSetAutoCheckUpdates', gen.autoCheckCoreWatchUpdates !== false);
+
+    if (window._cwAutoStartInfo && window._cwAutoStartInfo.detail) {
+        SetDomText('lblSetAutoStartDetail', window._cwAutoStartInfo.detail);
+    }
+
+    setVal('inpSetProjectsRoot', dir.projectsRoot);
+    setVal('inpSetExportsRoot', dir.exportsRoot);
+    setVal('inpSetWslRoot', dir.wslInstallRoot);
+    setVal('inpSetOrgDestRoot', dir.organizerDestRoot);
+    setVal('inpSetEditorPath', dir.editorPath);
+
+    const polVal = tel.pollingProfile || 'balanced';
+    document.querySelectorAll('input[name="setPollingProfile"]').forEach(r => { r.checked = (r.value === polVal); });
+
+    const unitVal = tel.temperatureUnit || 'C';
+    document.querySelectorAll('input[name="setTempUnit"]').forEach(r => { r.checked = (r.value === unitVal); });
+
+    window._cwDraftDisabledModules = new Set(Array.isArray(mod.disabled) ? mod.disabled : []);
+    RenderSettingsModulesChecklist();
+
+    const vi = window._cwVersionInfo;
+    if (vi) {
+        SetDomText('lblSettingsAppVersion', `${vi.tag || '--'} (${vi.buildLabel || ''})`);
+        SetDomText('lblSettingsInstallMode', vi.installMode || '--');
+        SetDomText('lblSettingsBuiltUtc', vi.builtUtc || 'Local Source');
+        SetDomText('lblSettingsAppDataDir', vi.appDataDir || '--');
+    }
+}
+
+function ApplyAppSettingsState(data) {
+    if (!data) return;
+    if (data.settings) window._cwAppSettings = data.settings;
+    if (data.modulesState) window._cwModulesState = data.modulesState;
+    if (data.versionInfo) window._cwVersionInfo = data.versionInfo;
+    if (data.autoStart) window._cwAutoStartInfo = data.autoStart;
+
+    ApplyModularTabsVisibility();
+
+    // Re-format live temperature badges immediately when switching °C <-> °F
+    if (window._cwLastRawCpuTemp !== undefined) {
+        const ct = FormatCoreWatchTempDisplay(window._cwLastRawCpuTemp);
+        SetDomText('lblCpuTemp', ct.text);
+        SetDomText('lblCpuTempUnit', ct.unitText);
+    }
+    if (window._cwLastRawGpuTemp !== undefined) {
+        const gt = FormatCoreWatchTempDisplay(window._cwLastRawGpuTemp);
+        SetDomText('lblGpuTemp', gt.text);
+        SetDomText('lblGpuTempUnit', gt.unitText);
+    }
+
+    // Pre-seed WSL default install directory if field is currently empty
+    const wslInp = document.getElementById('wslImportInstallDir');
+    const defWsl = window._cwAppSettings?.directories?.wslInstallRoot;
+    if (wslInp && !wslInp.value.trim() && defWsl) {
+        wslInp.value = defWsl;
+    }
+
+    // Update EXIT button tooltip based on minimize-to-tray behavior
+    const exitBtn = document.querySelector('.exit-system-btn');
+    if (exitBtn) {
+        exitBtn.title = window._cwAppSettings?.general?.minimizeToTrayOnClose
+            ? 'Minimize CoreWatch to System Tray (Right-click tray → Terminate Engine to quit)'
+            : 'Terminate CoreWatch Engine';
+    }
+
+    const modal = document.getElementById('coreWatchSettingsModal');
+    if (modal && modal.style.display !== 'none') {
+        PopulateSettingsModalInputs();
+    }
+
+    if (data.notice) {
+        SetSettingsStatusBanner(data.notice, !!data.noticeError);
+        AppendConsoleLogEntry(`[SETTINGS] ${data.notice}`);
+    }
+
+    // One-time silent update check on startup if enabled
+    if (!window._cwAutoUpdateCheckedOnce && window._cwAppSettings?.general?.autoCheckCoreWatchUpdates) {
+        window._cwAutoUpdateCheckedOnce = true;
+        setTimeout(() => {
+            window.chrome?.webview?.postMessage(JSON.stringify({ command: 'CHECK_APP_UPDATE' }));
+        }, 4500);
+    }
+}
+
+window.SelectSettingsPane = function(paneKey) {
+    const map = {
+        general: 'settingsPaneGeneral',
+        directories: 'settingsPaneDirectories',
+        telemetry: 'settingsPaneTelemetry',
+        modules: 'settingsPaneModules'
+    };
+    document.querySelectorAll('#coreWatchSettingsModal .cw-set-tab').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.pane === paneKey);
+    });
+    Object.entries(map).forEach(([k, elId]) => {
+        const el = document.getElementById(elId);
+        if (el) el.classList.toggle('active', k === paneKey);
+    });
+};
+
+window.OpenSettingsModal = function(initialPane = 'general') {
+    const cust = document.getElementById('layoutCustomizerDrawer');
+    if (cust && cust.style.display !== 'none') CloseLayoutCustomizer();
+    const dock = document.getElementById('sideTelemetryDock');
+    if (dock && dock.style.display !== 'none') CloseSideTelemetryDock();
+
+    const modal = document.getElementById('coreWatchSettingsModal');
+    const btn = document.getElementById('btnOpenSettings');
+    if (modal) modal.style.display = 'flex';
+    if (btn) btn.classList.add('active');
+    SetSettingsStatusBanner('');
+    SelectSettingsPane(initialPane);
+    PopulateSettingsModalInputs();
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'GET_APP_SETTINGS' }));
+};
+
+window.CloseSettingsModal = function() {
+    const modal = document.getElementById('coreWatchSettingsModal');
+    const btn = document.getElementById('btnOpenSettings');
+    if (modal) modal.style.display = 'none';
+    if (btn) btn.classList.remove('active');
+};
+
+window.ToggleSettingsModal = function() {
+    const modal = document.getElementById('coreWatchSettingsModal');
+    if (modal && modal.style.display !== 'none') CloseSettingsModal();
+    else OpenSettingsModal();
+};
+
+window.SaveCoreWatchSettingsFromModal = function() {
+    const polRadio = document.querySelector('input[name="setPollingProfile"]:checked');
+    const unitRadio = document.querySelector('input[name="setTempUnit"]:checked');
+
+    const payload = {
+        schemaVersion: 1,
+        general: {
+            startWithWindows: !!document.getElementById('chkSetStartWithWindows')?.checked,
+            startMinimized: !!document.getElementById('chkSetStartMinimized')?.checked,
+            minimizeToTrayOnClose: !!document.getElementById('chkSetMinToTrayOnClose')?.checked,
+            confirmDestructiveActions: !!document.getElementById('chkSetConfirmDestructive')?.checked,
+            autoCheckCoreWatchUpdates: !!document.getElementById('chkSetAutoCheckUpdates')?.checked
+        },
+        telemetry: {
+            pollingProfile: polRadio ? polRadio.value : 'balanced',
+            temperatureUnit: unitRadio ? unitRadio.value : 'C'
+        },
+        directories: {
+            projectsRoot: (document.getElementById('inpSetProjectsRoot')?.value || '').trim(),
+            exportsRoot: (document.getElementById('inpSetExportsRoot')?.value || '').trim(),
+            wslInstallRoot: (document.getElementById('inpSetWslRoot')?.value || '').trim(),
+            organizerDestRoot: (document.getElementById('inpSetOrgDestRoot')?.value || '').trim(),
+            editorPath: (document.getElementById('inpSetEditorPath')?.value || '').trim()
+        },
+        modules: {
+            disabled: Array.from(window._cwDraftDisabledModules || [])
+        }
+    };
+
+    SetSettingsStatusBanner('Saving...');
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'SAVE_APP_SETTINGS', settings: payload }));
+};
+
+window.BrowseSettingsFolder = function(targetKey) {
+    window.chrome?.webview?.postMessage(`Browse-Folder:${targetKey}`);
+};
+
+window.BrowseSettingsEditorFile = function() {
+    window.chrome?.webview?.postMessage('Browse-File:settings_editor');
+};
+
+window.AutoDetectSettingsEditor = function() {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'DETECT_DEFAULT_EDITOR' }));
+};
+
+window.OpenSettingsDirectoryInput = function(inputId) {
+    const val = (document.getElementById(inputId)?.value || '').trim();
+    if (!val) return;
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'OPEN_DIRECTORY_PATH', path: val }));
+};
+
+window.OpenCoreWatchAppDataFolder = function() {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'OPEN_APPDATA_FOLDER' }));
+};
+
+window.TriggerCoreWatchUpdateCheck = function() {
+    const btn = document.getElementById('btnSettingsCheckUpdate');
+    const box = document.getElementById('lblSettingsUpdateStatus');
+    if (btn) btn.disabled = true;
+    if (box) {
+        box.style.display = 'block';
+        box.className = 'cw-update-status';
+        box.textContent = 'Checking GitHub Releases...';
+    }
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'CHECK_APP_UPDATE' }));
+};
+
+function HandleAppUpdateStatus(data) {
+    const btn = document.getElementById('btnSettingsCheckUpdate');
+    const relBtn = document.getElementById('btnSettingsOpenRelease');
+    const box = document.getElementById('lblSettingsUpdateStatus');
+    if (btn) btn.disabled = false;
+    if (!data) return;
+
+    window._cwUpdateReleaseUrl = data.url || '';
+    if (relBtn) relBtn.style.display = (data.url && data.updateAvailable) ? 'inline-block' : 'none';
+    if (box) {
+        box.style.display = 'block';
+        box.className = 'cw-update-status' + (!data.ok ? ' is-err' : (data.updateAvailable ? ' is-new' : ''));
+        box.textContent = data.message || 'Update check completed.';
+    }
+    if (data.updateAvailable && data.message) {
+        AppendConsoleLogEntry(`[UPDATE] ${data.message} (Open ⚙️ Settings to view release)`);
+    }
+}
+
+window.OpenCoreWatchUpdateReleaseUrl = function() {
+    const url = window._cwUpdateReleaseUrl || 'https://github.com/jonathan820612/CoreWatch-Host-Engine/releases';
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'OPEN_EXTERNAL_URL', url }));
+};
+
+function HandleBrowseFileResult(data) {
+    if (!data) return;
+    if (data.target === 'settings_editor' && data.path) {
+        const inp = document.getElementById('inpSetEditorPath');
+        if (inp) inp.value = data.path;
+    } else if (data.target === 'github_release_assets') {
+        const list = Array.isArray(data.paths) ? data.paths : (data.path ? [data.path] : []);
+        window._ghPendingReleaseAssets = list;
+        const lbl = document.getElementById('lblGhRelAttachedAssets');
+        if (lbl) lbl.textContent = list.length ? `${list.length} file(s): ${list.map(p => p.split(/[\\/]/).pop()).join(', ')}` : 'No files attached';
+    } else if (data.target === 'github_upload_asset' && data.path && window._ghPendingUploadTarget) {
+        const t = window._ghPendingUploadTarget;
+        window._ghPendingUploadTarget = null;
+        SetGhStatus(`Uploading ${data.path.split(/[\\/]/).pop()} to release...`);
+        window.chrome?.webview?.postMessage(JSON.stringify({
+            command: 'GH_UPLOAD_RELEASE_ASSET',
+            repoSlug: t.repoSlug,
+            uploadUrl: t.uploadUrl,
+            filePath: data.path
+        }));
+    }
+    if (data.notice) {
+        SetSettingsStatusBanner(data.notice, !data.path);
+    }
+}
+
+window.ExportCoreWatchSettings = function() {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'EXPORT_APP_SETTINGS' }));
+};
+
+window.ImportCoreWatchSettings = function() {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'IMPORT_APP_SETTINGS' }));
+};
+
+window.ResetCoreWatchSettings = function() {
+    if (!confirm('Reset all CoreWatch application settings (Startup, Directories, Telemetry & Modules) back to defaults?')) return;
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'RESET_APP_SETTINGS' }));
+};
+
+// =========================================================================
+// SYSTEM PROFILES & MODES UI CONTROLLER (HEADER PILL, VIEW & EDITOR MODAL)
+// =========================================================================
+window._cwProfilesState = null;
+
+window.RequestProfilesState = function() {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'PROFILES_LOAD' }));
+};
+
+window.ToggleHeaderModeMenu = function(e) {
+    if (e) e.stopPropagation();
+    const drop = document.getElementById('navModePillDropdown');
+    const trig = document.getElementById('btnHeaderModePill');
+    const sysDrop = document.getElementById('navSystemDropdown');
+    if (sysDrop) sysDrop.classList.remove('open');
+    if (!drop) return;
+    const willOpen = !drop.classList.contains('open');
+    drop.classList.toggle('open', willOpen);
+    if (trig) trig.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+    if (willOpen && !window._cwProfilesState) {
+        RequestProfilesState();
+    }
+};
+
+document.addEventListener('click', (e) => {
+    const drop = document.getElementById('navModePillDropdown');
+    if (drop && drop.classList.contains('open') && !drop.contains(e.target)) {
+        drop.classList.remove('open');
+        const trig = document.getElementById('btnHeaderModePill');
+        if (trig) trig.setAttribute('aria-expanded', 'false');
+    }
+});
+
+function CloseHeaderModeMenu() {
+    const drop = document.getElementById('navModePillDropdown');
+    const trig = document.getElementById('btnHeaderModePill');
+    if (drop) drop.classList.remove('open');
+    if (trig) trig.setAttribute('aria-expanded', 'false');
+}
+
+function FormatDndLabel(mode) {
+    switch (String(mode || 'off').toLowerCase()) {
+        case 'priority': return 'Priority Only';
+        case 'alarms':   return 'Alarms Only';
+        case 'off':      return 'Off';
+        default:         return 'Unchanged';
+    }
+}
+
+function FormatPowerPlanLabel(key) {
+    switch (String(key || '').toLowerCase()) {
+        case 'balanced':         return 'Balanced';
+        case 'high_performance': return 'High Perf';
+        case 'power_saver':      return 'Power Saver';
+        case 'ultimate':         return 'Ultimate Perf';
+        default:                 return '';
+    }
+}
+
+function RenderHeaderModePill(state) {
+    const lbl = document.getElementById('lblHeaderModeText');
+    const pill = document.getElementById('btnHeaderModePill');
+    const menu = document.getElementById('navModePillMenu');
+    if (!state || !Array.isArray(state.profiles)) return;
+
+    const active = state.profiles.find(p => p.id === state.activeProfileId) || state.profiles[0];
+    if (lbl && active) {
+        const shortName = String(active.name || 'Normal').split('/')[0].trim();
+        lbl.textContent = `${active.icon || '⚡'} ${shortName}`;
+    }
+    if (pill) {
+        pill.classList.toggle('is-awake', !!state.keepAwakeActive);
+        pill.title = active
+            ? `Active Mode: ${active.name}${state.keepAwakeActive ? ' · Keep Awake ON' : ''} (Click to switch)`
+            : 'Switch Active System Profile / Mode';
+    }
+    if (menu) {
+        let html = state.profiles.map(p => {
+            const isAct = p.id === state.activeProfileId;
+            return `<button type="button" class="nav-mode-menu-item ${isAct ? 'is-active' : ''}" role="menuitem" onclick="SelectHeaderModeProfile('${EscapeHtmlTp(p.id)}')">
+                <span>${p.icon || '⚡'} ${EscapeHtmlTp(p.name)}</span>
+                <span>${isAct ? '✓' : ''}</span>
+            </button>`;
+        }).join('');
+        html += '<div class="nav-mode-menu-divider"></div>';
+        if (state.hasBaseline) {
+            html += `<button type="button" class="nav-mode-menu-item nav-mode-menu-revert" role="menuitem" onclick="CloseHeaderModeMenu(); TriggerRevertProfileBaseline()"><span>↩ Revert to Previous State</span><span></span></button>`;
+        }
+        html += `<button type="button" class="nav-mode-menu-item nav-mode-menu-footer" role="menuitem" onclick="CloseHeaderModeMenu(); SwitchAppLayoutView('profiles')"><span>⚡ Manage &amp; Edit Profiles...</span><span>↗</span></button>`;
+        menu.innerHTML = html;
+    }
+}
+
+window.SelectHeaderModeProfile = function(profileId) {
+    CloseHeaderModeMenu();
+    TriggerApplyProfile(profileId);
+};
+
+function RenderProfilesState(data) {
+    if (!data) return;
+    window._cwProfilesState = data;
+    RenderHeaderModePill(data);
+
+    const profiles = Array.isArray(data.profiles) ? data.profiles : [];
+    const active = profiles.find(p => p.id === data.activeProfileId) || profiles[0];
+    const live = data.liveState || {};
+
+    SetDomText('sumProfActive', active ? `${active.icon || '⚡'} ${active.name}` : 'Normal');
+    SetDomText('sumProfPower', live.powerPlanName || '--');
+    SetDomText('sumProfDnd', FormatDndLabel(live.dndMode));
+    SetDomText('sumProfAwake', data.keepAwakeActive ? 'On (Awake)' : 'Off');
+    SetDomText('sumProfNightLight', live.nightLight === 'on' ? `On (${live.nightLightStrength ?? 50}%)` : 'Off');
+    SetDomText('sumProfMonitors', Array.isArray(live.monitors) ? `${live.monitors.length} Connected` : '--');
+
+    const revBtn = document.getElementById('btnProfilesRevertTop');
+    if (revBtn) revBtn.style.display = data.hasBaseline ? 'inline-block' : 'none';
+
+    const st = document.getElementById('profilesStatus');
+    if (st && data.notice) {
+        st.classList.toggle('sharing-error', !!data.noticeError);
+        st.textContent = data.notice;
+    }
+    if (data.notice) {
+        AppendConsoleLogEntry(`[PROFILES] ${data.notice}`);
+    }
+
+    const grid = document.getElementById('profilesCardsGrid');
+    if (!grid) return;
+
+    grid.innerHTML = profiles.map(p => {
+        const isAct = p.id === data.activeProfileId;
+        const s = p.settings || {};
+        const chips = [];
+        if (s.powerPlan && s.powerPlan !== 'unchanged') chips.push(`<span class="prof-chip">⚡ ${FormatPowerPlanLabel(s.powerPlan)}</span>`);
+        if (s.dndMode && s.dndMode !== 'unchanged') chips.push(`<span class="prof-chip chip-dnd">🔕 DnD: ${FormatDndLabel(s.dndMode)}</span>`);
+        if (s.keepAwake && s.keepAwake !== 'unchanged') chips.push(`<span class="prof-chip chip-awake">☀️ Keep Awake: ${s.keepAwake === 'on' ? 'On' : 'Off'}</span>`);
+        if (s.nightLight && s.nightLight !== 'unchanged') {
+            const nlStr = (s.nightLight === 'on' && Number(s.nightLightStrength) >= 0) ? ` (${s.nightLightStrength}%)` : '';
+            chips.push(`<span class="prof-chip">🌙 Night Light: ${s.nightLight === 'on' ? 'On' : 'Off'}${nlStr}</span>`);
+        }
+        (Array.isArray(s.displays) ? s.displays : []).forEach(d => {
+            const bits = [];
+            if (d.hdr && d.hdr !== 'unchanged') bits.push(`HDR ${d.hdr.toUpperCase()}`);
+            if (d.refreshMode === 'max') bits.push('Max Hz');
+            else if (d.refreshMode === 'exact' && d.refreshHz > 0) bits.push(`${d.refreshHz}Hz`);
+            if (d.scalePct >= 100) bits.push(`${d.scalePct}%`);
+            if (bits.length) {
+                const tLabel = d.target === 'primary' ? 'Primary' : (d.target === 'all' ? 'All Displays' : (d.friendlyName || d.target));
+                chips.push(`<span class="prof-chip chip-disp">🖥️ ${EscapeHtmlTp(tLabel)}: ${bits.join(', ')}</span>`);
+            }
+        });
+        if (!chips.length) chips.push('<span class="prof-chip">No overrides configured</span>');
+
+        const badge = p.isBuiltIn
+            ? '<span class="sharing-badge badge-info">Preset</span>'
+            : '<span class="sharing-badge badge-purple">Custom</span>';
+
+        const extraBtn = p.isBuiltIn
+            ? `<button type="button" onclick="TriggerResetBuiltInPreset('${EscapeHtmlTp(p.id)}')" title="Restore factory defaults for this preset">↺ Reset</button>`
+            : `<button type="button" class="btn-prof-danger" onclick="TriggerDeleteCustomProfile('${EscapeHtmlTp(p.id)}', '${EscapeHtmlTp(p.name)}')" title="Delete custom profile">🗑️ Delete</button>`;
+
+        return `<article class="profile-mode-card ${isAct ? 'is-active' : ''}" style="border-left-color: ${EscapeHtmlTp(p.accent || '#4299e1')};">
+            <div class="profile-card-head">
+                <span class="profile-card-title"><span>${p.icon || '⚡'}</span><span>${EscapeHtmlTp(p.name)}</span></span>
+                <div class="card-badge-group">${isAct ? '<span class="sharing-badge ver-uptodate">✓ Active</span>' : ''}${badge}</div>
+            </div>
+            <div class="profile-card-desc">${EscapeHtmlTp(p.description || 'Custom system mode profile.')}</div>
+            <div class="profile-card-chips">${chips.join('')}</div>
+            <div class="profile-card-actions">
+                <button type="button" class="btn-prof-activate ${isAct ? 'is-current' : ''}" onclick="TriggerApplyProfile('${EscapeHtmlTp(p.id)}')">${isAct ? '↻ Re-Apply' : '▶ Activate'}</button>
+                <button type="button" onclick="OpenProfileEditorModal('${EscapeHtmlTp(p.id)}')">✏️ Edit</button>
+                <button type="button" onclick="TriggerCloneProfile('${EscapeHtmlTp(p.id)}')">📋 Clone</button>
+                ${extraBtn}
+            </div>
+        </article>`;
+    }).join('');
+}
+
+function HandleProfilesNotice(data) {
+    const st = document.getElementById('profilesStatus');
+    const msg = data?.error || data?.message || '';
+    if (st && msg) {
+        st.classList.toggle('sharing-error', !data.ok || !!data.error);
+        st.textContent = msg;
+    }
+    if (msg) AppendConsoleLogEntry(`[PROFILES] ${msg}`);
+}
+
+window.TriggerApplyProfile = function(profileId) {
+    if (!profileId) return;
+    const st = document.getElementById('profilesStatus');
+    if (st) {
+        st.classList.remove('sharing-error');
+        st.textContent = `Applying profile '${profileId}'...`;
+    }
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'PROFILES_APPLY', profileId }));
+};
+
+window.TriggerRevertProfileBaseline = function() {
+    const st = document.getElementById('profilesStatus');
+    if (st) {
+        st.classList.remove('sharing-error');
+        st.textContent = 'Reverting to pre-profile baseline snapshot...';
+    }
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'PROFILES_REVERT' }));
+};
+
+window.TriggerCaptureCurrentProfile = function() {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'PROFILES_CAPTURE_CURRENT' }));
+};
+
+window.TriggerExportProfiles = function() {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'PROFILES_EXPORT' }));
+};
+
+window.TriggerImportProfiles = function() {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'PROFILES_IMPORT' }));
+};
+
+window.TriggerResetBuiltInPreset = function(profileId) {
+    if (!confirm('Reset this built-in preset back to its factory defaults?')) return;
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'PROFILES_RESET_PRESET', profileId }));
+};
+
+window.TriggerDeleteCustomProfile = function(profileId, name) {
+    if (!ConfirmDestructiveAction(`Delete custom profile '${name}'?`)) return;
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'PROFILES_DELETE', profileId }));
+};
+
+window.TriggerCloneProfile = function(profileId) {
+    const list = window._cwProfilesState?.profiles || [];
+    const src = list.find(p => p.id === profileId);
+    if (!src) return;
+    const clone = JSON.parse(JSON.stringify(src));
+    clone.id = '';
+    clone.isBuiltIn = false;
+    clone.name = `${src.name} (Copy)`;
+    OpenProfileEditorModalWithData(clone);
+};
+
+window.SetProfileEditorIcon = function(ico) {
+    const el = document.getElementById('inpProfIcon');
+    if (el) el.value = ico;
+};
+
+window.SyncProfileEditorNightLightRow = function() {
+    const nlSel = document.getElementById('selProfNightLight');
+    const row   = document.getElementById('profNightLightStrengthRow');
+    const chk   = document.getElementById('chkProfNlStrength');
+    const rng   = document.getElementById('rngProfNlStrength');
+    const show  = nlSel && nlSel.value === 'on';
+    if (row) row.style.display = show ? 'flex' : 'none';
+    if (rng && chk) rng.disabled = !chk.checked;
+};
+
+window.AddProfileDisplayRuleRow = function(rule = null) {
+    const host = document.getElementById('profDisplayRulesList');
+    if (!host) return;
+    const emptyHint = host.querySelector('.prof-empty-disp-hint');
+    if (emptyHint) emptyHint.remove();
+
+    const mons = window._cwProfilesState?.liveState?.monitors || [];
+    const r = rule || { target: 'primary', friendlyName: 'Primary Monitor', hdr: 'unchanged', refreshMode: 'unchanged', refreshHz: 0, scalePct: 0 };
+
+    const targetOpts = [
+        `<option value="primary" data-friendly="Primary Monitor" ${r.target === 'primary' ? 'selected' : ''}>Primary Monitor</option>`,
+        `<option value="all" data-friendly="All Monitors" ${r.target === 'all' ? 'selected' : ''}>All Connected Monitors</option>`
+    ];
+    let matchedTarget = (r.target === 'primary' || r.target === 'all');
+    mons.forEach(m => {
+        const sel = r.target === m.deviceName;
+        if (sel) matchedTarget = true;
+        targetOpts.push(`<option value="${EscapeHtmlTp(m.deviceName)}" data-friendly="${EscapeHtmlTp(m.friendlyName)}" ${sel ? 'selected' : ''}>Display ${m.displayNumber} — ${EscapeHtmlTp(m.friendlyName)}${m.isPrimary ? ' (Primary)' : ''}</option>`);
+    });
+    if (!matchedTarget && r.target) {
+        targetOpts.push(`<option value="${EscapeHtmlTp(r.target)}" data-friendly="${EscapeHtmlTp(r.friendlyName || r.target)}" selected>${EscapeHtmlTp(r.friendlyName || r.target)} (Disconnected)</option>`);
+    }
+
+    const hzValues = new Set([60, 75, 100, 120, 144, 165, 180, 240]);
+    mons.forEach(m => (m.availableRefreshRates || []).forEach(h => hzValues.add(Number(h))));
+    if (r.refreshHz > 0) hzValues.add(Number(r.refreshHz));
+    const sortedHz = Array.from(hzValues).filter(n => n >= 24).sort((a, b) => a - b);
+
+    const hzSelectedVal = r.refreshMode === 'max' ? 'max' : (r.refreshMode === 'exact' && r.refreshHz > 0 ? String(r.refreshHz) : 'unchanged');
+    const hzOpts = [
+        `<option value="unchanged" ${hzSelectedVal === 'unchanged' ? 'selected' : ''}>Hz: Unchanged</option>`,
+        `<option value="max" ${hzSelectedVal === 'max' ? 'selected' : ''}>Hz: Max Available</option>`,
+        ...sortedHz.map(hz => `<option value="${hz}" ${hzSelectedVal === String(hz) ? 'selected' : ''}>${hz} Hz</option>`)
+    ];
+
+    const scales = [100, 125, 150, 175, 200, 225, 250];
+    const scaleOpts = [
+        `<option value="0" ${!r.scalePct ? 'selected' : ''}>Scale: Unchanged</option>`,
+        ...scales.map(sc => `<option value="${sc}" ${Number(r.scalePct) === sc ? 'selected' : ''}>${sc}%</option>`)
+    ];
+
+    const row = document.createElement('div');
+    row.className = 'prof-disp-rule-row';
+    row.innerHTML = `
+        <select class="prof-select prof-rule-target" aria-label="Target Monitor">${targetOpts.join('')}</select>
+        <select class="prof-select prof-rule-hdr" aria-label="HDR Override">
+            <option value="unchanged" ${r.hdr === 'unchanged' ? 'selected' : ''}>HDR: Unchanged</option>
+            <option value="on" ${r.hdr === 'on' ? 'selected' : ''}>HDR: On</option>
+            <option value="off" ${r.hdr === 'off' ? 'selected' : ''}>HDR: Off</option>
+        </select>
+        <select class="prof-select prof-rule-hz" aria-label="Refresh Rate Override">${hzOpts.join('')}</select>
+        <select class="prof-select prof-rule-scale" aria-label="Scale Override">${scaleOpts.join('')}</select>
+        <button type="button" class="console-clear-btn wsl-btn-danger" onclick="this.parentElement.remove()" title="Remove display rule">✕</button>
+    `;
+    host.appendChild(row);
+};
+
+function OpenProfileEditorModalWithData(prof) {
+    const modal = document.getElementById('profileEditorModal');
+    if (!modal) return;
+    const isNew = !prof || !prof.id;
+    const p = prof || {
+        id: '', name: '', icon: '⚡', accent: '#4299e1', description: '', isBuiltIn: false,
+        settings: { powerPlan: 'unchanged', dndMode: 'unchanged', keepAwake: 'unchanged', nightLight: 'unchanged', nightLightStrength: -1, displays: [] }
+    };
+    const s = p.settings || {};
+
+    SetDomText('profileEditorTitle', isNew ? '➕ CREATE CUSTOM SYSTEM PROFILE' : `✏️ EDIT PROFILE — ${p.name}`);
+    document.getElementById('inpProfId').value        = p.id || '';
+    document.getElementById('inpProfIsBuiltIn').value = p.isBuiltIn ? '1' : '0';
+    document.getElementById('inpProfName').value      = p.name || '';
+    document.getElementById('inpProfIcon').value      = p.icon || '⚡';
+    document.getElementById('inpProfAccent').value    = p.accent || '#4299e1';
+    document.getElementById('inpProfDesc').value      = p.description || '';
+
+    document.getElementById('selProfPowerPlan').value  = s.powerPlan || 'unchanged';
+    document.getElementById('selProfDnd').value        = s.dndMode || 'unchanged';
+    document.getElementById('selProfKeepAwake').value  = s.keepAwake || 'unchanged';
+    document.getElementById('selProfNightLight').value = s.nightLight || 'unchanged';
+
+    const hasStr = Number(s.nightLightStrength) >= 0;
+    const strVal = hasStr ? Number(s.nightLightStrength) : 50;
+    document.getElementById('chkProfNlStrength').checked = hasStr;
+    document.getElementById('rngProfNlStrength').value   = String(strVal);
+    SetDomText('lblProfNlStrength', `${strVal}%`);
+    SyncProfileEditorNightLightRow();
+
+    const host = document.getElementById('profDisplayRulesList');
+    if (host) {
+        host.replaceChildren();
+        const rules = Array.isArray(s.displays) ? s.displays : [];
+        if (rules.length === 0) {
+            host.innerHTML = '<div class="driver-text-node prof-empty-disp-hint">No per-monitor overrides configured (all displays remain untouched). Click "+ Add Display Rule" to customize HDR, Hz, or Scale.</div>';
+        } else {
+            rules.forEach(r => AddProfileDisplayRuleRow(r));
+        }
+    }
+
+    modal.style.display = 'flex';
+    setTimeout(() => document.getElementById('inpProfName')?.focus(), 10);
+}
+
+window.OpenProfileEditorModal = function(profileId) {
+    if (!profileId) {
+        OpenProfileEditorModalWithData(null);
+        return;
+    }
+    const list = window._cwProfilesState?.profiles || [];
+    const found = list.find(p => p.id === profileId) || null;
+    OpenProfileEditorModalWithData(found);
+};
+
+function OpenProfileEditorFromSnapshot(snap) {
+    if (!snap) return;
+    const displays = (Array.isArray(snap.monitors) ? snap.monitors : []).map(m => ({
+        target: m.deviceName,
+        friendlyName: m.friendlyName,
+        hdr: m.hdrSupported ? (m.hdrOn ? 'on' : 'off') : 'unchanged',
+        refreshMode: m.refreshRateHz > 0 ? 'exact' : 'unchanged',
+        refreshHz: m.refreshRateHz || 0,
+        scalePct: m.scalePct || 0
+    }));
+    OpenProfileEditorModalWithData({
+        id: '',
+        name: 'Captured PC Snapshot',
+        icon: '📸',
+        accent: '#38b2ac',
+        description: `Captured live state (${snap.powerPlanName || 'Balanced'}, DnD: ${FormatDndLabel(snap.dndMode)}, ${displays.length} monitor(s))`,
+        isBuiltIn: false,
+        settings: {
+            powerPlan: snap.powerPlanKey || 'balanced',
+            dndMode: snap.dndMode || 'off',
+            keepAwake: snap.keepAwake ? 'on' : 'off',
+            nightLight: snap.nightLight || 'off',
+            nightLightStrength: snap.nightLight === 'on' ? (snap.nightLightStrength ?? 50) : -1,
+            displays
+        }
+    });
+}
+
+window.CloseProfileEditorModal = function() {
+    const modal = document.getElementById('profileEditorModal');
+    if (modal) modal.style.display = 'none';
+};
+
+window.SaveProfileFromEditorModal = function() {
+    const name = (document.getElementById('inpProfName')?.value || '').trim();
+    if (!name) {
+        alert('Please enter a name for this profile.');
+        return;
+    }
+    const nlVal = document.getElementById('selProfNightLight')?.value || 'unchanged';
+    const useStr = nlVal === 'on' && !!document.getElementById('chkProfNlStrength')?.checked;
+    const nlStr = useStr ? Number(document.getElementById('rngProfNlStrength')?.value || 50) : -1;
+
+    const displays = [];
+    document.querySelectorAll('#profDisplayRulesList .prof-disp-rule-row').forEach(row => {
+        const tgtSel = row.querySelector('.prof-rule-target');
+        const target = tgtSel?.value || '';
+        if (!target) return;
+        const friendlyName = tgtSel.selectedOptions?.[0]?.dataset?.friendly || target;
+        const hdr = row.querySelector('.prof-rule-hdr')?.value || 'unchanged';
+        const hzRaw = row.querySelector('.prof-rule-hz')?.value || 'unchanged';
+        let refreshMode = 'unchanged';
+        let refreshHz = 0;
+        if (hzRaw === 'max') refreshMode = 'max';
+        else if (hzRaw !== 'unchanged' && Number(hzRaw) >= 24) {
+            refreshMode = 'exact';
+            refreshHz = Number(hzRaw);
+        }
+        const scalePct = Number(row.querySelector('.prof-rule-scale')?.value || 0);
+        displays.push({ target, friendlyName, hdr, refreshMode, refreshHz, scalePct });
+    });
+
+    const profile = {
+        id: (document.getElementById('inpProfId')?.value || '').trim(),
+        name,
+        icon: (document.getElementById('inpProfIcon')?.value || '⚡').trim() || '⚡',
+        accent: document.getElementById('inpProfAccent')?.value || '#4299e1',
+        description: (document.getElementById('inpProfDesc')?.value || '').trim(),
+        isBuiltIn: document.getElementById('inpProfIsBuiltIn')?.value === '1',
+        settings: {
+            powerPlan: document.getElementById('selProfPowerPlan')?.value || 'unchanged',
+            dndMode: document.getElementById('selProfDnd')?.value || 'unchanged',
+            keepAwake: document.getElementById('selProfKeepAwake')?.value || 'unchanged',
+            nightLight: nlVal,
+            nightLightStrength: nlStr,
+            displays
+        }
+    };
+
+    CloseProfileEditorModal();
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'PROFILES_SAVE', profile }));
+};
+
+// =========================================================================
+// DEV & WORK GROUPED DROPDOWN CONTROLLER
+// =========================================================================
+window.ToggleDevWorkMenu = function(e) {
+    if (e) e.stopPropagation();
+    const drop = document.getElementById('navDevDropdown');
+    const trig = document.getElementById('tabDevMenu');
+    const sysDrop = document.getElementById('navSystemDropdown');
+    const modeDrop = document.getElementById('navModePillDropdown');
+    if (sysDrop) sysDrop.classList.remove('open');
+    if (modeDrop) modeDrop.classList.remove('open');
+    if (!drop) return;
+    const willOpen = !drop.classList.contains('open');
+    drop.classList.toggle('open', willOpen);
+    if (trig) trig.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+};
+
+window.SelectDevWorkMenuView = function(viewKey) {
+    const drop = document.getElementById('navDevDropdown');
+    const trig = document.getElementById('tabDevMenu');
+    if (drop) drop.classList.remove('open');
+    if (trig) trig.setAttribute('aria-expanded', 'false');
+    SwitchAppLayoutView(viewKey);
+};
+
+document.addEventListener('click', (e) => {
+    const drop = document.getElementById('navDevDropdown');
+    if (drop && drop.classList.contains('open') && !drop.contains(e.target)) {
+        drop.classList.remove('open');
+        const trig = document.getElementById('tabDevMenu');
+        if (trig) trig.setAttribute('aria-expanded', 'false');
+    }
+});
+
+window.OpenExternalHttpsUrl = function(url) {
+    if (!url) return;
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'OPEN_EXTERNAL_URL', url }));
+};
+
+// =========================================================================
+// GITHUB MANAGER UI CONTROLLER (LOCAL PROJECTS, CLONE & RELEASE MANAGEMENT)
+// =========================================================================
+window._ghManagerLoaded = false;
+window._ghState = null;
+window._ghSubView = 'local';
+window._ghPendingReleaseAssets = [];
+window._ghPendingUploadTarget = null;
+
+function SetGhStatus(msg, isErr = false) {
+    const st = document.getElementById('ghStatus');
+    if (st && msg) {
+        st.classList.toggle('sharing-error', !!isErr);
+        st.textContent = msg;
+    }
+    if (msg) AppendConsoleLogEntry(`[GITHUB] ${msg}`);
+}
+
+window.RequestGitHubManagerState = function(projectsRootOverride = '') {
+    SetGhStatus('Loading local Git workspaces and GitHub repositories...');
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'GH_LOAD', projectsRoot: projectsRootOverride || '' }));
+};
+
+window.ScanGitHubProjectsRoot = function() {
+    const rootVal = (document.getElementById('inpGhProjectsRoot')?.value || '').trim();
+    RequestGitHubManagerState(rootVal);
+};
+
+window.ToggleGitHubPatBar = function() {
+    const bar = document.getElementById('ghPatAuthBar');
+    if (bar) bar.style.display = (bar.style.display === 'none' || !bar.style.display) ? 'flex' : 'none';
+};
+
+window.SaveGitHubPatToken = function() {
+    const inp = document.getElementById('inpGhPatToken');
+    const tok = (inp?.value || '').trim();
+    if (!tok) { SetGhStatus('Enter a GitHub Personal Access Token first.', true); return; }
+    if (inp) inp.value = '';
+    SetGhStatus('Verifying GitHub token...');
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'GH_SAVE_PAT', token: tok }));
+};
+
+window.ClearGitHubPatToken = function() {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'GH_CLEAR_PAT' }));
+};
+
+window.SetGitHubSubView = function(subKey) {
+    window._ghSubView = subKey;
+    document.querySelectorAll('#ghSubViewPills .filter-pill').forEach(b => b.classList.toggle('active', b.dataset.sub === subKey));
+    const map = { local: 'ghPaneLocal', repos: 'ghPaneRepos', releases: 'ghPaneReleases' };
+    Object.entries(map).forEach(([k, id]) => {
+        const el = document.getElementById(id);
+        if (el) el.classList.toggle('active', k === subKey);
+    });
+    if (subKey === 'releases') {
+        PopulateGitHubReleaseRepoSelector();
+    }
+};
+
+window.BrowseGitHubFolder = function(targetKey) {
+    window.chrome?.webview?.postMessage(`Browse-Folder:${targetKey}`);
+};
+
+function RenderGitHubManagerState(data) {
+    if (!data) return;
+    window._ghManagerLoaded = true;
+    const prevRemote = window._ghState?.remoteRepos || [];
+    if ((!data.remoteRepos || !data.remoteRepos.length) && prevRemote.length && data.auth?.authenticated) {
+        data.remoteRepos = prevRemote;
+    }
+    window._ghState = data;
+
+    const auth = data.auth || {};
+    const authEl = document.getElementById('lblGhAuthBadge');
+    if (authEl) {
+        authEl.innerHTML = auth.authenticated
+            ? `Auth: <strong style="color:#68d391;">@${EscapeHtmlTp(auth.username)} (${EscapeHtmlTp(auth.source)})</strong>`
+            : `Auth: <strong style="color:#f6ad55;">Not Signed In</strong>`;
+    }
+
+    const rootInp = document.getElementById('inpGhProjectsRoot');
+    if (rootInp && data.projectsRoot) rootInp.value = data.projectsRoot;
+    const cloneDest = document.getElementById('inpGhCloneDest');
+    if (cloneDest && !cloneDest.value.trim() && data.projectsRoot) cloneDest.value = data.projectsRoot;
+
+    SetDomText('sumGhLocalCount', Array.isArray(data.localRepos) ? data.localRepos.length : 0);
+    SetDomText('sumGhRemoteCount', Array.isArray(data.remoteRepos) ? data.remoteRepos.length : 0);
+
+    if (data.notice) {
+        SetGhStatus(data.notice, !!data.noticeError);
+    } else {
+        const locCnt = (data.localRepos || []).length;
+        const remCnt = (data.remoteRepos || []).length;
+        SetGhStatus(`Found ${locCnt} local Git repo(s) in ${data.projectsRoot || 'workspace'}${auth.authenticated ? ` · ${remCnt} GitHub repo(s) loaded for @${auth.username}` : ' · Sign in via gh CLI or PAT to browse/manage GitHub repos & releases'}.`);
+    }
+
+    RenderGitHubLocalRepos();
+    RenderGitHubRemoteRepos();
+    PopulateGitHubReleaseRepoSelector();
+}
+
+window.RenderGitHubLocalRepos = function() {
+    const grid = document.getElementById('ghLocalReposGrid');
+    if (!grid) return;
+    const list = window._ghState?.localRepos || [];
+    const q = (document.getElementById('inpGhLocalFilter')?.value || '').trim().toLowerCase();
+    const filtered = list.filter(r => !q || `${r.name} ${r.branch} ${r.repoSlug} ${r.lastCommit}`.toLowerCase().includes(q));
+
+    if (!filtered.length) {
+        grid.innerHTML = '<div class="driver-text-node" style="padding:10px;">No local Git repositories found in this folder. Use "Browse..." above or clone one under "My Repos &amp; Clone".</div>';
+        return;
+    }
+
+    grid.innerHTML = filtered.map(r => {
+        const safePath = String(r.path || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        const safeSlug = String(r.repoSlug || '').replace(/'/g, "\\'");
+        const dirtyBadge = r.dirtyCount > 0
+            ? `<span class="sharing-badge ver-update">${r.dirtyCount} modified</span>`
+            : '<span class="sharing-badge ver-uptodate">Clean</span>';
+        const syncBadges = (r.ahead > 0 ? `<span class="sharing-badge badge-info">↑${r.ahead}</span>` : '') +
+                           (r.behind > 0 ? `<span class="sharing-badge badge-purple">↓${r.behind}</span>` : '');
+        const relBtn = r.repoSlug ? `<button type="button" onclick="JumpToGitHubReleases('${safeSlug}')">🚀 Releases</button>` : '';
+        const pubBtn = r.hasPublishScript ? `<button type="button" onclick="TriggerGhRepoAction('GH_RUN_LOCAL_PUBLISH', '${safePath}')" title="Run build\\Publish-Release.ps1">⚡ Publish Script</button>` : '';
+
+        return `<article class="dev-repo-card">
+            <div class="dev-repo-head">
+                <span class="dev-repo-name" title="${EscapeHtmlTp(r.path)}">📁 ${EscapeHtmlTp(r.name)}</span>
+                <div class="card-badge-group"><span class="sharing-badge badge-info">🌿 ${EscapeHtmlTp(r.branch)}</span>${dirtyBadge}${syncBadges}</div>
+            </div>
+            <div class="dev-repo-meta" title="${EscapeHtmlTp(r.lastCommit || '')}">${EscapeHtmlTp(r.lastCommit || 'No commits yet')}${r.lastDate ? ` · ${EscapeHtmlTp(r.lastDate)}` : ''}</div>
+            <div class="dev-repo-meta" style="color:#63b3ed;">${EscapeHtmlTp(r.repoSlug || r.path)}</div>
+            <div class="dev-repo-actions">
+                <button type="button" class="btn-vscode" onclick="TriggerGhRepoAction('GH_OPEN_VSCODE', '${safePath}')">💻 VS Code</button>
+                <button type="button" onclick="TriggerGhRepoAction('GH_OPEN_TERMINAL', '${safePath}')">🐚 Terminal</button>
+                <button type="button" onclick="TriggerGhRepoAction('GH_OPEN_EXPLORER', '${safePath}')">📂 Folder</button>
+                <button type="button" onclick="TriggerGhRepoAction('GH_GIT_PULL', '${safePath}')">⬇️ Pull</button>
+                ${relBtn}
+                ${pubBtn}
+            </div>
+        </article>`;
+    }).join('');
+};
+
+window.RenderGitHubRemoteRepos = function() {
+    const grid = document.getElementById('ghRemoteReposGrid');
+    if (!grid) return;
+    const auth = window._ghState?.auth || {};
+    if (!auth.authenticated) {
+        grid.innerHTML = '<div class="driver-text-node" style="padding:10px;">Sign in via GitHub CLI (<code>gh auth login</code>) or click <strong>🔑 Token</strong> above to list &amp; clone your personal GitHub repositories. (You can still clone any public Git URL above!)</div>';
+        return;
+    }
+    const list = window._ghState?.remoteRepos || [];
+    const q = (document.getElementById('inpGhRemoteFilter')?.value || '').trim().toLowerCase();
+    const vis = document.getElementById('selGhRemoteVis')?.value || 'all';
+
+    const filtered = list.filter(r => {
+        if (vis === 'public' && r.private) return false;
+        if (vis === 'private' && !r.private) return false;
+        if (vis === 'not_cloned' && r.localPath) return false;
+        if (q && !`${r.fullName} ${r.description} ${r.language}`.toLowerCase().includes(q)) return false;
+        return true;
+    });
+
+    if (!filtered.length) {
+        grid.innerHTML = '<div class="driver-text-node" style="padding:10px;">No GitHub repositories match the current filter.</div>';
+        return;
+    }
+
+    grid.innerHTML = filtered.map(r => {
+        const safeUrl = String(r.cloneUrl || '').replace(/'/g, "\\'");
+        const safeLocal = String(r.localPath || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        const safeSlug = String(r.fullName || '').replace(/'/g, "\\'");
+        const safeHtml = String(r.htmlUrl || '').replace(/'/g, "\\'");
+        const visBadge = r.private ? '<span class="sharing-badge badge-purple">Private</span>' : '<span class="sharing-badge badge-info">Public</span>';
+        const clonedBadge = r.localPath ? '<span class="sharing-badge ver-uptodate">Cloned</span>' : '';
+        const primaryBtn = r.localPath
+            ? `<button type="button" class="btn-vscode" onclick="TriggerGhRepoAction('GH_OPEN_VSCODE', '${safeLocal}')">💻 Open in VS Code</button>`
+            : `<button type="button" class="btn-vscode" onclick="TriggerGitHubCloneOwnRepo('${safeUrl}', '${EscapeHtmlTp(r.name)}')">⬇️ Clone to Projects</button>`;
+
+        return `<article class="dev-repo-card">
+            <div class="dev-repo-head">
+                <span class="dev-repo-name" title="${EscapeHtmlTp(r.fullName)}">🐙 ${EscapeHtmlTp(r.fullName)}</span>
+                <div class="card-badge-group">${clonedBadge}${visBadge}</div>
+            </div>
+            <div class="profile-card-desc">${EscapeHtmlTp(r.description || 'No description')}</div>
+            <div class="dev-repo-meta">${r.language ? EscapeHtmlTp(r.language) + ' · ' : ''}★ ${r.stars || 0} · Updated ${EscapeHtmlTp(r.updatedAt || '--')}</div>
+            <div class="dev-repo-actions">
+                ${primaryBtn}
+                <button type="button" onclick="JumpToGitHubReleases('${safeSlug}')">🚀 Releases</button>
+                <button type="button" onclick="OpenExternalHttpsUrl('${safeHtml}')">🌐 GitHub ↗</button>
+            </div>
+        </article>`;
+    }).join('');
+};
+
+window.TriggerGhRepoAction = function(command, path) {
+    SetGhStatus(`Running ${command.replace('GH_', '').replace(/_/g, ' ').toLowerCase()} on ${path}...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command, path }));
+};
+
+window.TriggerGitHubCloneOwnRepo = function(cloneUrl, repoName) {
+    const dest = (document.getElementById('inpGhCloneDest')?.value || window._ghState?.projectsRoot || '').trim();
+    const openInEditor = !!document.getElementById('chkGhCloneOpenVsCode')?.checked;
+    SetGhStatus(`Cloning ${repoName} into ${dest || 'Projects Root'}...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({
+        command: 'GH_CLONE_REPO',
+        url: cloneUrl,
+        destination: dest,
+        openInEditor
+    }));
+};
+
+window.TriggerGitHubCloneCustomUrl = function() {
+    const url = (document.getElementById('inpGhCloneUrl')?.value || '').trim();
+    const destination = (document.getElementById('inpGhCloneDest')?.value || window._ghState?.projectsRoot || '').trim();
+    const branch = (document.getElementById('inpGhCloneBranch')?.value || '').trim();
+    const shallow = !!document.getElementById('chkGhCloneShallow')?.checked;
+    const openInEditor = !!document.getElementById('chkGhCloneOpenVsCode')?.checked;
+    if (!url) { SetGhStatus('Enter a Git repository URL to clone.', true); return; }
+    SetGhStatus(`Cloning ${url} into ${destination || 'Projects Root'}...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({
+        command: 'GH_CLONE_REPO',
+        url,
+        destination,
+        branch,
+        shallow,
+        openInEditor
+    }));
+};
+
+function PopulateGitHubReleaseRepoSelector(selectSlug = '') {
+    const sel = document.getElementById('selGhReleaseRepo');
+    if (!sel) return;
+    const prev = selectSlug || sel.value;
+    const slugs = new Set();
+    (window._ghState?.localRepos || []).forEach(r => { if (r.repoSlug) slugs.add(r.repoSlug); });
+    (window._ghState?.remoteRepos || []).forEach(r => { if (r.fullName) slugs.add(r.fullName); });
+    const sorted = Array.from(slugs).sort((a, b) => a.localeCompare(b));
+    if (!sorted.length) {
+        sel.innerHTML = '<option value="">No GitHub repositories detected</option>';
+        return;
+    }
+    sel.innerHTML = sorted.map(s => `<option value="${EscapeHtmlTp(s)}" ${s === prev ? 'selected' : ''}>${EscapeHtmlTp(s)}</option>`).join('');
+    if (selectSlug && sorted.includes(selectSlug)) sel.value = selectSlug;
+}
+
+window.JumpToGitHubReleases = function(repoSlug) {
+    SetGitHubSubView('releases');
+    PopulateGitHubReleaseRepoSelector(repoSlug);
+    TriggerLoadGitHubReleases();
+};
+
+window.TriggerLoadGitHubReleases = function() {
+    const slug = document.getElementById('selGhReleaseRepo')?.value || '';
+    if (!slug) { SetGhStatus('Select a GitHub repository first.', true); return; }
+    SetGhStatus(`Loading releases for ${slug}...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'GH_LOAD_RELEASES', repoSlug: slug }));
+};
+
+window.ToggleGitHubCreateReleaseForm = function() {
+    const card = document.getElementById('ghCreateReleaseCard');
+    if (card) card.style.display = (card.style.display === 'none' || !card.style.display) ? 'flex' : 'none';
+};
+
+window.BrowseGitHubReleaseAssets = function() {
+    window.chrome?.webview?.postMessage('Browse-File:github_release_assets');
+};
+
+window.TriggerGenerateGitHubReleaseNotes = function() {
+    const repoSlug = document.getElementById('selGhReleaseRepo')?.value || '';
+    const tagName = (document.getElementById('inpGhRelTag')?.value || '').trim();
+    const targetBranch = (document.getElementById('inpGhRelBranch')?.value || 'main').trim();
+    if (!repoSlug || !tagName) { SetGhStatus('Select a repository and enter a Tag Name before auto-generating notes.', true); return; }
+    SetGhStatus(`Generating release notes for ${tagName}...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'GH_GENERATE_RELEASE_NOTES', repoSlug, tagName, targetBranch }));
+};
+
+function ApplyGitHubGeneratedNotes(data) {
+    if (!data) return;
+    const titleInp = document.getElementById('inpGhRelTitle');
+    const bodyInp = document.getElementById('inpGhRelBody');
+    if (titleInp && !titleInp.value.trim() && data.title) titleInp.value = data.title;
+    if (bodyInp && data.body) bodyInp.value = data.body;
+    SetGhStatus('Generated release notes from GitHub commits.');
+}
+
+window.TriggerCreateGitHubRelease = function() {
+    const repoSlug = document.getElementById('selGhReleaseRepo')?.value || '';
+    const tagName = (document.getElementById('inpGhRelTag')?.value || '').trim();
+    const targetBranch = (document.getElementById('inpGhRelBranch')?.value || 'main').trim();
+    const title = (document.getElementById('inpGhRelTitle')?.value || tagName).trim();
+    const body = (document.getElementById('inpGhRelBody')?.value || '').trim();
+    const draft = !!document.getElementById('chkGhRelDraft')?.checked;
+    const prerelease = !!document.getElementById('chkGhRelPre')?.checked;
+    const assetPaths = Array.isArray(window._ghPendingReleaseAssets) ? window._ghPendingReleaseAssets : [];
+    if (!repoSlug || !tagName) { SetGhStatus('Repository and Tag Name are required.', true); return; }
+    SetGhStatus(`Creating GitHub release ${tagName} on ${repoSlug}...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({
+        command: 'GH_CREATE_RELEASE',
+        repoSlug, tagName, targetBranch, title, body, draft, prerelease, assetPaths
+    }));
+};
+
+window.TriggerUploadExistingReleaseAsset = function(repoSlug, uploadUrl) {
+    window._ghPendingUploadTarget = { repoSlug, uploadUrl };
+    window.chrome?.webview?.postMessage('Browse-File:github_upload_asset');
+};
+
+window.TriggerDeleteGitHubRelease = function(repoSlug, releaseId, tagName) {
+    if (!ConfirmDestructiveAction(`Delete GitHub release '${tagName}' from ${repoSlug}?`)) return;
+    SetGhStatus(`Deleting release ${tagName}...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'GH_DELETE_RELEASE', repoSlug, releaseId }));
+};
+
+function RenderGitHubReleasesState(data) {
+    if (!data) return;
+    if (data.message) SetGhStatus(data.message, !data.ok);
+    const card = document.getElementById('ghCreateReleaseCard');
+    if (card && data.message && data.message.startsWith('Created release')) {
+        card.style.display = 'none';
+        window._ghPendingReleaseAssets = [];
+        SetDomText('lblGhRelAttachedAssets', 'No files attached');
+    }
+
+    const host = document.getElementById('ghReleasesList');
+    if (!host) return;
+    const rels = Array.isArray(data.releases) ? data.releases : [];
+    if (!rels.length) {
+        host.innerHTML = `<div class="driver-text-node" style="padding:10px;">No GitHub releases found for ${EscapeHtmlTp(data.repoSlug || '')}. Click "➕ New Release" above to publish one.</div>`;
+        return;
+    }
+
+    const safeSlug = String(data.repoSlug || '').replace(/'/g, "\\'");
+    host.innerHTML = rels.map(r => {
+        const badges = (r.draft ? '<span class="sharing-badge badge-purple">Draft</span>' : '') +
+                       (r.prerelease ? '<span class="sharing-badge ver-update">Pre-release</span>' : (!r.draft ? '<span class="sharing-badge ver-uptodate">Published</span>' : ''));
+        const assetsHtml = (r.assets || []).length
+            ? `<div class="profile-card-chips">${r.assets.map(a => `<span class="prof-chip chip-disp" title="${a.downloads} downloads">📦 ${EscapeHtmlTp(a.name)} (${FormatDiskBytes(a.sizeBytes)} · ${a.downloads} dl)</span>`).join('')}</div>`
+            : '<div class="cw-settings-sub">No attached assets</div>';
+        const safeUrl = String(r.htmlUrl || '').replace(/'/g, "\\'");
+        const safeUp  = String(r.uploadUrl || '').replace(/'/g, "\\'");
+        const safeTag = String(r.tagName || '').replace(/'/g, "\\'");
+        return `<article class="gh-release-card">
+            <div class="dev-repo-head">
+                <span class="dev-repo-name">🏷️ ${EscapeHtmlTp(r.tagName)} — ${EscapeHtmlTp(r.name)}</span>
+                <div class="card-badge-group">${badges}<span class="cw-settings-sub">${EscapeHtmlTp(r.createdAt || '')}</span></div>
+            </div>
+            ${r.body ? `<div class="gh-release-body">${EscapeHtmlTp(r.body)}</div>` : ''}
+            ${assetsHtml}
+            <div class="dev-repo-actions">
+                <button type="button" onclick="OpenExternalHttpsUrl('${safeUrl}')">🌐 Open on GitHub ↗</button>
+                <button type="button" onclick="TriggerUploadExistingReleaseAsset('${safeSlug}', '${safeUp}')">📤 Upload Asset</button>
+                <button type="button" class="wsl-btn-danger" onclick="TriggerDeleteGitHubRelease('${safeSlug}', ${r.id}, '${safeTag}')">🗑️ Delete</button>
+            </div>
+        </article>`;
+    }).join('');
+}
+
+function HandleGitHubNotice(data) {
+    const msg = data?.error || data?.message || '';
+    if (msg) SetGhStatus(msg, !data.ok || !!data.error);
+}
+
+// =========================================================================
+// JIRA MANAGER UI CONTROLLER (TASKS, TRANSITIONS, COMMENTS & WORKLOGS)
+// =========================================================================
+window._jiraManagerLoaded = false;
+window._jiraState = null;
+window._jiraActivePreset = 'assigned';
+window._jiraSelectedKey = '';
+
+function SetJiraStatus(msg, isErr = false) {
+    const st = document.getElementById('jiraStatus');
+    if (st && msg) {
+        st.classList.toggle('sharing-error', !!isErr);
+        st.textContent = msg;
+    }
+    if (msg) AppendConsoleLogEntry(`[JIRA] ${msg}`);
+}
+
+window.ToggleJiraAuthPanel = function() {
+    const p = document.getElementById('jiraAuthPanel');
+    if (p) p.style.display = (p.style.display === 'none' || !p.style.display) ? 'flex' : 'none';
+};
+
+window.SyncJiraAuthModeUi = function() {
+    const mode = document.getElementById('selJiraAuthMode')?.value || 'cloud_basic';
+    const wrap = document.getElementById('jiraEmailFieldWrap');
+    if (wrap) wrap.style.display = (mode === 'datacenter_pat') ? 'none' : 'flex';
+};
+
+window.RequestJiraManagerState = function() {
+    const preset = window._jiraActivePreset || 'assigned';
+    const projectKey = document.getElementById('selJiraProjectFilter')?.value || '';
+    const customJql = (document.getElementById('inpJiraCustomJql')?.value || '').trim();
+    SetJiraStatus('Syncing Jira tasks...');
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'JIRA_LOAD', preset, projectKey, customJql }));
+};
+
+window.SetJiraPreset = function(preset) {
+    window._jiraActivePreset = preset;
+    document.querySelectorAll('#jiraPresetPills .filter-pill').forEach(b => b.classList.toggle('active', b.dataset.preset === preset));
+    const jqlRow = document.getElementById('jiraCustomJqlRow');
+    if (jqlRow) jqlRow.style.display = (preset === 'custom') ? 'flex' : 'none';
+    if (preset !== 'custom') RequestJiraManagerState();
+};
+
+window.TriggerJiraSignIn = function() {
+    const authMode = document.getElementById('selJiraAuthMode')?.value || 'cloud_basic';
+    const siteUrl = (document.getElementById('inpJiraSiteUrl')?.value || '').trim();
+    const email = (document.getElementById('inpJiraEmail')?.value || '').trim();
+    const tokenInp = document.getElementById('inpJiraToken');
+    const token = (tokenInp?.value || '').trim();
+    if (!siteUrl) { SetJiraStatus('Enter your Jira Site URL (e.g. https://yourorg.atlassian.net).', true); return; }
+    if (tokenInp) tokenInp.value = '';
+    SetJiraStatus(`Connecting to ${siteUrl}...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'JIRA_SIGN_IN', authMode, siteUrl, email, token }));
+};
+
+window.TriggerJiraSignOut = function() {
+    if (!confirm('Sign out of Jira and delete the locally encrypted API token?')) return;
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'JIRA_SIGN_OUT' }));
+};
+
+function RenderJiraManagerState(data) {
+    if (!data) return;
+    window._jiraManagerLoaded = true;
+    window._jiraState = data;
+
+    const cfg = data.config || {};
+    const authPanel = document.getElementById('jiraAuthPanel');
+    const modeSel = document.getElementById('selJiraAuthMode');
+    if (modeSel && cfg.authMode) modeSel.value = cfg.authMode;
+    SyncJiraAuthModeUi();
+    const siteInp = document.getElementById('inpJiraSiteUrl');
+    if (siteInp && cfg.siteUrl) siteInp.value = cfg.siteUrl;
+    const emailInp = document.getElementById('inpJiraEmail');
+    if (emailInp && cfg.email) emailInp.value = cfg.email;
+
+    const badge = document.getElementById('lblJiraUserBadge');
+    const newBtn = document.getElementById('btnJiraNewIssue');
+    if (data.authenticated && data.user) {
+        if (badge) badge.innerHTML = `Account: <strong style="color:#68d391;">${EscapeHtmlTp(data.user.displayName)}</strong>`;
+        if (newBtn) newBtn.disabled = false;
+        if (authPanel) authPanel.style.display = 'none';
+    } else {
+        if (badge) badge.innerHTML = `Account: <strong style="color:#f6ad55;">Not Signed In</strong>`;
+        if (newBtn) newBtn.disabled = true;
+        if (authPanel) authPanel.style.display = 'flex';
+    }
+
+    const sum = data.summary || {};
+    SetDomText('sumJiraTotal', sum.total ?? 0);
+    SetDomText('sumJiraTodo', sum.todo ?? 0);
+    SetDomText('sumJiraProg', sum.inProgress ?? 0);
+    SetDomText('sumJiraDone', sum.done ?? 0);
+
+    // Populate project dropdowns
+    const projs = Array.isArray(data.projects) ? data.projects : [];
+    const projFlt = document.getElementById('selJiraProjectFilter');
+    if (projFlt) {
+        const curP = data.activeProject || '';
+        projFlt.innerHTML = `<option value="">All Projects</option>` +
+            projs.map(p => `<option value="${EscapeHtmlTp(p.key)}" ${p.key === curP ? 'selected' : ''}>${EscapeHtmlTp(p.key)} — ${EscapeHtmlTp(p.name)}</option>`).join('');
+    }
+    const newProjSel = document.getElementById('selJiraNewProject');
+    if (newProjSel) {
+        newProjSel.innerHTML = projs.map(p => `<option value="${EscapeHtmlTp(p.key)}">${EscapeHtmlTp(p.key)} — ${EscapeHtmlTp(p.name)}</option>`).join('');
+    }
+
+    if (data.notice) SetJiraStatus(data.notice, !!data.noticeError);
+    RenderJiraIssuesList();
+}
+
+window.RenderJiraIssuesList = function() {
+    const host = document.getElementById('jiraIssuesList');
+    if (!host) return;
+    if (!window._jiraState?.authenticated) {
+        host.innerHTML = '<div class="driver-text-node" style="padding:12px;">Sign in above to load your Jira tasks.</div>';
+        return;
+    }
+    const q = (document.getElementById('inpJiraSearch')?.value || '').trim().toLowerCase();
+    const issues = (window._jiraState.issues || []).filter(i =>
+        !q || `${i.key} ${i.summary} ${i.status} ${i.priority} ${i.issueType} ${i.assignee}`.toLowerCase().includes(q)
+    );
+    if (!issues.length) {
+        host.innerHTML = '<div class="driver-text-node" style="padding:12px;">No Jira issues match the active filter.</div>';
+        return;
+    }
+
+    host.innerHTML = issues.map(i => {
+        const isSel = i.key === window._jiraSelectedKey;
+        const stCls = i.statusCategory === 'done' ? 'ver-uptodate' : (i.statusCategory === 'indeterminate' ? 'badge-info' : 'badge-neutral');
+        return `<div class="jira-issue-row ${isSel ? 'is-selected' : ''}" onclick="SelectJiraIssue('${EscapeHtmlTp(i.key)}')">
+            <div class="dev-repo-head">
+                <span class="jira-issue-key">${EscapeHtmlTp(i.key)} · ${EscapeHtmlTp(i.issueType)}</span>
+                <div class="card-badge-group">
+                    <span class="sharing-badge ${stCls}">${EscapeHtmlTp(i.status)}</span>
+                    <span class="sharing-badge badge-purple">${EscapeHtmlTp(i.priority)}</span>
+                </div>
+            </div>
+            <div class="jira-issue-summary">${EscapeHtmlTp(i.summary)}</div>
+            <div class="dev-repo-meta">${EscapeHtmlTp(i.assignee)} · Updated ${EscapeHtmlTp(i.updated || '--')}</div>
+        </div>`;
+    }).join('');
+};
+
+window.SelectJiraIssue = function(issueKey) {
+    window._jiraSelectedKey = issueKey;
+    RenderJiraIssuesList();
+    const detail = document.getElementById('jiraDetailPane');
+    if (detail) detail.innerHTML = `<div class="driver-text-node" style="padding:14px;">Loading ${EscapeHtmlTp(issueKey)}...</div>`;
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'JIRA_GET_ISSUE_DETAIL', issueKey }));
+};
+
+function RenderJiraIssueDetail(data) {
+    if (!data || !data.issue) return;
+    if (data.notice) SetJiraStatus(data.notice, false);
+    if (data.refreshList) RequestJiraManagerState();
+
+    const detail = document.getElementById('jiraDetailPane');
+    if (!detail) return;
+    const iss = data.issue;
+    const safeKey = String(iss.key || '').replace(/'/g, "\\'");
+    const safeUrl = String(iss.browseUrl || '').replace(/'/g, "\\'");
+    const slug = String(iss.summary || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 42);
+    const branchName = `${String(iss.issueType || 'task').toLowerCase() === 'bug' ? 'fix' : 'feature'}/${iss.key}-${slug || 'task'}`;
+    const safeBranch = branchName.replace(/'/g, "\\'");
+
+    const transBtns = (data.transitions || []).map(t => {
+        const sName = String(t.name || '').replace(/'/g, "\\'");
+        return `<button type="button" class="console-clear-btn" onclick="TriggerJiraTransition('${safeKey}', '${EscapeHtmlTp(t.id)}', '${sName}')">→ ${EscapeHtmlTp(t.name)}</button>`;
+    }).join('');
+
+    const commentsHtml = (data.comments || []).length
+        ? data.comments.map(c => `<div class="jira-comment-item"><div class="jira-comment-meta"><strong>${EscapeHtmlTp(c.author)}</strong> · ${EscapeHtmlTp(c.created)}</div><div>${EscapeHtmlTp(c.body)}</div></div>`).join('')
+        : '<div class="cw-settings-sub">No comments yet.</div>';
+
+    detail.innerHTML = `<div class="jira-detail-wrap">
+        <div class="dev-repo-head">
+            <span class="jira-issue-key" style="font-size:13px;">${EscapeHtmlTp(iss.key)} · ${EscapeHtmlTp(iss.issueType)}</span>
+            <div class="card-badge-group">
+                <span class="sharing-badge badge-info">${EscapeHtmlTp(iss.status)}</span>
+                <span class="sharing-badge badge-purple">${EscapeHtmlTp(iss.priority)}</span>
+            </div>
+        </div>
+        <div style="font-size:14px; font-weight:700; color:#fff;">${EscapeHtmlTp(iss.summary)}</div>
+        <div class="dev-repo-meta">Assignee: ${EscapeHtmlTp(iss.assignee)} · Reporter: ${EscapeHtmlTp(iss.reporter || '--')} · Logged: ${EscapeHtmlTp(data.timeSpent || 'None')}</div>
+
+        <div class="jira-transitions-bar">
+            <span class="cw-settings-sub" style="margin-right:4px;">Move to:</span>
+            ${transBtns || '<span class="cw-settings-sub">No transitions available</span>'}
+        </div>
+
+        <div class="dev-repo-actions" style="border-top:none; padding-top:0;">
+            <button type="button" class="btn-vscode" onclick="TriggerJiraAssignToMe('${safeKey}')">👤 Assign to Me</button>
+            <button type="button" onclick="CopyRawText('${safeBranch}', 'Git branch')">🌿 Copy Branch</button>
+            <button type="button" onclick="OpenExternalHttpsUrl('${safeUrl}')">🌐 Open in Jira ↗</button>
+        </div>
+
+        <div>
+            <div class="cw-set-sec-title" style="margin-bottom:5px;">Description</div>
+            <div class="jira-desc-box">${EscapeHtmlTp(data.description || 'No description provided.')}</div>
+        </div>
+
+        <div class="cw-set-card">
+            <div class="cw-set-sec-title">⏱️ Log Work Time</div>
+            <div class="dev-auth-row">
+                <input type="text" id="inpJiraLogTime" class="prof-input" style="max-width:120px;" placeholder="e.g. 30m, 1h 30m">
+                <input type="text" id="inpJiraLogNote" class="prof-input" placeholder="Work note (optional)">
+                <button type="button" class="console-clear-btn btn-accent-action" onclick="TriggerJiraLogWork('${safeKey}')">Log Time</button>
+            </div>
+        </div>
+
+        <div class="cw-set-card">
+            <div class="cw-set-sec-title">💬 Comments (${(data.comments || []).length})</div>
+            <div>${commentsHtml}</div>
+            <textarea id="inpJiraNewComment" class="prof-input" rows="2" placeholder="Write a comment..."></textarea>
+            <div style="display:flex; justify-content:flex-end;">
+                <button type="button" class="console-clear-btn btn-accent-action" onclick="TriggerJiraAddComment('${safeKey}')">Post Comment</button>
+            </div>
+        </div>
+    </div>`;
+}
+
+window.TriggerJiraTransition = function(issueKey, transitionId, transitionName) {
+    SetJiraStatus(`Transitioning ${issueKey} → ${transitionName}...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'JIRA_TRANSITION_ISSUE', issueKey, transitionId, transitionName }));
+};
+
+window.TriggerJiraAssignToMe = function(issueKey) {
+    SetJiraStatus(`Assigning ${issueKey} to you...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'JIRA_ASSIGN_TO_ME', issueKey }));
+};
+
+window.TriggerJiraAddComment = function(issueKey) {
+    const body = (document.getElementById('inpJiraNewComment')?.value || '').trim();
+    if (!body) { SetJiraStatus('Enter a comment first.', true); return; }
+    SetJiraStatus(`Posting comment to ${issueKey}...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'JIRA_ADD_COMMENT', issueKey, body }));
+};
+
+window.TriggerJiraLogWork = function(issueKey) {
+    const timeSpent = (document.getElementById('inpJiraLogTime')?.value || '').trim();
+    const comment = (document.getElementById('inpJiraLogNote')?.value || '').trim();
+    if (!timeSpent) { SetJiraStatus('Enter a time duration (e.g. 30m or 1h 30m).', true); return; }
+    SetJiraStatus(`Logging ${timeSpent} on ${issueKey}...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'JIRA_LOG_WORK', issueKey, timeSpent, comment }));
+};
+
+window.OpenJiraCreateIssueModal = function() {
+    const m = document.getElementById('jiraCreateIssueModal');
+    if (m) m.style.display = 'flex';
+    setTimeout(() => document.getElementById('inpJiraNewSummary')?.focus(), 10);
+};
+
+window.CloseJiraCreateIssueModal = function() {
+    const m = document.getElementById('jiraCreateIssueModal');
+    if (m) m.style.display = 'none';
+};
+
+window.TriggerCreateJiraIssue = function() {
+    const projectKey = document.getElementById('selJiraNewProject')?.value || '';
+    const issueType = document.getElementById('selJiraNewType')?.value || 'Task';
+    const summary = (document.getElementById('inpJiraNewSummary')?.value || '').trim();
+    const description = (document.getElementById('inpJiraNewDesc')?.value || '').trim();
+    const assignToMe = !!document.getElementById('chkJiraNewAssignMe')?.checked;
+    if (!projectKey || !summary) { SetJiraStatus('Project and Summary are required.', true); return; }
+    CloseJiraCreateIssueModal();
+    document.getElementById('inpJiraNewSummary').value = '';
+    document.getElementById('inpJiraNewDesc').value = '';
+    SetJiraStatus(`Creating Jira ${issueType} in ${projectKey}...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'JIRA_CREATE_ISSUE', projectKey, issueType, summary, description, assignToMe }));
+};
+
+function HandleJiraNotice(data) {
+    const msg = data?.error || data?.message || '';
+    if (msg) SetJiraStatus(msg, !data.ok || !!data.error);
+}

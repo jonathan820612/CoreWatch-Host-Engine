@@ -37,13 +37,36 @@ APP HEADER NAVIGATION DECK
             <button id="tabNetManager" class="tab-btn" onclick="SwitchAppLayoutView('netmanager')" title="Network Adapters, Active Diagnostics, Wi-Fi & Routing">📡 Network</button>
             <button id="tabTasksPorts" class="tab-btn" onclick="SwitchAppLayoutView('tasksports')" title="Live Processes, Windows Services & Open TCP/UDP Ports">🧭 Tasks &amp; Ports</button>
             <button id="tabUltimaDiagX" class="tab-btn" onclick="SwitchAppLayoutView('diagx')" title="UltimaDiagX - System Diagnostics & Crash Analysis">🩺 UltimaDiagX</button>
-            <button id="tabWslManager" class="tab-btn" onclick="SwitchAppLayoutView('wsl')" title="Windows Subsystem for Linux (WSL) Deployments & Management">🐧 WSL</button>
+            <!-- Grouped Dev & Work Dropdown (GitHub Manager, Jira Manager, WSL) -->
+            <div class="nav-dropdown" id="navDevDropdown">
+                <button type="button" id="tabDevMenu" class="tab-btn nav-dropdown-trigger" onclick="ToggleDevWorkMenu(event)" aria-haspopup="true" aria-expanded="false" title="Developer &amp; Work Tools (GitHub, Jira, WSL)">
+                    <span id="lblDevMenuText">💻 Dev &amp; Work</span> <span class="nav-caret">▾</span>
+                </button>
+                <div class="nav-dropdown-menu" id="navDevMenu" role="menu">
+                    <button type="button" id="tabGitHubManager" class="nav-menu-item" role="menuitem" onclick="SelectDevWorkMenuView('github')">
+                        <span class="nav-mi-icon">🐙</span>
+                        <span class="nav-mi-body"><strong>GitHub Manager</strong><small>Local projects in VS Code, clone repos/URLs &amp; release management</small></span>
+                    </button>
+                    <button type="button" id="tabJiraManager" class="nav-menu-item" role="menuitem" onclick="SelectDevWorkMenuView('jira')">
+                        <span class="nav-mi-icon">📋</span>
+                        <span class="nav-mi-body"><strong>Jira Manager</strong><small>Sign in to view work tasks, transition status, comment &amp; log time</small></span>
+                    </button>
+                    <button type="button" id="tabWslManager" class="nav-menu-item" role="menuitem" onclick="SelectDevWorkMenuView('wsl')">
+                        <span class="nav-mi-icon">🐧</span>
+                        <span class="nav-mi-body"><strong>WSL Manager</strong><small>Linux distros, online catalog, VHDX compaction &amp; .wslconfig</small></span>
+                    </button>
+                </div>
+            </div>
             <!-- Scalable Grouped System Tools Dropdown (keeps top bar uncluttered as tabs grow) -->
             <div class="nav-dropdown" id="navSystemDropdown">
                 <button type="button" id="tabSystemMenu" class="tab-btn nav-dropdown-trigger" onclick="ToggleSystemToolsMenu(event)" aria-haspopup="true" aria-expanded="false" title="System & Administration Tools">
                     <span id="lblSystemMenuText">🧰 System</span> <span class="nav-caret">▾</span>
                 </button>
                 <div class="nav-dropdown-menu" id="navSystemMenu" role="menu">
+                    <button type="button" id="tabProfiles" class="nav-menu-item" role="menuitem" onclick="SelectSystemMenuView('profiles')">
+                        <span class="nav-mi-icon">⚡</span>
+                        <span class="nav-mi-body"><strong>System Profiles &amp; Modes</strong><small>Work, Gaming, Streaming, Night &amp; custom presets (DnD, Power, Display)</small></span>
+                    </button>
                     <button type="button" id="tabSecurityRepair" class="nav-menu-item" role="menuitem" onclick="SelectSystemMenuView('security')">
                         <span class="nav-mi-icon">🛡️</span>
                         <span class="nav-mi-body"><strong>Security &amp; Repair</strong><small>BitLocker, TPM, RDP, DISM/SFC &amp; Support ZIP</small></span>
@@ -81,9 +104,17 @@ APP HEADER NAVIGATION DECK
         </div>
 
         <div class="header-right-group">
+            <div class="nav-dropdown nav-mode-dropdown" id="navModePillDropdown">
+                <button type="button" id="btnHeaderModePill" class="tab-btn nav-mode-pill" onclick="ToggleHeaderModeMenu(event)" aria-haspopup="true" aria-expanded="false" title="Switch Active System Profile / Mode (DnD, Power Plan, Keep Awake, Display)">
+                    <span id="lblHeaderModeText">🖥️ Normal</span> <span class="nav-caret">▾</span>
+                </button>
+                <div class="nav-dropdown-menu nav-mode-menu" id="navModePillMenu" role="menu"></div>
+            </div>
             <button type="button" id="btnSideDockToggle" class="tab-btn nav-dock-btn" onclick="ToggleSideTelemetryDock()" style="display: none;" title="Open Side Pop-Out Telemetry Dock (Docked live frames)">◫ <span id="lblSideDockCount">0</span></button>
             <button type="button" id="btnCustomizeLayout" class="tab-btn nav-util-btn" onclick="ToggleLayoutCustomizer()" title="Customize Dashboard Frames, Side Dock, Order, Width & Window Settings">✏️ Layout</button>
+            <button type="button" id="btnLockWindow" class="tab-btn nav-lock-btn" onclick="CycleWindowLockMode()" title="Window Unlocked — Click to lock position">🔓</button>
             <button type="button" id="btnPinOnTop" class="tab-btn nav-pin-btn" onclick="ToggleWindowAlwaysOnTop()" title="Toggle Always on Top (Pin Window)">📌</button>
+            <button type="button" id="btnOpenSettings" class="tab-btn nav-settings-btn" onclick="ToggleSettingsModal()" title="Application Settings, Directories, Performance &amp; Modules">⚙️</button>
             <button class="exit-system-btn" onclick="window.chrome.webview.postMessage('Exit-App')" title="Terminate CoreWatch Engine">⏻ EXIT</button>
         </div>
     </div>
@@ -111,7 +142,7 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
                         <!-- [DIAGNOSTIC ADDITION] Thermal / Power Throttling Flag Badge -->
                         <span class="hardware-stat-tag diag-ok" id="badgeThrottleState" title="No CPU/GPU thermal or power throttling detected">Throttle: None</span>
                         <span class="hardware-stat-tag text-speed" id="lblCpuClock">0.00 GHz</span>
-                        <span class="hardware-stat-tag therm-cool" id="badgeCpuTemp"><span id="lblCpuTemp">00</span> °C</span>
+                        <span class="hardware-stat-tag therm-cool" id="badgeCpuTemp"><span id="lblCpuTemp">00</span> <span id="lblCpuTempUnit">°C</span></span>
                     </div>
                 </div>
             </div>
@@ -129,7 +160,7 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
                     <div class="driver-tag tight-tag" id="lblGpuDriver">Driver Version</div>
                     <div class="cache-badge-deck" style="gap: 4px;">
                         <span class="hardware-stat-tag text-power" id="lblGpuPower">00 W</span>
-                        <span class="hardware-stat-tag therm-cool" id="badgeGpuTemp"><span id="lblGpuTemp">00</span> °C</span>
+                        <span class="hardware-stat-tag therm-cool" id="badgeGpuTemp"><span id="lblGpuTemp">00</span> <span id="lblGpuTempUnit">°C</span></span>
                     </div>
                 </div>
                 <!-- [DIAGNOSTIC ADDITION] GPU VRAM Allocation Sub-Bar -->
@@ -1371,7 +1402,7 @@ VIEW 12: APP DOWNLOADER & PACKAGE INSTALLER (WINGET + OFFICIAL SOURCES)
 ========================================================================= -->
     <section id="viewAppInstallerPanel" class="tab-view-panel sharing-panel" style="display: none;" aria-labelledby="appInstallerTitle">
         <div class="console-header-row">
-            <h2 id="appInstallerTitle">⬇️ APP DOWNLOADER &amp; PACKAGE INSTALLER</h2>
+            <h2 id="appInstallerTitle">⬇️ APP DOWNLOADER, LAUNCHER &amp; PACKAGE INSTALLER</h2>
             <div style="display: flex; gap: 6px; flex-wrap: wrap;">
                 <button type="button" class="console-clear-btn" onclick="SelectEssentialAppsPack()" title="Auto-select core runtimes, browsers & dev tools (VC++, WebView2, .NET 8, DirectX, 7-Zip, PowerShell 7, Git, VS Code)">⭐ Select Essentials</button>
                 <button type="button" class="console-clear-btn" onclick="ClearAppStoreSelection()" title="Clear all checked apps">Clear</button>
@@ -1380,11 +1411,12 @@ VIEW 12: APP DOWNLOADER & PACKAGE INSTALLER (WINGET + OFFICIAL SOURCES)
                 <button type="button" id="btnAppStoreBatchInstall" class="console-clear-btn btn-accent-action" onclick="TriggerInstallSelectedApps()" disabled>⬇️ Install Selected (0)</button>
             </div>
         </div>
-        <p>One-click download &amp; batch installer for essential developer tools, runtimes, browsers, gaming launchers, and system utilities via official Windows Package Manager (<code>winget</code>) with direct official website links.</p>
+        <p>One-click download, launch &amp; batch installer for essential developer tools, runtimes, browsers, gaming launchers, ArtCraft Suite, and utilities via Windows Package Manager (<code>winget</code>) &amp; official releases.</p>
 
         <div class="tab-summary-strip" style="margin-bottom: 8px;">
             <span class="summary-chip chip-accent">Catalog: <strong id="sumStoreTotal">--</strong></span>
             <span class="summary-chip chip-ok">Installed: <strong id="sumStoreInstalled">--</strong></span>
+            <span class="summary-chip chip-ok">Launchable: <strong id="sumStoreLaunchable">--</strong></span>
             <span class="summary-chip">Updates: <strong id="sumStoreOutdated">0</strong></span>
             <span class="summary-chip">Available: <strong id="sumStoreAvailable">--</strong></span>
             <span class="summary-chip chip-accent">Selected: <strong id="sumStoreSelected">0</strong></span>
@@ -1419,6 +1451,7 @@ VIEW 12: APP DOWNLOADER & PACKAGE INSTALLER (WINGET + OFFICIAL SOURCES)
             <button type="button" class="filter-pill" data-cat="SysAdmin & Network" onclick="SetAppStoreCategory('SysAdmin & Network')">🛠️ SysAdmin &amp; Net</button>
             <button type="button" class="filter-pill" data-cat="not_installed" onclick="SetAppStoreCategory('not_installed')">Not Installed</button>
             <button type="button" class="filter-pill" data-cat="installed" onclick="SetAppStoreCategory('installed')">Installed</button>
+            <button type="button" class="filter-pill" data-cat="launchable" onclick="SetAppStoreCategory('launchable')">▶ Launchable</button>
         </div>
 
         <div id="appStoreStatus" class="sharing-status" role="status">Loading curated app catalog &amp; probing installed packages...</div>
@@ -1509,6 +1542,404 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
     </section>
 
     <!-- =========================================================================
+    GITHUB MANAGER TAB (LOCAL PROJECTS, CLONE REPOS/URLS & RELEASE MANAGEMENT)
+    ========================================================================= -->
+    <section id="viewGitHubPanel" class="tab-view-panel sharing-panel" style="display: none;" aria-labelledby="githubManagerTitle">
+        <div class="console-header-row">
+            <h2 id="githubManagerTitle">🐙 GITHUB MANAGER</h2>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center;">
+                <span id="lblGhAuthBadge" class="summary-chip">Auth: <strong>Checking...</strong></span>
+                <button type="button" class="console-clear-btn" onclick="ToggleGitHubPatBar()" title="Configure or clear DPAPI-encrypted GitHub Personal Access Token">🔑 Token</button>
+                <button type="button" class="console-clear-btn btn-accent-action" onclick="RequestGitHubManagerState()">Refresh</button>
+            </div>
+        </div>
+
+        <!-- Collapsible GitHub PAT Auth Bar -->
+        <div id="ghPatAuthBar" class="dev-auth-bar" style="display: none;">
+            <div class="dev-auth-row">
+                <input type="password" id="inpGhPatToken" class="prof-input" placeholder="GitHub Personal Access Token (ghp_... with 'repo' scope) — stored DPAPI-encrypted">
+                <button type="button" class="console-clear-btn btn-accent-action" onclick="SaveGitHubPatToken()">Save Token</button>
+                <button type="button" class="console-clear-btn wsl-btn-danger" onclick="ClearGitHubPatToken()">Clear PAT</button>
+                <button type="button" class="console-clear-btn" onclick="OpenExternalHttpsUrl('https://github.com/settings/tokens')">Generate Token ↗</button>
+            </div>
+            <div class="cw-settings-sub">If you are already logged in via <code>gh auth login</code>, CoreWatch automatically uses your GitHub CLI session with no token needed.</div>
+        </div>
+
+        <div class="tab-filter-pills" id="ghSubViewPills" style="margin-bottom: 8px;">
+            <button type="button" class="filter-pill active" data-sub="local" onclick="SetGitHubSubView('local')">📂 Local Projects (<span id="sumGhLocalCount">0</span>)</button>
+            <button type="button" class="filter-pill" data-sub="repos" onclick="SetGitHubSubView('repos')">🌐 My Repos &amp; Clone (<span id="sumGhRemoteCount">0</span>)</button>
+            <button type="button" class="filter-pill" data-sub="releases" onclick="SetGitHubSubView('releases')">🚀 Release Management</button>
+        </div>
+
+        <div id="ghStatus" class="sharing-status" style="margin-bottom: 8px;" role="status">Loading local Git workspaces and GitHub account status...</div>
+
+        <!-- SUB-VIEW 1: LOCAL PROJECTS -->
+        <div id="ghPaneLocal" class="dev-subpane active">
+            <div class="tab-filter-toolbar" style="margin-bottom: 8px;">
+                <input type="text" id="inpGhProjectsRoot" class="tab-search-input" placeholder="Local projects root folder (e.g. D:\GitHub)">
+                <button type="button" class="console-clear-btn" onclick="BrowseGitHubFolder('github_projects_root')">Browse...</button>
+                <button type="button" class="console-clear-btn btn-accent-action" onclick="ScanGitHubProjectsRoot()">Scan Folder</button>
+                <input type="text" id="inpGhLocalFilter" class="tab-search-input" style="max-width: 220px;" placeholder="Filter local repos..." oninput="RenderGitHubLocalRepos()">
+            </div>
+            <div id="ghLocalReposGrid" class="dev-cards-grid"></div>
+        </div>
+
+        <!-- SUB-VIEW 2: MY GITHUB REPOS & CLONE ANY URL -->
+        <div id="ghPaneRepos" class="dev-subpane">
+            <div class="cw-set-card" style="margin-bottom: 10px;">
+                <div class="cw-set-sec-title">⬇️ Clone Any Git Repository URL to a Specific Location</div>
+                <div class="gh-clone-grid">
+                    <input type="text" id="inpGhCloneUrl" class="prof-input" placeholder="https://github.com/owner/repo.git  or  git@github.com:owner/repo.git">
+                    <div class="cw-dir-input-wrap">
+                        <input type="text" id="inpGhCloneDest" placeholder="Destination parent folder (defaults to Projects Root)">
+                        <button type="button" class="console-clear-btn" onclick="BrowseGitHubFolder('github_clone_dest')">Browse...</button>
+                    </div>
+                </div>
+                <div class="gh-clone-opts-row">
+                    <input type="text" id="inpGhCloneBranch" class="prof-input" style="max-width: 170px;" placeholder="Branch (optional)">
+                    <label class="org-checkbox-label"><input type="checkbox" id="chkGhCloneShallow"> <span>Shallow (--depth 1)</span></label>
+                    <label class="org-checkbox-label"><input type="checkbox" id="chkGhCloneOpenVsCode" checked> <span>Open in VS Code after clone</span></label>
+                    <button type="button" class="console-clear-btn btn-accent-action" onclick="TriggerGitHubCloneCustomUrl()">⬇️ Clone Repository</button>
+                </div>
+            </div>
+
+            <div class="tab-filter-toolbar" style="margin-bottom: 8px;">
+                <input type="text" id="inpGhRemoteFilter" class="tab-search-input" placeholder="Search your GitHub repositories (name, description, language)..." oninput="RenderGitHubRemoteRepos()">
+                <select id="selGhRemoteVis" class="tab-sort-select" onchange="RenderGitHubRemoteRepos()">
+                    <option value="all">All Visibility</option>
+                    <option value="public">Public Only</option>
+                    <option value="private">Private Only</option>
+                    <option value="not_cloned">Not Cloned Locally</option>
+                </select>
+            </div>
+            <div id="ghRemoteReposGrid" class="dev-cards-grid"></div>
+        </div>
+
+        <!-- SUB-VIEW 3: RELEASE MANAGEMENT -->
+        <div id="ghPaneReleases" class="dev-subpane">
+            <div class="tab-filter-toolbar" style="margin-bottom: 8px;">
+                <select id="selGhReleaseRepo" class="tab-sort-select" style="flex: 1 1 280px;" onchange="TriggerLoadGitHubReleases()"></select>
+                <button type="button" class="console-clear-btn" onclick="TriggerLoadGitHubReleases()">Refresh Releases</button>
+                <button type="button" class="console-clear-btn btn-accent-action" onclick="ToggleGitHubCreateReleaseForm()">➕ New Release</button>
+            </div>
+
+            <div id="ghCreateReleaseCard" class="cw-set-card" style="display: none; margin-bottom: 10px;">
+                <div class="cw-set-sec-title">🚀 Create New GitHub Release</div>
+                <div class="prof-controls-grid">
+                    <div class="cw-dir-row">
+                        <label for="inpGhRelTag">Tag Name</label>
+                        <input type="text" id="inpGhRelTag" class="prof-input" placeholder="e.g. v1.0.0 or v0.9.2-beta">
+                    </div>
+                    <div class="cw-dir-row">
+                        <label for="inpGhRelBranch">Target Branch</label>
+                        <input type="text" id="inpGhRelBranch" class="prof-input" value="main">
+                    </div>
+                </div>
+                <div class="cw-dir-row">
+                    <label for="inpGhRelTitle">Release Title</label>
+                    <input type="text" id="inpGhRelTitle" class="prof-input" placeholder="e.g. CoreWatch v0.9.2-beta">
+                </div>
+                <div class="cw-dir-row">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <label for="inpGhRelBody">Release Notes (Markdown)</label>
+                        <button type="button" class="console-clear-btn" onclick="TriggerGenerateGitHubReleaseNotes()">✨ Auto-Generate Notes</button>
+                    </div>
+                    <textarea id="inpGhRelBody" class="prof-input" rows="5" placeholder="Describe changes, fixes, and highlights..."></textarea>
+                </div>
+                <div class="gh-clone-opts-row">
+                    <label class="org-checkbox-label"><input type="checkbox" id="chkGhRelDraft"> <span>Save as Draft</span></label>
+                    <label class="org-checkbox-label"><input type="checkbox" id="chkGhRelPre"> <span>Mark as Pre-release</span></label>
+                    <button type="button" class="console-clear-btn" onclick="BrowseGitHubReleaseAssets()">📎 Attach Asset(s)</button>
+                    <span id="lblGhRelAttachedAssets" class="cw-settings-sub">No files attached</span>
+                    <button type="button" class="console-clear-btn btn-accent-action" style="margin-left: auto;" onclick="TriggerCreateGitHubRelease()">🚀 Publish Release</button>
+                </div>
+            </div>
+
+            <div id="ghReleasesList" class="dev-releases-list"></div>
+        </div>
+    </section>
+
+    <!-- =========================================================================
+    JIRA MANAGER TAB (WORK TASKS, TRANSITIONS, COMMENTS, WORKLOGS & CREATE)
+    ========================================================================= -->
+    <section id="viewJiraPanel" class="tab-view-panel sharing-panel" style="display: none;" aria-labelledby="jiraManagerTitle">
+        <div class="console-header-row">
+            <h2 id="jiraManagerTitle">📋 JIRA MANAGER</h2>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center;">
+                <span id="lblJiraUserBadge" class="summary-chip">Account: <strong>Not Signed In</strong></span>
+                <button type="button" class="console-clear-btn" onclick="ToggleJiraAuthPanel()">🔑 Connection</button>
+                <button type="button" id="btnJiraNewIssue" class="console-clear-btn btn-accent-action" onclick="OpenJiraCreateIssueModal()" disabled>➕ New Issue</button>
+                <button type="button" class="console-clear-btn" onclick="RequestJiraManagerState()">Refresh</button>
+            </div>
+        </div>
+
+        <!-- Jira Sign-In / Connection Card -->
+        <div id="jiraAuthPanel" class="cw-set-card" style="margin-bottom: 10px;">
+            <div class="cw-set-sec-title">🔑 Sign In to Jira Cloud or Data Center (Token Stored DPAPI-Encrypted)</div>
+            <div class="prof-controls-grid">
+                <div class="cw-dir-row">
+                    <label for="selJiraAuthMode">Jira Deployment Type</label>
+                    <select id="selJiraAuthMode" class="prof-select" onchange="SyncJiraAuthModeUi()">
+                        <option value="cloud_basic">Jira Cloud (Email + Atlassian API Token)</option>
+                        <option value="datacenter_pat">Jira Server / Data Center (Personal Access Token)</option>
+                    </select>
+                </div>
+                <div class="cw-dir-row">
+                    <label for="inpJiraSiteUrl">Jira Site URL</label>
+                    <input type="text" id="inpJiraSiteUrl" class="prof-input" placeholder="https://yourcompany.atlassian.net">
+                </div>
+                <div class="cw-dir-row" id="jiraEmailFieldWrap">
+                    <label for="inpJiraEmail">Atlassian Account Email</label>
+                    <input type="email" id="inpJiraEmail" class="prof-input" placeholder="you@company.com">
+                </div>
+                <div class="cw-dir-row">
+                    <label for="inpJiraToken">API Token / PAT</label>
+                    <input type="password" id="inpJiraToken" class="prof-input" placeholder="Paste Atlassian API Token (leave blank if already saved)">
+                </div>
+            </div>
+            <div class="gh-clone-opts-row">
+                <button type="button" class="console-clear-btn btn-accent-action" onclick="TriggerJiraSignIn()">🔑 Connect &amp; Sign In</button>
+                <button type="button" class="console-clear-btn wsl-btn-danger" onclick="TriggerJiraSignOut()">Sign Out</button>
+                <button type="button" class="console-clear-btn" onclick="OpenExternalHttpsUrl('https://id.atlassian.com/manage-profile/security/api-tokens')">Get Atlassian API Token ↗</button>
+            </div>
+        </div>
+
+        <div class="tab-summary-strip" style="margin-bottom: 8px;">
+            <span class="summary-chip chip-accent">Issues: <strong id="sumJiraTotal">0</strong></span>
+            <span class="summary-chip">To Do: <strong id="sumJiraTodo">0</strong></span>
+            <span class="summary-chip chip-accent">In Progress: <strong id="sumJiraProg">0</strong></span>
+            <span class="summary-chip chip-ok">Done: <strong id="sumJiraDone">0</strong></span>
+        </div>
+
+        <div class="tab-filter-toolbar" style="margin-bottom: 6px;">
+            <div class="tab-filter-pills" id="jiraPresetPills" style="margin: 0;">
+                <button type="button" class="filter-pill active" data-preset="assigned" onclick="SetJiraPreset('assigned')">👤 Assigned to Me</button>
+                <button type="button" class="filter-pill" data-preset="open" onclick="SetJiraPreset('open')">🔥 Open / Active</button>
+                <button type="button" class="filter-pill" data-preset="reported" onclick="SetJiraPreset('reported')">👀 Reported</button>
+                <button type="button" class="filter-pill" data-preset="recent" onclick="SetJiraPreset('recent')">🕒 Recent 14d</button>
+                <button type="button" class="filter-pill" data-preset="custom" onclick="SetJiraPreset('custom')">🔎 JQL</button>
+            </div>
+            <select id="selJiraProjectFilter" class="tab-sort-select" onchange="RequestJiraManagerState()">
+                <option value="">All Projects</option>
+            </select>
+            <input type="text" id="inpJiraSearch" class="tab-search-input" style="max-width: 220px;" placeholder="Filter loaded issues..." oninput="RenderJiraIssuesList()">
+        </div>
+
+        <div id="jiraCustomJqlRow" class="tab-filter-toolbar" style="display: none; margin-bottom: 8px;">
+            <input type="text" id="inpJiraCustomJql" class="tab-search-input" placeholder="e.g. project = CORE AND status != Done ORDER BY priority DESC">
+            <button type="button" class="console-clear-btn btn-accent-action" onclick="RequestJiraManagerState()">Run JQL</button>
+        </div>
+
+        <div id="jiraStatus" class="sharing-status" style="margin-bottom: 8px;" role="status">Sign in to connect to your Jira workspace.</div>
+
+        <!-- Split Workspace: Issues List (Left) + Issue Inspector (Right) -->
+        <div class="jira-split-workspace">
+            <div id="jiraIssuesList" class="jira-issues-pane">
+                <div class="driver-text-node" style="padding: 12px;">Connect your Jira account above to view and manage work tasks.</div>
+            </div>
+            <div id="jiraDetailPane" class="jira-detail-pane">
+                <div class="driver-text-node" style="padding: 14px;">Select an issue on the left to inspect details, transition status, add comments, log work time, or copy a Git branch name.</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- JIRA CREATE ISSUE MODAL -->
+    <div id="jiraCreateIssueModal" class="corewatch-modal-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="jiraCreateTitle" onclick="if(event.target===this) CloseJiraCreateIssueModal()">
+        <div class="corewatch-modal-card cw-profile-editor-modal" style="max-width: 580px;">
+            <div class="cw-settings-header">
+                <strong id="jiraCreateTitle">➕ CREATE NEW JIRA ISSUE</strong>
+                <button type="button" class="console-clear-btn" onclick="CloseJiraCreateIssueModal()">✕</button>
+            </div>
+            <div class="cw-settings-body">
+                <div class="cw-set-card">
+                    <div class="prof-controls-grid">
+                        <div class="cw-dir-row">
+                            <label for="selJiraNewProject">Project</label>
+                            <select id="selJiraNewProject" class="prof-select"></select>
+                        </div>
+                        <div class="cw-dir-row">
+                            <label for="selJiraNewType">Issue Type</label>
+                            <select id="selJiraNewType" class="prof-select">
+                                <option value="Task">Task</option>
+                                <option value="Bug">Bug</option>
+                                <option value="Story">Story</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="cw-dir-row">
+                        <label for="inpJiraNewSummary">Summary</label>
+                        <input type="text" id="inpJiraNewSummary" class="prof-input" placeholder="Short, clear title for the task or bug...">
+                    </div>
+                    <div class="cw-dir-row">
+                        <label for="inpJiraNewDesc">Description</label>
+                        <textarea id="inpJiraNewDesc" class="prof-input" rows="5" placeholder="Details, steps to reproduce, or acceptance criteria..."></textarea>
+                    </div>
+                    <label class="org-checkbox-label"><input type="checkbox" id="chkJiraNewAssignMe" checked> <span>Assign to me</span></label>
+                </div>
+            </div>
+            <div class="cw-settings-footer">
+                <div></div>
+                <div class="cw-settings-footer-right">
+                    <button type="button" class="console-clear-btn" onclick="CloseJiraCreateIssueModal()">Cancel</button>
+                    <button type="button" class="console-clear-btn btn-accent-action" onclick="TriggerCreateJiraIssue()">Create Issue</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- =========================================================================
+    SYSTEM PROFILES & MODES TAB (ONE-CLICK PC MODES + CUSTOM PROFILE BUILDER)
+    ========================================================================= -->
+    <section id="viewProfilesPanel" class="tab-view-panel sharing-panel" style="display: none;" aria-labelledby="profilesTitle">
+        <div class="console-header-row">
+            <h2 id="profilesTitle">⚡ SYSTEM PROFILES &amp; MODES</h2>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                <button type="button" class="console-clear-btn btn-accent-action" onclick="OpenProfileEditorModal(null)">➕ New Profile</button>
+                <button type="button" class="console-clear-btn" onclick="TriggerCaptureCurrentProfile()" title="Snapshot your live Power Plan, DnD, Night Light & Display state into a new profile">📸 Capture Current PC</button>
+                <button type="button" id="btnProfilesRevertTop" class="console-clear-btn wsl-btn-danger" style="display: none;" onclick="TriggerRevertProfileBaseline()" title="Restore the system state captured right before activating a profile">↩ Revert Baseline</button>
+                <button type="button" class="console-clear-btn" onclick="TriggerExportProfiles()">📤 Export</button>
+                <button type="button" class="console-clear-btn" onclick="TriggerImportProfiles()">📥 Import</button>
+                <button type="button" class="console-clear-btn" onclick="RequestProfilesState()">Refresh</button>
+            </div>
+        </div>
+        <p>Switch your entire workstation posture in one click—combining Windows Do Not Disturb, Power Plan, Keep Screen Awake, Night Light warmth, and per-monitor HDR, Refresh Rate &amp; Scale overrides. Unconfigured settings remain untouched.</p>
+
+        <div class="tab-summary-strip" style="margin-bottom: 8px;">
+            <span class="summary-chip chip-accent">Active Mode: <strong id="sumProfActive">Normal / Default</strong></span>
+            <span class="summary-chip">Power Plan: <strong id="sumProfPower">--</strong></span>
+            <span class="summary-chip">Do Not Disturb: <strong id="sumProfDnd">--</strong></span>
+            <span class="summary-chip">Keep Awake: <strong id="sumProfAwake">Off</strong></span>
+            <span class="summary-chip">Night Light: <strong id="sumProfNightLight">--</strong></span>
+            <span class="summary-chip">Displays: <strong id="sumProfMonitors">--</strong></span>
+        </div>
+
+        <div id="profilesStatus" class="sharing-status" style="margin-bottom: 10px;" role="status">Select any mode card below to activate, or create your own custom profile.</div>
+
+        <div id="profilesCardsGrid" class="profiles-cards-grid"></div>
+    </section>
+
+    <!-- =========================================================================
+    PROFILE BUILDER / EDITOR MODAL
+    ========================================================================= -->
+    <div id="profileEditorModal" class="corewatch-modal-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="profileEditorTitle" onclick="if(event.target===this) CloseProfileEditorModal()">
+        <div class="corewatch-modal-card cw-profile-editor-modal">
+            <div class="cw-settings-header">
+                <div>
+                    <strong id="profileEditorTitle">⚡ EDIT SYSTEM PROFILE</strong>
+                    <div class="cw-settings-sub">Only settings you explicitly set will change; anything set to "Leave Unchanged" is ignored.</div>
+                </div>
+                <button type="button" class="console-clear-btn" onclick="CloseProfileEditorModal()" title="Close (Esc)">✕</button>
+            </div>
+
+            <div class="cw-settings-body">
+                <input type="hidden" id="inpProfId">
+                <input type="hidden" id="inpProfIsBuiltIn">
+
+                <div class="cw-set-card">
+                    <div class="cw-set-sec-title">Profile Identity</div>
+                    <div class="prof-meta-grid">
+                        <div class="cw-dir-row">
+                            <label for="inpProfName">Profile Name</label>
+                            <input type="text" id="inpProfName" class="prof-input" placeholder="e.g. Streaming, Deep Focus, Movie Night">
+                        </div>
+                        <div class="cw-dir-row">
+                            <label for="inpProfIcon">Icon</label>
+                            <div style="display: flex; gap: 5px;">
+                                <input type="text" id="inpProfIcon" class="prof-input" style="width: 54px; text-align: center;" value="⚡">
+                                <div class="prof-icon-picks">
+                                    <button type="button" onclick="SetProfileEditorIcon('🖥️')">🖥️</button>
+                                    <button type="button" onclick="SetProfileEditorIcon('💼')">💼</button>
+                                    <button type="button" onclick="SetProfileEditorIcon('🎮')">🎮</button>
+                                    <button type="button" onclick="SetProfileEditorIcon('🎙️')">🎙️</button>
+                                    <button type="button" onclick="SetProfileEditorIcon('🌙')">🌙</button>
+                                    <button type="button" onclick="SetProfileEditorIcon('🎬')">🎬</button>
+                                    <button type="button" onclick="SetProfileEditorIcon('💻')">💻</button>
+                                    <button type="button" onclick="SetProfileEditorIcon('🔋')">🔋</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="cw-dir-row">
+                            <label for="inpProfAccent">Accent</label>
+                            <input type="color" id="inpProfAccent" value="#4299e1" style="height: 28px; width: 54px; background: #0f141d; border: 1px solid #3a4659; cursor: pointer;">
+                        </div>
+                    </div>
+                    <div class="cw-dir-row">
+                        <label for="inpProfDesc">Description</label>
+                        <input type="text" id="inpProfDesc" class="prof-input" placeholder="Brief summary of when to use this mode...">
+                    </div>
+                </div>
+
+                <div class="cw-set-card">
+                    <div class="cw-set-sec-title">System, Notifications &amp; Comfort Controls</div>
+                    <div class="prof-controls-grid">
+                        <div class="cw-dir-row">
+                            <label for="selProfPowerPlan">⚡ Windows Power Plan</label>
+                            <select id="selProfPowerPlan" class="prof-select">
+                                <option value="unchanged">— Leave Unchanged —</option>
+                                <option value="balanced">Balanced</option>
+                                <option value="high_performance">High Performance</option>
+                                <option value="power_saver">Power Saver</option>
+                                <option value="ultimate">Ultimate Performance</option>
+                            </select>
+                        </div>
+                        <div class="cw-dir-row">
+                            <label for="selProfDnd">🔕 Windows Do Not Disturb (DnD)</label>
+                            <select id="selProfDnd" class="prof-select">
+                                <option value="unchanged">— Leave Unchanged —</option>
+                                <option value="off">Off (Allow All Notifications)</option>
+                                <option value="priority">On — Priority Only</option>
+                                <option value="alarms">On — Alarms Only (Silent)</option>
+                            </select>
+                        </div>
+                        <div class="cw-dir-row">
+                            <label for="selProfKeepAwake">☀️ Keep Screen Awake</label>
+                            <select id="selProfKeepAwake" class="prof-select">
+                                <option value="unchanged">— Leave Unchanged —</option>
+                                <option value="on">On (Prevent Display Dim &amp; Sleep)</option>
+                                <option value="off">Off (Restore Normal Sleep Timers)</option>
+                            </select>
+                        </div>
+                        <div class="cw-dir-row">
+                            <label for="selProfNightLight">🌙 Windows Night Light</label>
+                            <select id="selProfNightLight" class="prof-select" onchange="SyncProfileEditorNightLightRow()">
+                                <option value="unchanged">— Leave Unchanged —</option>
+                                <option value="on">On (Warm Blue-Light Filter)</option>
+                                <option value="off">Off</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="profNightLightStrengthRow" class="prof-nl-row" style="display: none;">
+                        <label style="display: inline-flex; align-items: center; gap: 6px; font-size: 10.5px; color: #cbd5e0;">
+                            <input type="checkbox" id="chkProfNlStrength" onchange="SyncProfileEditorNightLightRow()">
+                            Set Warmth Strength:
+                        </label>
+                        <input type="range" id="rngProfNlStrength" min="0" max="100" step="5" value="50" oninput="document.getElementById('lblProfNlStrength').textContent = this.value + '%'">
+                        <strong id="lblProfNlStrength" style="color: #f6ad55; min-width: 36px; text-align: right;">50%</strong>
+                    </div>
+                </div>
+
+                <div class="cw-set-card">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div class="cw-set-sec-title" style="border-bottom: none; padding-bottom: 0;">🖥️ Per-Monitor Display Overrides</div>
+                        <button type="button" class="console-clear-btn" onclick="AddProfileDisplayRuleRow()">➕ Add Display Rule</button>
+                    </div>
+                    <div id="profDisplayRulesList" class="prof-disp-rules-list"></div>
+                </div>
+            </div>
+
+            <div class="cw-settings-footer">
+                <div class="cw-settings-footer-left">
+                    <span class="cw-settings-sub">Stored in %LOCALAPPDATA%\CoreWatch\profiles.json</span>
+                </div>
+                <div class="cw-settings-footer-right">
+                    <button type="button" class="console-clear-btn" onclick="CloseProfileEditorModal()">Cancel</button>
+                    <button type="button" class="console-clear-btn btn-accent-action" onclick="SaveProfileFromEditorModal()">💾 Save Profile</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- =========================================================================
     [PHASE 2] LIVE SIDE POP-OUT TELEMETRY DOCK (Accessible from ANY tab!)
     ========================================================================= -->
     <button type="button" id="sideDockPullTab" class="side-dock-pull-tab" style="display: none;" onclick="ToggleSideTelemetryDock()" title="Open Side Pop-Out Telemetry Dock">◫</button>
@@ -1581,6 +2012,177 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
             </div>
         </div>
     </aside>
+
+    <!-- =========================================================================
+    APPLICATION SETTINGS MODAL (STARTUP, DIRECTORIES, TELEMETRY & MODULES)
+    ========================================================================= -->
+    <div id="coreWatchSettingsModal" class="corewatch-modal-overlay" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle" onclick="if(event.target===this) CloseSettingsModal()">
+        <div class="corewatch-modal-card cw-settings-modal">
+            <div class="cw-settings-header">
+                <div>
+                    <strong id="settingsModalTitle">⚙️ COREWATCH SETTINGS</strong>
+                    <div class="cw-settings-sub">Startup behavior, workspace directories, telemetry cadence &amp; installed modules</div>
+                </div>
+                <button type="button" class="console-clear-btn" onclick="CloseSettingsModal()" title="Close Settings (Esc)">✕</button>
+            </div>
+
+            <div class="cw-settings-tabs" role="tablist">
+                <button type="button" class="cw-set-tab active" data-pane="general" onclick="SelectSettingsPane('general')" role="tab">🏠 General</button>
+                <button type="button" class="cw-set-tab" data-pane="directories" onclick="SelectSettingsPane('directories')" role="tab">📁 Directories</button>
+                <button type="button" class="cw-set-tab" data-pane="telemetry" onclick="SelectSettingsPane('telemetry')" role="tab">⚡ Telemetry</button>
+                <button type="button" class="cw-set-tab" data-pane="modules" onclick="SelectSettingsPane('modules')" role="tab">🧩 Modules &amp; Tabs</button>
+            </div>
+
+            <div class="cw-settings-body">
+                <!-- PANE 1: GENERAL & STARTUP -->
+                <div id="settingsPaneGeneral" class="cw-settings-pane active">
+                    <div class="cw-set-card">
+                        <div class="cw-set-sec-title">Windows Startup &amp; Tray Behavior</div>
+                        <label class="cw-set-check">
+                            <input type="checkbox" id="chkSetStartWithWindows">
+                            <span><strong>Start CoreWatch with Windows</strong><small id="lblSetAutoStartDetail">Launches automatically at Windows logon (uses UAC-free elevated Task Scheduler when running as Admin)</small></span>
+                        </label>
+                        <label class="cw-set-check">
+                            <input type="checkbox" id="chkSetStartMinimized">
+                            <span><strong>Start minimized to System Tray</strong><small>Launch quietly in the background tray without popping up the main window</small></span>
+                        </label>
+                        <label class="cw-set-check">
+                            <input type="checkbox" id="chkSetMinToTrayOnClose">
+                            <span><strong>Minimize to tray when clicking EXIT</strong><small>Keep CoreWatch running in the tray; right-click the tray icon → Terminate Engine to fully quit</small></span>
+                        </label>
+                        <label class="cw-set-check">
+                            <input type="checkbox" id="chkSetConfirmDestructive">
+                            <span><strong>Confirm before destructive actions</strong><small>Prompt before display rotation, process termination, or app removal</small></span>
+                        </label>
+                        <label class="cw-set-check">
+                            <input type="checkbox" id="chkSetAutoCheckUpdates">
+                            <span><strong>Check for CoreWatch updates on launch</strong><small>Checks GitHub Releases silently and notifies you when a newer version is available</small></span>
+                        </label>
+                    </div>
+
+                    <div class="cw-set-card">
+                        <div class="cw-set-sec-title">About CoreWatch &amp; Updates</div>
+                        <div class="cw-about-grid">
+                            <div><span>Version:</span> <strong id="lblSettingsAppVersion">--</strong></div>
+                            <div><span>Install Mode:</span> <strong id="lblSettingsInstallMode">--</strong></div>
+                            <div><span>Built (UTC):</span> <strong id="lblSettingsBuiltUtc">--</strong></div>
+                            <div><span>Data Path:</span> <strong id="lblSettingsAppDataDir" class="cw-path-trunc">--</strong></div>
+                        </div>
+                        <div class="cw-about-actions">
+                            <button type="button" id="btnSettingsCheckUpdate" class="console-clear-btn btn-accent-action" onclick="TriggerCoreWatchUpdateCheck()">🔄 Check for Updates</button>
+                            <button type="button" class="console-clear-btn" onclick="OpenCoreWatchAppDataFolder()">📂 Open Data Folder</button>
+                            <button type="button" id="btnSettingsOpenRelease" class="console-clear-btn" style="display: none;" onclick="OpenCoreWatchUpdateReleaseUrl()">🌐 Open Release Page</button>
+                        </div>
+                        <div id="lblSettingsUpdateStatus" class="cw-update-status" style="display: none;"></div>
+                    </div>
+                </div>
+
+                <!-- PANE 2: DIRECTORIES & TOOLS -->
+                <div id="settingsPaneDirectories" class="cw-settings-pane">
+                    <div class="cw-set-card">
+                        <div class="cw-set-sec-title">Default Workspace &amp; Output Directories</div>
+                        <div class="cw-dir-row">
+                            <label for="inpSetProjectsRoot">Git / Projects Root Directory <small>(default clone &amp; workspace folder for GitHub Manager)</small></label>
+                            <div class="cw-dir-input-wrap">
+                                <input type="text" id="inpSetProjectsRoot" placeholder="e.g. D:\GitHub">
+                                <button type="button" class="console-clear-btn" onclick="BrowseSettingsFolder('settings_projects')">Browse...</button>
+                                <button type="button" class="console-clear-btn" onclick="OpenSettingsDirectoryInput('inpSetProjectsRoot')" title="Open folder in Explorer">📁</button>
+                            </div>
+                        </div>
+                        <div class="cw-dir-row">
+                            <label for="inpSetExportsRoot">Exports &amp; Support Bundles Folder <small>(default save location for Support ZIPs &amp; settings backups)</small></label>
+                            <div class="cw-dir-input-wrap">
+                                <input type="text" id="inpSetExportsRoot" placeholder="e.g. C:\Users\You\Documents\CoreWatch Exports">
+                                <button type="button" class="console-clear-btn" onclick="BrowseSettingsFolder('settings_exports')">Browse...</button>
+                                <button type="button" class="console-clear-btn" onclick="OpenSettingsDirectoryInput('inpSetExportsRoot')" title="Open folder in Explorer">📁</button>
+                            </div>
+                        </div>
+                        <div class="cw-dir-row">
+                            <label for="inpSetWslRoot">WSL Install &amp; Export Directory <small>(default destination for WSL distros &amp; VHDX disks)</small></label>
+                            <div class="cw-dir-input-wrap">
+                                <input type="text" id="inpSetWslRoot" placeholder="e.g. C:\WSL">
+                                <button type="button" class="console-clear-btn" onclick="BrowseSettingsFolder('settings_wsl')">Browse...</button>
+                                <button type="button" class="console-clear-btn" onclick="OpenSettingsDirectoryInput('inpSetWslRoot')" title="Open folder in Explorer">📁</button>
+                            </div>
+                        </div>
+                        <div class="cw-dir-row">
+                            <label for="inpSetOrgDestRoot">File Organizer Default Destination <small>(default organized output root folder)</small></label>
+                            <div class="cw-dir-input-wrap">
+                                <input type="text" id="inpSetOrgDestRoot" placeholder="e.g. C:\Users\You\Organized">
+                                <button type="button" class="console-clear-btn" onclick="BrowseSettingsFolder('settings_organizer')">Browse...</button>
+                                <button type="button" class="console-clear-btn" onclick="OpenSettingsDirectoryInput('inpSetOrgDestRoot')" title="Open folder in Explorer">📁</button>
+                            </div>
+                        </div>
+                        <div class="cw-dir-row">
+                            <label for="inpSetEditorPath">Code Editor Path <small>(VS Code, VS Code Insiders, or Cursor executable)</small></label>
+                            <div class="cw-dir-input-wrap">
+                                <input type="text" id="inpSetEditorPath" placeholder="e.g. C:\Users\You\AppData\Local\Programs\Microsoft VS Code\Code.exe">
+                                <button type="button" class="console-clear-btn" onclick="BrowseSettingsEditorFile()">Browse...</button>
+                                <button type="button" class="console-clear-btn" onclick="AutoDetectSettingsEditor()" title="Auto-detect VS Code / Cursor">🔍 Detect</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- PANE 3: TELEMETRY & PERFORMANCE -->
+                <div id="settingsPaneTelemetry" class="cw-settings-pane">
+                    <div class="cw-set-card">
+                        <div class="cw-set-sec-title">Live Telemetry Polling Profile</div>
+                        <div class="cw-radio-grid">
+                            <label class="cw-radio-card">
+                                <input type="radio" name="setPollingProfile" value="fast">
+                                <span><strong>🚀 Performance / Fast</strong><small>250ms fast counters · 1.5s full refresh — smoothest live bars</small></span>
+                            </label>
+                            <label class="cw-radio-card">
+                                <input type="radio" name="setPollingProfile" value="balanced" checked>
+                                <span><strong>⚖️ Balanced (Recommended)</strong><small>500ms fast counters · 2.0s full refresh — low CPU overhead</small></span>
+                            </label>
+                            <label class="cw-radio-card">
+                                <input type="radio" name="setPollingProfile" value="eco">
+                                <span><strong>🌿 Low CPU / Eco</strong><small>1000ms fast counters · 4.0s full refresh — ideal for laptops &amp; battery</small></span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="cw-set-card">
+                        <div class="cw-set-sec-title">Units &amp; Display Formatting</div>
+                        <div class="cw-unit-row">
+                            <span>Hardware Temperature Unit:</span>
+                            <div class="cw-seg-group">
+                                <label><input type="radio" name="setTempUnit" value="C" checked> <span>°C (Celsius)</span></label>
+                                <label><input type="radio" name="setTempUnit" value="F"> <span>°F (Fahrenheit)</span></label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- PANE 4: MODULES & TABS -->
+                <div id="settingsPaneModules" class="cw-settings-pane">
+                    <div class="cw-modules-banner">
+                        <div>
+                            <strong id="lblSetModulesSummary">Loading modules...</strong>
+                            <div class="cw-settings-sub">Toggle installed tabs on or off instantly. Re-run the CoreWatch Setup installer anytime to add or remove optional module files.</div>
+                        </div>
+                        <button type="button" class="console-clear-btn" onclick="EnableAllInstalledModules()">Enable All</button>
+                    </div>
+                    <div id="settingsModulesList" class="cw-modules-list"></div>
+                </div>
+            </div>
+
+            <div class="cw-settings-footer">
+                <div class="cw-settings-footer-left">
+                    <button type="button" class="console-clear-btn" onclick="ExportCoreWatchSettings()" title="Export settings.json backup">📤 Export</button>
+                    <button type="button" class="console-clear-btn" onclick="ImportCoreWatchSettings()" title="Import settings.json backup">📥 Import</button>
+                    <button type="button" class="console-clear-btn wsl-btn-danger" onclick="ResetCoreWatchSettings()" title="Restore default settings">↺ Reset</button>
+                </div>
+                <div class="cw-settings-footer-right">
+                    <span id="lblSettingsSaveStatus" class="cw-set-status-msg"></span>
+                    <button type="button" class="console-clear-btn" onclick="CloseSettingsModal()">Close</button>
+                    <button type="button" class="console-clear-btn btn-accent-action" onclick="SaveCoreWatchSettingsFromModal()">💾 Save Settings</button>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- =========================================================================
     CTRL+K QUICK COMMAND PALETTE OVERLAY

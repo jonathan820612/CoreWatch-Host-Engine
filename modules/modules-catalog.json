@@ -1,0 +1,268 @@
+{
+  "schemaVersion": 1,
+  "presets": [
+    {
+      "id": "full",
+      "name": "Full Installation — All Tabs & Modules (Recommended)",
+      "description": "Installs CoreWatch Dashboard plus all 12 built-in feature modules."
+    },
+    {
+      "id": "essentials",
+      "name": "Home & Essentials",
+      "description": "Dashboard, Tasks & Ports, UltimaDiagX, Security & Repair, Startup, Installed Apps, App Installer, Disk Map, and File Organizer."
+    },
+    {
+      "id": "itpro",
+      "name": "IT & SysAdmin Suite",
+      "description": "Dashboard, Network, Tasks & Ports, UltimaDiagX, Security & Repair, Startup, Sharing Center, Installed Apps, App Installer, Disk Map, and Devices."
+    },
+    {
+      "id": "developer",
+      "name": "Developer Workstation",
+      "description": "Dashboard, Network, Tasks & Ports, UltimaDiagX, WSL Manager, Startup, Installed Apps, App Installer, and Disk Map."
+    }
+  ],
+  "modules": [
+    {
+      "id": "netmanager",
+      "name": "Network Manager & Diagnostics",
+      "shortName": "Network",
+      "icon": "📡",
+      "group": "Network & Connectivity",
+      "navSlot": "top",
+      "tabButtonId": "tabNetManager",
+      "panelId": "viewNetworkManagerPanel",
+      "description": "Adapter IPv4/DHCP/DNS provisioning, Ping, Traceroute, Port Tester, Wi-Fi RSSI, and Routing Table.",
+      "files": [
+        "modules\\tabs\\NetworkManager.ps1",
+        "modules\\tabs\\NetworkDiagnostics.ps1"
+      ],
+      "installerTypes": ["full", "itpro", "developer"],
+      "defaultEnabled": true
+    },
+    {
+      "id": "tasksports",
+      "name": "Tasks, Services & Ports",
+      "shortName": "Tasks & Ports",
+      "icon": "🧭",
+      "group": "System & Administration",
+      "navSlot": "top",
+      "tabButtonId": "tabTasksPorts",
+      "panelId": "viewTasksPortsPanel",
+      "description": "Live processes, Windows services health inspector, and open TCP/UDP listening sockets.",
+      "files": [
+        "modules\\tabs\\TasksPortsManager.ps1"
+      ],
+      "installerTypes": ["full", "essentials", "itpro", "developer"],
+      "defaultEnabled": true
+    },
+    {
+      "id": "diagx",
+      "name": "UltimaDiagX (Crash & Event Analyzer)",
+      "shortName": "UltimaDiagX",
+      "icon": "🩺",
+      "group": "Diagnostics & Repair",
+      "navSlot": "top",
+      "tabButtonId": "tabUltimaDiagX",
+      "panelId": "viewUltimaDiagXPanel",
+      "description": "Windows Event Logs, BSOD/crash dump analysis, error code translator, and diagnostic reports.",
+      "files": [
+        "modules\\tabs\\UltimaDiagX.ps1"
+      ],
+      "installerTypes": ["full", "essentials", "itpro", "developer"],
+      "defaultEnabled": true
+    },
+    {
+      "id": "github",
+      "name": "GitHub Manager",
+      "shortName": "GitHub",
+      "icon": "🐙",
+      "group": "Developer & Work",
+      "navSlot": "dev",
+      "tabButtonId": "tabGitHubManager",
+      "panelId": "viewGitHubPanel",
+      "description": "Local Git workspace launcher (VS Code/Terminal), clone your GitHub repos or any URL, and manage GitHub Releases.",
+      "files": [
+        "modules\\tabs\\GitHubManager.ps1"
+      ],
+      "installerTypes": ["full", "developer"],
+      "defaultEnabled": true
+    },
+    {
+      "id": "jira",
+      "name": "Jira Manager",
+      "shortName": "Jira",
+      "icon": "📋",
+      "group": "Developer & Work",
+      "navSlot": "dev",
+      "tabButtonId": "tabJiraManager",
+      "panelId": "viewJiraPanel",
+      "description": "Sign in to Jira Cloud or Data Center to view assigned tasks, transition workflows, comment, log time, and create issues.",
+      "files": [
+        "modules\\tabs\\JiraManager.ps1"
+      ],
+      "installerTypes": ["full", "developer"],
+      "defaultEnabled": true
+    },
+    {
+      "id": "wsl",
+      "name": "WSL Manager",
+      "shortName": "WSL",
+      "icon": "🐧",
+      "group": "Developer & Work",
+      "navSlot": "dev",
+      "tabButtonId": "tabWslManager",
+      "panelId": "viewWslManagerPanel",
+      "description": "Windows Subsystem for Linux distros, online catalog, import/export, VHDX compaction, and .wslconfig.",
+      "files": [
+        "modules\\tabs\\WslManager.ps1"
+      ],
+      "installerTypes": ["full", "developer"],
+      "defaultEnabled": true
+    },
+    {
+      "id": "profiles",
+      "name": "System Profiles & Modes",
+      "shortName": "Profiles",
+      "icon": "⚡",
+      "group": "System & Administration",
+      "navSlot": "system",
+      "tabButtonId": "tabProfiles",
+      "panelId": "viewProfilesPanel",
+      "description": "One-click system modes (Work, Gaming, Streaming, Night & custom) controlling DnD, Power Plan, Keep Awake, Night Light & Display.",
+      "files": [
+        "modules\\tabs\\ProfilesManager.ps1"
+      ],
+      "installerTypes": ["full", "essentials", "itpro", "developer"],
+      "defaultEnabled": true
+    },
+    {
+      "id": "security",
+      "name": "Security & Repair Toolkit",
+      "shortName": "Security & Repair",
+      "icon": "🛡️",
+      "group": "Diagnostics & Repair",
+      "navSlot": "system",
+      "tabButtonId": "tabSecurityRepair",
+      "panelId": "viewSecurityRepairPanel",
+      "description": "BitLocker, TPM, RDP, Hosts/Proxy/Env audit, DISM/SFC repairs, and 1-click IT Support ZIP.",
+      "files": [
+        "modules\\tabs\\SecurityRepairManager.ps1"
+      ],
+      "installerTypes": ["full", "essentials", "itpro"],
+      "defaultEnabled": true
+    },
+    {
+      "id": "startup",
+      "name": "Startup Apps Manager",
+      "shortName": "Startup Apps",
+      "icon": "🚀",
+      "group": "System & Administration",
+      "navSlot": "system",
+      "tabButtonId": "tabStartup",
+      "panelId": "viewStartupPanel",
+      "description": "Inspect, toggle, add, or remove Windows boot registry and Startup folder entries.",
+      "files": [
+        "modules\\tabs\\StartupManager.ps1"
+      ],
+      "installerTypes": ["full", "essentials", "itpro", "developer"],
+      "defaultEnabled": true
+    },
+    {
+      "id": "sharing",
+      "name": "SMB Sharing Center",
+      "shortName": "Sharing Center",
+      "icon": "📂",
+      "group": "Network & Connectivity",
+      "navSlot": "system",
+      "tabButtonId": "tabSharing",
+      "panelId": "viewSharingPanel",
+      "description": "Manage Windows SMB network shares and folder permissions.",
+      "files": [
+        "modules\\tabs\\SharingManager.ps1"
+      ],
+      "installerTypes": ["full", "itpro"],
+      "defaultEnabled": true
+    },
+    {
+      "id": "apps",
+      "name": "Installed Apps & App Mover",
+      "shortName": "Installed Apps",
+      "icon": "📦",
+      "group": "Apps & Storage",
+      "navSlot": "system",
+      "tabButtonId": "tabInstalledApps",
+      "panelId": "viewInstalledAppsPanel",
+      "description": "Software inventory, folder size calculator, uninstall/modify controls, and cross-drive App Mover.",
+      "files": [
+        "modules\\tabs\\InstalledAppsManager.ps1"
+      ],
+      "installerTypes": ["full", "essentials", "itpro", "developer"],
+      "defaultEnabled": true
+    },
+    {
+      "id": "appstore",
+      "name": "App Installer (WinGet Batch)",
+      "shortName": "App Installer",
+      "icon": "⬇️",
+      "group": "Apps & Storage",
+      "navSlot": "system",
+      "tabButtonId": "tabAppStore",
+      "panelId": "viewAppInstallerPanel",
+      "description": "Curated software catalog, WinGet search, batch installs, and bulk upgrades.",
+      "files": [
+        "modules\\tabs\\AppInstallerManager.ps1"
+      ],
+      "installerTypes": ["full", "essentials", "itpro", "developer"],
+      "defaultEnabled": true
+    },
+    {
+      "id": "diskmap",
+      "name": "Disk Map (Visual Treemap)",
+      "shortName": "Disk Map",
+      "icon": "🗺️",
+      "group": "Apps & Storage",
+      "navSlot": "system",
+      "tabButtonId": "tabDiskMap",
+      "panelId": "viewDiskMapPanel",
+      "description": "Multithreaded WizTree-style visual storage treemap, largest files, and extension breakdown.",
+      "files": [
+        "modules\\tabs\\DiskMapper.ps1"
+      ],
+      "installerTypes": ["full", "essentials", "itpro", "developer"],
+      "defaultEnabled": true
+    },
+    {
+      "id": "devices",
+      "name": "Devices & Drivers Tree",
+      "shortName": "Devices & Drivers",
+      "icon": "🧩",
+      "group": "System & Administration",
+      "navSlot": "system",
+      "tabButtonId": "tabDevices",
+      "panelId": "viewSystemDevicesPanel",
+      "description": "Hardware device tree, driver age/version inspector, enable/disable/restart, and official driver links.",
+      "files": [
+        "modules\\tabs\\DeviceManager.ps1"
+      ],
+      "installerTypes": ["full", "itpro"],
+      "defaultEnabled": true
+    },
+    {
+      "id": "organizer",
+      "name": "File Organizer",
+      "shortName": "File Organizer",
+      "icon": "🗂️",
+      "group": "Apps & Storage",
+      "navSlot": "system",
+      "tabButtonId": "tabOrganizer",
+      "panelId": "viewFileOrganizerPanel",
+      "description": "Rule-based automated file sorting with dry-run preview and 1-click undo.",
+      "files": [
+        "modules\\tabs\\FileOrganizer.ps1"
+      ],
+      "installerTypes": ["full", "essentials"],
+      "defaultEnabled": true
+    }
+  ]
+}

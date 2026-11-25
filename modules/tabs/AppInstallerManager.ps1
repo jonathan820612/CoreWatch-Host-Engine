@@ -6,75 +6,76 @@ param()
 function Get-CuratedAppCatalog {
     return @(
         # ---- USER-REQUESTED CORE APPS ----
-        @{ id='7zip.7zip'; name='7-Zip'; category='SysAdmin & Network'; requested=$true; essential=$true; desc='High-compression open-source archive manager (.7z, .zip, .rar, .tar).'; url='https://www.7-zip.org/download.html' }
-        @{ id='BlenderFoundation.Blender'; name='Blender'; category='Creative & Media'; requested=$true; essential=$false; desc='Free, open-source 3D modeling, sculpting, rendering & animation suite.'; url='https://www.blender.org/download/' }
-        @{ id='Docker.DockerDesktop'; name='Docker Desktop'; category='Dev & Languages'; requested=$true; essential=$false; desc='Container runtime, Docker CLI, Compose & WSL2 integration.'; url='https://www.docker.com/products/docker-desktop/' }
-        @{ id='EclipseAdoptium.Temurin.25.JDK'; name='Eclipse Temurin JDK 25 (LTS)'; category='Dev & Languages'; requested=$true; essential=$true; desc='Eclipse Adoptium OpenJDK 25 Long-Term Support Java runtime & compiler.'; url='https://adoptium.net/temurin/releases/?version=25' }
-        @{ id='EclipseAdoptium.Temurin.27.JDK'; name='Eclipse Temurin JDK 27 (Latest)'; category='Dev & Languages'; requested=$true; essential=$false; desc='Latest Eclipse Adoptium OpenJDK 27+ feature release runtime & compiler.'; url='https://adoptium.net/temurin/releases/' }
-        @{ id='EpicGames.EpicGamesLauncher'; name='Epic Games Launcher'; category='Gaming & RGB'; requested=$true; essential=$false; desc='Epic Games Store & Unreal Engine deployment launcher.'; url='https://store.epicgames.com/en-US/download' }
-        @{ id='Git.Git'; name='Git for Windows'; category='Dev & Languages'; requested=$true; essential=$true; desc='Distributed version control CLI, Git Bash & credential manager.'; url='https://git-scm.com/download/win' }
-        @{ id='GitHub.GitHubDesktop'; name='GitHub Desktop'; category='Dev & Languages'; requested=$true; essential=$false; desc='Official visual Git & GitHub client for commits, branches & PRs.'; url='https://desktop.github.com/' }
-        @{ id='Google.Chrome'; name='Google Chrome'; category='Browsers & Comms'; requested=$true; essential=$false; desc='Fast, widely compatible Chromium web browser by Google.'; url='https://www.google.com/chrome/' }
-        @{ id='HypixelStudios.Hytale'; name='Hytale Launcher'; category='Gaming & RGB'; requested=$true; essential=$false; desc='Official Hypixel Studios Hytale game launcher & updater.'; url='https://hytale.com/download' }
-        @{ id='LLVM.LLVM'; name='LLVM / Clang (C/C++ Compiler)'; category='Dev & Languages'; requested=$true; essential=$false; desc='Modern Clang C/C++ compiler toolchain, lld linker & LLDB debugger.'; url='https://releases.llvm.org/' }
-        @{ id='Microsoft.EdgeWebView2Runtime'; name='Microsoft Edge WebView2 Runtime'; category='Runtimes & Drivers'; requested=$true; essential=$true; desc='Required Evergreen WebView2 engine powering CoreWatch & modern Windows apps.'; url='https://developer.microsoft.com/en-us/microsoft-edge/webview2/' }
-        @{ id='Modrinth.ModrinthApp'; name='Modrinth App'; category='Gaming & RGB'; requested=$true; essential=$false; desc='Open-source Minecraft modpack & mod manager powered by Modrinth.'; url='https://modrinth.com/app' }
-        @{ id='MSYS2.MSYS2'; name='MSYS2 (MinGW / GCC C++ Toolchain)'; category='Dev & Languages'; requested=$true; essential=$false; desc='UNIX-like package manager with GCC/G++ C++ compilers for Windows.'; url='https://www.msys2.org/' }
-        @{ id='Nlitesoft.NTLite'; name='NTLite'; category='SysAdmin & Network'; requested=$true; essential=$false; desc='Windows ISO image customization, slipstreaming & live OS tweaking tool.'; url='https://www.ntlite.com/download/' }
-        @{ id='OpenRGB.OpenRGB'; name='OpenRGB'; category='Gaming & RGB'; requested=$true; essential=$false; desc='Open-source unified RGB lighting control without bloated vendor suites.'; url='https://openrgb.org/' }
-        @{ id='Opera.OperaGX'; name='Opera GX'; category='Browsers & Comms'; requested=$true; essential=$false; desc='Gaming-focused browser with RAM/CPU/network limiters.'; url='https://www.opera.com/gx' }
-        @{ id='Microsoft.PowerShell'; name='PowerShell 7 (Core)'; category='Dev & Languages'; requested=$true; essential=$true; desc='Modern cross-platform PowerShell 7 shell & automation engine.'; url='https://github.com/PowerShell/PowerShell/releases' }
-        @{ id='PrismLauncher.PrismLauncher'; name='Prism Launcher'; category='Gaming & RGB'; requested=$true; essential=$false; desc='Open-source multi-instance Minecraft launcher with Java & modpack management.'; url='https://prismlauncher.org/download/' }
-        @{ id='Python.Python.3.13'; name='Python 3 (3.13)'; category='Dev & Languages'; requested=$true; essential=$true; desc='Python 3 runtime, pip package manager & standard library.'; url='https://www.python.org/downloads/' }
-        @{ id='Roblox.Roblox'; name='Roblox'; category='Gaming & RGB'; requested=$true; essential=$false; desc='Roblox player client & online game platform.'; url='https://www.roblox.com/download' }
-        @{ id='Rustlang.Rustup'; name='Rust (rustup + cargo)'; category='Dev & Languages'; requested=$true; essential=$false; desc='Official Rust toolchain installer (rustc, cargo, rustup).'; url='https://www.rust-lang.org/tools/install' }
-        @{ id='Valve.Steam'; name='Steam'; category='Gaming & RGB'; requested=$true; essential=$false; desc='Valve PC gaming storefront, launcher & library manager.'; url='https://store.steampowered.com/about/' }
-        @{ id='Microsoft.VCRedist.2015+.x64'; name='Visual C++ Redistributable (x64)'; category='Runtimes & Drivers'; requested=$true; essential=$true; desc='Required Microsoft C++ 2015-2022 64-bit runtime libraries for games & apps.'; url='https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist' }
-        @{ id='Microsoft.VCRedist.2015+.x86'; name='Visual C++ Redistributable (x86)'; category='Runtimes & Drivers'; requested=$true; essential=$true; desc='Required Microsoft C++ 2015-2022 32-bit runtime libraries for games & apps.'; url='https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist' }
-        @{ id='Microsoft.VisualStudio.Community'; name='Visual Studio Community 2026'; category='Dev & Languages'; requested=$true; essential=$false; desc='Latest Visual Studio 2026 Community IDE (v18.x) for C++, C#, .NET & desktop dev.'; url='https://visualstudio.microsoft.com/downloads/' }
-        @{ id='Microsoft.VisualStudio.2022.Community'; name='Visual Studio Community 2022'; category='Dev & Languages'; requested=$true; essential=$false; desc='Visual Studio 2022 Community IDE (v17.x) for C++ & .NET workloads.'; url='https://visualstudio.microsoft.com/vs/older-downloads/' }
-        @{ id='Microsoft.VisualStudioCode'; name='Visual Studio Code'; category='Dev & Languages'; requested=$true; essential=$true; desc='Lightweight, extensible source code editor by Microsoft.'; url='https://code.visualstudio.com/download' }
-        @{ id='WiresharkFoundation.Wireshark'; name='Wireshark'; category='SysAdmin & Network'; requested=$true; essential=$false; desc='Industry-standard network packet capture & protocol analyzer.'; url='https://www.wireshark.org/download.html' }
+        @{ id='7zip.7zip'; name='7-Zip'; category='SysAdmin & Network'; requested=$true; essential=$true; desc='High-compression open-source archive manager (.7z, .zip, .rar, .tar).'; url='https://www.7-zip.org/download.html'; launchExe='7zFM.exe'; launchHints=@('7-Zip File Manager','7-Zip') }
+        @{ id='BlenderFoundation.Blender'; name='Blender'; category='Creative & Media'; requested=$true; essential=$false; desc='Free, open-source 3D modeling, sculpting, rendering & animation suite.'; url='https://www.blender.org/download/'; launchExe='blender.exe'; launchHints=@('Blender') }
+        @{ id='Docker.DockerDesktop'; name='Docker Desktop'; category='Dev & Languages'; requested=$true; essential=$false; desc='Container runtime, Docker CLI, Compose & WSL2 integration.'; url='https://www.docker.com/products/docker-desktop/'; launchExe='Docker Desktop.exe'; launchHints=@('Docker Desktop') }
+        @{ id='EclipseAdoptium.Temurin.25.JDK'; name='Eclipse Temurin JDK 25 (LTS)'; category='Dev & Languages'; requested=$true; essential=$true; launchable=$false; desc='Eclipse Adoptium OpenJDK 25 Long-Term Support Java runtime & compiler.'; url='https://adoptium.net/temurin/releases/?version=25' }
+        @{ id='EclipseAdoptium.Temurin.27.JDK'; name='Eclipse Temurin JDK 27 (Latest)'; category='Dev & Languages'; requested=$true; essential=$false; launchable=$false; desc='Latest Eclipse Adoptium OpenJDK 27+ feature release runtime & compiler.'; url='https://adoptium.net/temurin/releases/' }
+        @{ id='EpicGames.EpicGamesLauncher'; name='Epic Games Launcher'; category='Gaming & RGB'; requested=$true; essential=$false; desc='Epic Games Store & Unreal Engine deployment launcher.'; url='https://store.epicgames.com/en-US/download'; launchExe='EpicGamesLauncher.exe'; launchHints=@('Epic Games Launcher') }
+        @{ id='Git.Git'; name='Git for Windows'; category='Dev & Languages'; requested=$true; essential=$true; desc='Distributed version control CLI, Git Bash & credential manager.'; url='https://git-scm.com/download/win'; launchExe='git-bash.exe'; launchHints=@('Git Bash') }
+        @{ id='GitHub.GitHubDesktop'; name='GitHub Desktop'; category='Dev & Languages'; requested=$true; essential=$false; desc='Official visual Git & GitHub client for commits, branches & PRs.'; url='https://desktop.github.com/'; launchExe='GitHubDesktop.exe'; launchHints=@('GitHub Desktop') }
+        @{ id='Google.Chrome'; name='Google Chrome'; category='Browsers & Comms'; requested=$true; essential=$false; desc='Fast, widely compatible Chromium web browser by Google.'; url='https://www.google.com/chrome/'; launchExe='chrome.exe'; launchHints=@('Google Chrome') }
+        @{ id='HypixelStudios.Hytale'; name='Hytale Launcher'; category='Gaming & RGB'; requested=$true; essential=$false; desc='Official Hypixel Studios Hytale game launcher & updater.'; url='https://hytale.com/download'; launchHints=@('Hytale Launcher','Hytale') }
+        @{ id='LLVM.LLVM'; name='LLVM / Clang (C/C++ Compiler)'; category='Dev & Languages'; requested=$true; essential=$false; launchable=$false; desc='Modern Clang C/C++ compiler toolchain, lld linker & LLDB debugger.'; url='https://releases.llvm.org/' }
+        @{ id='Microsoft.EdgeWebView2Runtime'; name='Microsoft Edge WebView2 Runtime'; category='Runtimes & Drivers'; requested=$true; essential=$true; launchable=$false; desc='Required Evergreen WebView2 engine powering CoreWatch & modern Windows apps.'; url='https://developer.microsoft.com/en-us/microsoft-edge/webview2/' }
+        @{ id='Modrinth.ModrinthApp'; name='Modrinth App'; category='Gaming & RGB'; requested=$true; essential=$false; desc='Open-source Minecraft modpack & mod manager powered by Modrinth.'; url='https://modrinth.com/app'; launchHints=@('Modrinth App','Modrinth') }
+        @{ id='MSYS2.MSYS2'; name='MSYS2 (MinGW / GCC C++ Toolchain)'; category='Dev & Languages'; requested=$true; essential=$false; desc='UNIX-like package manager with GCC/G++ C++ compilers for Windows.'; url='https://www.msys2.org/'; launchHints=@('MSYS2 UCRT64','MSYS2 MINGW64','MSYS2 MSYS') }
+        @{ id='Nlitesoft.NTLite'; name='NTLite'; category='SysAdmin & Network'; requested=$true; essential=$false; desc='Windows ISO image customization, slipstreaming & live OS tweaking tool.'; url='https://www.ntlite.com/download/'; launchExe='NTLite.exe'; launchHints=@('NTLite') }
+        @{ id='OpenRGB.OpenRGB'; name='OpenRGB'; category='Gaming & RGB'; requested=$true; essential=$false; desc='Open-source unified RGB lighting control without bloated vendor suites.'; url='https://openrgb.org/'; launchExe='OpenRGB.exe'; launchHints=@('OpenRGB') }
+        @{ id='Opera.OperaGX'; name='Opera GX'; category='Browsers & Comms'; requested=$true; essential=$false; desc='Gaming-focused browser with RAM/CPU/network limiters.'; url='https://www.opera.com/gx'; launchExe='opera.exe'; launchHints=@('Opera GX Browser','Opera GX') }
+        @{ id='Microsoft.PowerShell'; name='PowerShell 7 (Core)'; category='Dev & Languages'; requested=$true; essential=$true; desc='Modern cross-platform PowerShell 7 shell & automation engine.'; url='https://github.com/PowerShell/PowerShell/releases'; launchExe='pwsh.exe'; launchHints=@('PowerShell 7') }
+        @{ id='PrismLauncher.PrismLauncher'; name='Prism Launcher'; category='Gaming & RGB'; requested=$true; essential=$false; desc='Open-source multi-instance Minecraft launcher with Java & modpack management.'; url='https://prismlauncher.org/download/'; launchExe='prismlauncher.exe'; launchHints=@('Prism Launcher') }
+        @{ id='Python.Python.3.13'; name='Python 3 (3.13)'; category='Dev & Languages'; requested=$true; essential=$true; launchable=$false; desc='Python 3 runtime, pip package manager & standard library.'; url='https://www.python.org/downloads/' }
+        @{ id='Roblox.Roblox'; name='Roblox'; category='Gaming & RGB'; requested=$true; essential=$false; desc='Roblox player client & online game platform.'; url='https://www.roblox.com/download'; launchHints=@('Roblox Player','Roblox') }
+        @{ id='Rustlang.Rustup'; name='Rust (rustup + cargo)'; category='Dev & Languages'; requested=$true; essential=$false; launchable=$false; desc='Official Rust toolchain installer (rustc, cargo, rustup).'; url='https://www.rust-lang.org/tools/install' }
+        @{ id='Valve.Steam'; name='Steam'; category='Gaming & RGB'; requested=$true; essential=$false; desc='Valve PC gaming storefront, launcher & library manager.'; url='https://store.steampowered.com/about/'; launchExe='steam.exe'; launchHints=@('Steam') }
+        @{ id='Microsoft.VCRedist.2015+.x64'; name='Visual C++ Redistributable (x64)'; category='Runtimes & Drivers'; requested=$true; essential=$true; launchable=$false; desc='Required Microsoft C++ 2015-2022 64-bit runtime libraries for games & apps.'; url='https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist' }
+        @{ id='Microsoft.VCRedist.2015+.x86'; name='Visual C++ Redistributable (x86)'; category='Runtimes & Drivers'; requested=$true; essential=$true; launchable=$false; desc='Required Microsoft C++ 2015-2022 32-bit runtime libraries for games & apps.'; url='https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist' }
+        @{ id='Microsoft.VisualStudio.Community'; name='Visual Studio Community 2026'; category='Dev & Languages'; requested=$true; essential=$false; desc='Latest Visual Studio 2026 Community IDE (v18.x) for C++, C#, .NET & desktop dev.'; url='https://visualstudio.microsoft.com/downloads/'; launchHints=@('Visual Studio 2026','Visual Studio') }
+        @{ id='Microsoft.VisualStudio.2022.Community'; name='Visual Studio Community 2022'; category='Dev & Languages'; requested=$true; essential=$false; desc='Visual Studio 2022 Community IDE (v17.x) for C++ & .NET workloads.'; url='https://visualstudio.microsoft.com/vs/older-downloads/'; launchHints=@('Visual Studio 2022') }
+        @{ id='Microsoft.VisualStudioCode'; name='Visual Studio Code'; category='Dev & Languages'; requested=$true; essential=$true; desc='Lightweight, extensible source code editor by Microsoft.'; url='https://code.visualstudio.com/download'; launchExe='Code.exe'; launchHints=@('Visual Studio Code') }
+        @{ id='WiresharkFoundation.Wireshark'; name='Wireshark'; category='SysAdmin & Network'; requested=$true; essential=$false; desc='Industry-standard network packet capture & protocol analyzer.'; url='https://www.wireshark.org/download.html'; launchExe='Wireshark.exe'; launchHints=@('Wireshark') }
 
         # ---- FULL ARTCRAFT SUITE (GITHUB / STORYTOLD PURE-RUST CREATIVE & OFFICE SUITE) ----
-        @{ id='ArtCraft.ArtCraft'; name='ArtCraft'; category='ArtCraft Suite'; requested=$true; essential=$false; desc='ArtCraft AI creative studio & 2D/3D visual composition workspace (Pure Rust).'; url='https://github.com/storytold' }
-        @{ id='ArtCraft.CadCraft'; name='CADCraft'; category='ArtCraft Suite'; requested=$true; essential=$false; desc='ArtCraft native CAD & precision technical drafting app (Pure Rust).'; url='https://github.com/storytold' }
-        @{ id='ArtCraft.CraftAnything'; name='Craft Anything'; category='ArtCraft Suite'; requested=$true; essential=$false; desc='ArtCraft creative asset authoring & generative studio tool (Pure Rust).'; url='https://github.com/storytold' }
-        @{ id='ArtCraft.DeckCraft'; name='DeckCraft'; category='ArtCraft Suite'; requested=$true; essential=$false; desc='ArtCraft presentation & slideshow creator (PowerPoint alternative).'; url='https://github.com/storytold' }
-        @{ id='ArtCraft.DesignCraft'; name='DesignCraft'; category='ArtCraft Suite'; requested=$true; essential=$false; desc='ArtCraft page layout & desktop publishing tool (InDesign alternative).'; url='https://github.com/storytold' }
-        @{ id='ArtCraft.EffectCraft'; name='EffectCraft'; category='ArtCraft Suite'; requested=$true; essential=$false; desc='ArtCraft motion graphics & VFX compositor (After Effects alternative).'; url='https://github.com/storytold' }
-        @{ id='ArtCraft.FilmCraft'; name='FilmCraft'; category='ArtCraft Suite'; requested=$true; essential=$false; desc='ArtCraft non-linear video editing & color grading suite (Premiere alternative).'; url='https://github.com/storytold' }
-        @{ id='ArtCraft.GridCraft'; name='GridCraft'; category='ArtCraft Suite'; requested=$true; essential=$false; desc='ArtCraft spreadsheet & data analysis app (Excel alternative).'; url='https://github.com/storytold' }
-        @{ id='ArtCraft.LightCraft'; name='LightCraft'; category='ArtCraft Suite'; requested=$true; essential=$false; desc='ArtCraft RAW photo library & color developer (Lightroom alternative).'; url='https://github.com/storytold' }
-        @{ id='ArtCraft.MaterialCraft'; name='MaterialCraft'; category='ArtCraft Suite'; requested=$true; essential=$false; desc='ArtCraft node-based PBR material authoring studio for 3D workflows.'; url='https://github.com/storytold' }
-        @{ id='ArtCraft.PdfCraft'; name='PdfCraft'; category='ArtCraft Suite'; requested=$true; essential=$false; desc='ArtCraft fast native PDF viewer, editor & document utility.'; url='https://github.com/storytold' }
-        @{ id='ArtCraft.PhotoCraft'; name='PhotoCraft'; category='ArtCraft Suite'; requested=$true; essential=$false; desc='ArtCraft layer/mask/PSD raster image editor (modern Photoshop alternative).'; url='https://github.com/storytold' }
-        @{ id='ArtCraft.SoundCraft'; name='SoundCraft'; category='ArtCraft Suite'; requested=$true; essential=$false; desc='ArtCraft multi-track audio recording, editing & mixing DAW.'; url='https://github.com/storytold' }
-        @{ id='ArtCraft.TextureCraft'; name='TextureCraft'; category='ArtCraft Suite'; requested=$true; essential=$false; desc='ArtCraft procedural & seamless 3D texture creation suite.'; url='https://github.com/storytold' }
-        @{ id='ArtCraft.VectorCraft'; name='VectorCraft'; category='ArtCraft Suite'; requested=$true; essential=$false; desc='ArtCraft scalable vector illustration tool (Illustrator alternative).'; url='https://github.com/storytold' }
-        @{ id='ArtCraft.WordCraft'; name='WordCraft'; category='ArtCraft Suite'; requested=$true; essential=$false; desc='ArtCraft native word processor & document editor (Word alternative).'; url='https://github.com/storytold' }
+        @{ id='ArtCraft.Launcher'; name='ArtCraft Launcher'; category='ArtCraft Suite'; requested=$true; essential=$false; customType='github_msi'; githubRepo='storytold/craft-launcher'; desc='Official ArtCraft Suite hub & auto-updater for installing, updating & launching all Craft apps.'; url='https://getartcraft.com/apps'; launchHints=@('ArtCraft Launcher') }
+        @{ id='ArtCraft.ArtCraft'; name='ArtCraft'; category='ArtCraft Suite'; requested=$true; essential=$false; desc='ArtCraft AI creative studio & 2D/3D visual composition workspace (Pure Rust).'; url='https://github.com/storytold'; launchHints=@('ArtCraft') }
+        @{ id='ArtCraft.CadCraft'; name='CADCraft'; category='ArtCraft Suite'; requested=$true; essential=$false; desc='ArtCraft native CAD & precision technical drafting app (Pure Rust).'; url='https://github.com/storytold'; launchHints=@('CADCraft') }
+        @{ id='ArtCraft.CraftAnything'; name='Craft Anything'; category='ArtCraft Suite'; requested=$true; essential=$false; desc='ArtCraft creative asset authoring & generative studio tool (Pure Rust).'; url='https://github.com/storytold'; launchHints=@('Craft Anything') }
+        @{ id='ArtCraft.DeckCraft'; name='DeckCraft'; category='ArtCraft Suite'; requested=$true; essential=$false; desc='ArtCraft presentation & slideshow creator (PowerPoint alternative).'; url='https://github.com/storytold'; launchHints=@('DeckCraft') }
+        @{ id='ArtCraft.DesignCraft'; name='DesignCraft'; category='ArtCraft Suite'; requested=$true; essential=$false; desc='ArtCraft page layout & desktop publishing tool (InDesign alternative).'; url='https://github.com/storytold'; launchHints=@('DesignCraft') }
+        @{ id='ArtCraft.EffectCraft'; name='EffectCraft'; category='ArtCraft Suite'; requested=$true; essential=$false; desc='ArtCraft motion graphics & VFX compositor (After Effects alternative).'; url='https://github.com/storytold'; launchHints=@('EffectCraft') }
+        @{ id='ArtCraft.FilmCraft'; name='FilmCraft'; category='ArtCraft Suite'; requested=$true; essential=$false; desc='ArtCraft non-linear video editing & color grading suite (Premiere alternative).'; url='https://github.com/storytold'; launchHints=@('FilmCraft') }
+        @{ id='ArtCraft.GridCraft'; name='GridCraft'; category='ArtCraft Suite'; requested=$true; essential=$false; desc='ArtCraft spreadsheet & data analysis app (Excel alternative).'; url='https://github.com/storytold'; launchHints=@('GridCraft') }
+        @{ id='ArtCraft.LightCraft'; name='LightCraft'; category='ArtCraft Suite'; requested=$true; essential=$false; desc='ArtCraft RAW photo library & color developer (Lightroom alternative).'; url='https://github.com/storytold'; launchHints=@('LightCraft') }
+        @{ id='ArtCraft.MaterialCraft'; name='MaterialCraft'; category='ArtCraft Suite'; requested=$true; essential=$false; desc='ArtCraft node-based PBR material authoring studio for 3D workflows.'; url='https://github.com/storytold'; launchHints=@('MaterialCraft') }
+        @{ id='ArtCraft.PdfCraft'; name='PdfCraft'; category='ArtCraft Suite'; requested=$true; essential=$false; desc='ArtCraft fast native PDF viewer, editor & document utility.'; url='https://github.com/storytold'; launchHints=@('PdfCraft') }
+        @{ id='ArtCraft.PhotoCraft'; name='PhotoCraft'; category='ArtCraft Suite'; requested=$true; essential=$false; desc='ArtCraft layer/mask/PSD raster image editor (modern Photoshop alternative).'; url='https://github.com/storytold'; launchHints=@('PhotoCraft') }
+        @{ id='ArtCraft.SoundCraft'; name='SoundCraft'; category='ArtCraft Suite'; requested=$true; essential=$false; desc='ArtCraft multi-track audio recording, editing & mixing DAW.'; url='https://github.com/storytold'; launchHints=@('SoundCraft') }
+        @{ id='ArtCraft.TextureCraft'; name='TextureCraft'; category='ArtCraft Suite'; requested=$true; essential=$false; desc='ArtCraft procedural & seamless 3D texture creation suite.'; url='https://github.com/storytold'; launchHints=@('TextureCraft') }
+        @{ id='ArtCraft.VectorCraft'; name='VectorCraft'; category='ArtCraft Suite'; requested=$true; essential=$false; desc='ArtCraft scalable vector illustration tool (Illustrator alternative).'; url='https://github.com/storytold'; launchHints=@('VectorCraft') }
+        @{ id='ArtCraft.WordCraft'; name='WordCraft'; category='ArtCraft Suite'; requested=$true; essential=$false; desc='ArtCraft native word processor & document editor (Word alternative).'; url='https://github.com/storytold'; launchHints=@('WordCraft') }
 
         # ---- ESSENTIAL NON-OVERLAPPING RUNTIMES, DEV TOOLS & POPULAR APPS ----
-        @{ id='Microsoft.DotNet.DesktopRuntime.8'; name='.NET Desktop Runtime 8 (LTS)'; category='Runtimes & Drivers'; requested=$false; essential=$true; desc='Required runtime for modern .NET 8 WPF/WinForms desktop applications.'; url='https://dotnet.microsoft.com/en-us/download/dotnet/8.0' }
-        @{ id='Microsoft.DotNet.DesktopRuntime.9'; name='.NET Desktop Runtime 9'; category='Runtimes & Drivers'; requested=$false; essential=$false; desc='Latest .NET 9 Windows Desktop runtime for newer C# applications.'; url='https://dotnet.microsoft.com/en-us/download/dotnet/9.0' }
-        @{ id='Microsoft.DirectX'; name='DirectX End-User Runtime'; category='Runtimes & Drivers'; requested=$false; essential=$true; desc='Legacy DirectX 9/10/11 libraries (d3dx9/xinput) required by many games.'; url='https://www.microsoft.com/en-us/download/details.aspx?id=35' }
-        @{ id='CoreWatch.PawnIO'; name='PawnIO Kernel Driver (CPU Temps)'; category='Runtimes & Drivers'; requested=$false; essential=$true; desc='WHQL-signed driver enabling Ryzen/Intel CPU thermal & MSR telemetry in CoreWatch.'; url='https://pawnio.eu/'; customType='pawnio' }
-        @{ id='EclipseAdoptium.Temurin.21.JDK'; name='Eclipse Temurin JDK 21 (LTS)'; category='Dev & Languages'; requested=$false; essential=$false; desc='OpenJDK 21 LTS — widely required by Minecraft 1.20.5+ & legacy Java tools.'; url='https://adoptium.net/temurin/releases/?version=21' }
-        @{ id='OpenJS.NodeJS.LTS'; name='Node.js (LTS)'; category='Dev & Languages'; requested=$false; essential=$false; desc='JavaScript runtime & npm package manager (Long-Term Support).'; url='https://nodejs.org/en/download' }
-        @{ id='Kitware.CMake'; name='CMake'; category='Dev & Languages'; requested=$false; essential=$false; desc='Cross-platform C/C++ build system generator.'; url='https://cmake.org/download/' }
-        @{ id='Microsoft.WindowsTerminal'; name='Windows Terminal'; category='Dev & Languages'; requested=$false; essential=$true; desc='Modern tabbed terminal for PowerShell, CMD, WSL & Azure Cloud Shell.'; url='https://github.com/microsoft/terminal/releases' }
-        @{ id='Notepad++.Notepad++'; name='Notepad++'; category='Dev & Languages'; requested=$false; essential=$true; desc='Fast, lightweight syntax-highlighted text, log & code editor.'; url='https://notepad-plus-plus.org/downloads/' }
-        @{ id='Mozilla.Firefox'; name='Mozilla Firefox'; category='Browsers & Comms'; requested=$false; essential=$false; desc='Open-source, privacy-focused Gecko web browser.'; url='https://www.mozilla.org/firefox/new/' }
-        @{ id='Brave.Brave'; name='Brave Browser'; category='Browsers & Comms'; requested=$false; essential=$false; desc='Chromium browser with built-in ad & tracker blocking.'; url='https://brave.com/download/' }
-        @{ id='Discord.Discord'; name='Discord'; category='Browsers & Comms'; requested=$false; essential=$false; desc='Voice, video, screen-sharing & community chat app.'; url='https://discord.com/download' }
-        @{ id='Rufus.Rufus'; name='Rufus'; category='SysAdmin & Network'; requested=$false; essential=$false; desc='Create bootable Windows & Linux USB installation drives reliably.'; url='https://rufus.ie/' }
-        @{ id='PuTTY.PuTTY'; name='PuTTY'; category='SysAdmin & Network'; requested=$false; essential=$false; desc='Lightweight SSH, Telnet & serial console client.'; url='https://www.putty.org/' }
-        @{ id='WinSCP.WinSCP'; name='WinSCP'; category='SysAdmin & Network'; requested=$false; essential=$false; desc='GUI SFTP, SCP, WebDAV & FTP file transfer client for Windows.'; url='https://winscp.net/eng/download.php' }
-        @{ id='Tailscale.Tailscale'; name='Tailscale VPN'; category='SysAdmin & Network'; requested=$false; essential=$false; desc='Zero-config WireGuard mesh VPN for secure remote access to your devices.'; url='https://tailscale.com/download/windows' }
-        @{ id='Bitwarden.Bitwarden'; name='Bitwarden'; category='SysAdmin & Network'; requested=$false; essential=$false; desc='Open-source cross-platform password & passkey manager.'; url='https://bitwarden.com/download/' }
-        @{ id='VideoLAN.VLC'; name='VLC Media Player'; category='Creative & Media'; requested=$false; essential=$true; desc='Universal open-source audio & video player supporting virtually all codecs.'; url='https://www.videolan.org/vlc/' }
-        @{ id='OBSProject.OBSStudio'; name='OBS Studio'; category='Creative & Media'; requested=$false; essential=$false; desc='Open-source screen recording, streaming & virtual camera studio.'; url='https://obsproject.com/download' }
-        @{ id='Guru3D.Afterburner'; name='MSI Afterburner'; category='Gaming & RGB'; requested=$false; essential=$false; desc='GPU overclocking, custom fan curves & RivaTuner FPS overlay.'; url='https://www.msi.com/Landing/afterburner/graphics-cards' }
+        @{ id='Microsoft.DotNet.DesktopRuntime.8'; name='.NET Desktop Runtime 8 (LTS)'; category='Runtimes & Drivers'; requested=$false; essential=$true; launchable=$false; desc='Required runtime for modern .NET 8 WPF/WinForms desktop applications.'; url='https://dotnet.microsoft.com/en-us/download/dotnet/8.0' }
+        @{ id='Microsoft.DotNet.DesktopRuntime.9'; name='.NET Desktop Runtime 9'; category='Runtimes & Drivers'; requested=$false; essential=$false; launchable=$false; desc='Latest .NET 9 Windows Desktop runtime for newer C# applications.'; url='https://dotnet.microsoft.com/en-us/download/dotnet/9.0' }
+        @{ id='Microsoft.DirectX'; name='DirectX End-User Runtime'; category='Runtimes & Drivers'; requested=$false; essential=$true; launchable=$false; desc='Legacy DirectX 9/10/11 libraries (d3dx9/xinput) required by many games.'; url='https://www.microsoft.com/en-us/download/details.aspx?id=35' }
+        @{ id='CoreWatch.PawnIO'; name='PawnIO Kernel Driver (CPU Temps)'; category='Runtimes & Drivers'; requested=$false; essential=$true; launchable=$false; desc='WHQL-signed driver enabling Ryzen/Intel CPU thermal & MSR telemetry in CoreWatch.'; url='https://pawnio.eu/'; customType='pawnio' }
+        @{ id='EclipseAdoptium.Temurin.21.JDK'; name='Eclipse Temurin JDK 21 (LTS)'; category='Dev & Languages'; requested=$false; essential=$false; launchable=$false; desc='OpenJDK 21 LTS — widely required by Minecraft 1.20.5+ & legacy Java tools.'; url='https://adoptium.net/temurin/releases/?version=21' }
+        @{ id='OpenJS.NodeJS.LTS'; name='Node.js (LTS)'; category='Dev & Languages'; requested=$false; essential=$false; launchable=$false; desc='JavaScript runtime & npm package manager (Long-Term Support).'; url='https://nodejs.org/en/download' }
+        @{ id='Kitware.CMake'; name='CMake'; category='Dev & Languages'; requested=$false; essential=$false; launchable=$false; desc='Cross-platform C/C++ build system generator.'; url='https://cmake.org/download/' }
+        @{ id='Microsoft.WindowsTerminal'; name='Windows Terminal'; category='Dev & Languages'; requested=$false; essential=$true; desc='Modern tabbed terminal for PowerShell, CMD, WSL & Azure Cloud Shell.'; url='https://github.com/microsoft/terminal/releases'; launchExe='wt.exe'; launchHints=@('Windows Terminal','Terminal') }
+        @{ id='Notepad++.Notepad++'; name='Notepad++'; category='Dev & Languages'; requested=$false; essential=$true; desc='Fast, lightweight syntax-highlighted text, log & code editor.'; url='https://notepad-plus-plus.org/downloads/'; launchExe='notepad++.exe'; launchHints=@('Notepad++') }
+        @{ id='Mozilla.Firefox'; name='Mozilla Firefox'; category='Browsers & Comms'; requested=$false; essential=$false; desc='Open-source, privacy-focused Gecko web browser.'; url='https://www.mozilla.org/firefox/new/'; launchExe='firefox.exe'; launchHints=@('Firefox','Mozilla Firefox') }
+        @{ id='Brave.Brave'; name='Brave Browser'; category='Browsers & Comms'; requested=$false; essential=$false; desc='Chromium browser with built-in ad & tracker blocking.'; url='https://brave.com/download/'; launchExe='brave.exe'; launchHints=@('Brave') }
+        @{ id='Discord.Discord'; name='Discord'; category='Browsers & Comms'; requested=$false; essential=$false; desc='Voice, video, screen-sharing & community chat app.'; url='https://discord.com/download'; launchHints=@('Discord') }
+        @{ id='Rufus.Rufus'; name='Rufus'; category='SysAdmin & Network'; requested=$false; essential=$false; desc='Create bootable Windows & Linux USB installation drives reliably.'; url='https://rufus.ie/'; launchExe='rufus.exe'; launchHints=@('Rufus') }
+        @{ id='PuTTY.PuTTY'; name='PuTTY'; category='SysAdmin & Network'; requested=$false; essential=$false; desc='Lightweight SSH, Telnet & serial console client.'; url='https://www.putty.org/'; launchExe='putty.exe'; launchHints=@('PuTTY') }
+        @{ id='WinSCP.WinSCP'; name='WinSCP'; category='SysAdmin & Network'; requested=$false; essential=$false; desc='GUI SFTP, SCP, WebDAV & FTP file transfer client for Windows.'; url='https://winscp.net/eng/download.php'; launchExe='WinSCP.exe'; launchHints=@('WinSCP') }
+        @{ id='Tailscale.Tailscale'; name='Tailscale VPN'; category='SysAdmin & Network'; requested=$false; essential=$false; desc='Zero-config WireGuard mesh VPN for secure remote access to your devices.'; url='https://tailscale.com/download/windows'; launchExe='tailscale-ipn.exe'; launchHints=@('Tailscale') }
+        @{ id='Bitwarden.Bitwarden'; name='Bitwarden'; category='SysAdmin & Network'; requested=$false; essential=$false; desc='Open-source cross-platform password & passkey manager.'; url='https://bitwarden.com/download/'; launchExe='Bitwarden.exe'; launchHints=@('Bitwarden') }
+        @{ id='VideoLAN.VLC'; name='VLC Media Player'; category='Creative & Media'; requested=$false; essential=$true; desc='Universal open-source audio & video player supporting virtually all codecs.'; url='https://www.videolan.org/vlc/'; launchExe='vlc.exe'; launchHints=@('VLC media player','VLC') }
+        @{ id='OBSProject.OBSStudio'; name='OBS Studio'; category='Creative & Media'; requested=$false; essential=$false; desc='Open-source screen recording, streaming & virtual camera studio.'; url='https://obsproject.com/download'; launchExe='obs64.exe'; launchHints=@('OBS Studio') }
+        @{ id='Guru3D.Afterburner'; name='MSI Afterburner'; category='Gaming & RGB'; requested=$false; essential=$false; desc='GPU overclocking, custom fan curves & RivaTuner FPS overlay.'; url='https://www.msi.com/Landing/afterburner/graphics-cards'; launchExe='MSIAfterburner.exe'; launchHints=@('MSI Afterburner') }
     )
 }
 
@@ -153,6 +154,117 @@ function Get-InstalledWingetMap {
     return @{ available = $true; version = $wgVer; map = $map }
 }
 
+function Get-AppLaunchIndex {
+    $shortcuts = New-Object System.Collections.Generic.List[object]
+    $roots = @(
+        (Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"),
+        (Join-Path $env:ProgramData "Microsoft\Windows\Start Menu\Programs"),
+        [Environment]::GetFolderPath("Desktop")
+    )
+    foreach ($root in $roots) {
+        if (-not $root -or -not (Test-Path -LiteralPath $root -PathType Container)) { continue }
+        try {
+            Get-ChildItem -LiteralPath $root -Filter "*.lnk" -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
+                $base = [System.IO.Path]::GetFileNameWithoutExtension($_.Name)
+                if ($base -and $base -notmatch '(?i)\b(uninstall|readme|help|website|documentation|license|release notes|manual|updater|remove)\b') {
+                    $shortcuts.Add([PSCustomObject]@{ name = $base; full = $_.FullName })
+                }
+            }
+        } catch {}
+    }
+
+    $appPaths = @{}
+    foreach ($apRoot in @(
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\*",
+        "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\*"
+    )) {
+        try {
+            Get-ItemProperty -Path $apRoot -ErrorAction SilentlyContinue | ForEach-Object {
+                $exeKey = [string]$_.PSChildName
+                $exeVal = ([string]$_.'(default)').Trim().Trim('"')
+                if ($exeKey -and $exeVal -and (Test-Path -LiteralPath $exeVal -PathType Leaf)) {
+                    $appPaths[$exeKey.ToLowerInvariant()] = $exeVal
+                }
+            }
+        } catch {}
+    }
+
+    return @{ shortcuts = $shortcuts; appPaths = $appPaths }
+}
+
+function Resolve-CatalogAppLaunchTarget {
+    param(
+        [Parameter(Mandatory)][hashtable]$App,
+        [Parameter(Mandatory)][hashtable]$LaunchIndex,
+        [hashtable]$RegEntry = $null
+    )
+    if ($App.ContainsKey('launchable') -and $App.launchable -eq $false) {
+        return $null
+    }
+
+    # 1. Exact Start Menu / Desktop shortcut match by launchHints or clean app name
+    $hints = @()
+    if ($App.ContainsKey('launchHints') -and $App.launchHints) { $hints += @($App.launchHints) }
+    $cleanName = ($App.name -replace '\s*\([^)]*\)\s*', '').Trim()
+    if ($cleanName -and ($hints -notcontains $cleanName)) { $hints += $cleanName }
+
+    foreach ($h in $hints) {
+        $exact = $LaunchIndex.shortcuts | Where-Object { $_.name -ieq $h } | Select-Object -First 1
+        if ($exact) { return $exact.full }
+    }
+    foreach ($h in $hints) {
+        if ($h.Length -lt 4) { continue }
+        $partial = $LaunchIndex.shortcuts | Where-Object { $_.name -like "$h*" } | Sort-Object { $_.name.Length } | Select-Object -First 1
+        if ($partial) { return $partial.full }
+    }
+
+    # 2. Windows App Paths registry or PATH lookup for known launchExe
+    if ($App.ContainsKey('launchExe') -and $App.launchExe) {
+        $exeLow = ([string]$App.launchExe).ToLowerInvariant()
+        if ($LaunchIndex.appPaths.ContainsKey($exeLow)) {
+            return $LaunchIndex.appPaths[$exeLow]
+        }
+        $cmd = Get-Command ([string]$App.launchExe) -ErrorAction SilentlyContinue
+        if ($cmd -and $cmd.Source -and (Test-Path -LiteralPath $cmd.Source -PathType Leaf)) {
+            return [string]$cmd.Source
+        }
+        # Common standard paths for popular tools
+        $probeDirs = @(
+            (Join-Path $env:ProgramFiles "7-Zip"),
+            (Join-Path $env:ProgramFiles "PowerShell\7"),
+            (Join-Path $env:ProgramFiles "Git"),
+            (Join-Path $env:ProgramFiles "Wireshark"),
+            (Join-Path $env:ProgramFiles "Notepad++"),
+            (Join-Path $env:ProgramFiles "VideoLAN\VLC"),
+            (Join-Path $env:ProgramFiles "obs-studio\bin\64bit"),
+            (Join-Path ${env:ProgramFiles(x86)} "Steam"),
+            (Join-Path ${env:ProgramFiles(x86)} "MSI Afterburner"),
+            (Join-Path $env:LOCALAPPDATA "Programs\Microsoft VS Code")
+        )
+        foreach ($d in $probeDirs) {
+            if (-not $d) { continue }
+            $cand = Join-Path $d ([string]$App.launchExe)
+            if (Test-Path -LiteralPath $cand -PathType Leaf) { return $cand }
+        }
+    }
+
+    # 3. Uninstall registry DisplayIcon / InstallLocation fallback
+    if ($RegEntry) {
+        if ($RegEntry.displayIcon) {
+            $iconPath = ([string]$RegEntry.displayIcon -split ',')[0].Trim().Trim('"')
+            if ($iconPath -match '\.exe$' -and $iconPath -notmatch '(?i)unins|setup|update' -and (Test-Path -LiteralPath $iconPath -PathType Leaf)) {
+                return $iconPath
+            }
+        }
+        if ($RegEntry.installLocation -and $App.ContainsKey('launchExe') -and $App.launchExe) {
+            $cand = Join-Path ([string]$RegEntry.installLocation).Trim().Trim('"') ([string]$App.launchExe)
+            if (Test-Path -LiteralPath $cand -PathType Leaf) { return $cand }
+        }
+    }
+
+    return $null
+}
+
 function Get-AppInstallerState {
     [CmdletBinding()]
     param([switch]$SkipInstalledProbe)
@@ -175,7 +287,7 @@ function Get-AppInstallerState {
         }
     }
 
-    $regNames = New-Object System.Collections.Generic.HashSet[string] ([System.StringComparer]::OrdinalIgnoreCase)
+    $regEntries = New-Object System.Collections.Generic.List[object]
     try {
         $regPaths = @(
             'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
@@ -183,15 +295,25 @@ function Get-AppInstallerState {
             'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
         )
         foreach ($rp in $regPaths) {
-            Get-ItemProperty -Path $rp -Name DisplayName -ErrorAction SilentlyContinue | ForEach-Object {
-                if ($_.DisplayName) { [void]$regNames.Add([string]$_.DisplayName) }
+            Get-ItemProperty -Path $rp -ErrorAction SilentlyContinue | ForEach-Object {
+                if ($_.DisplayName) {
+                    $regEntries.Add([PSCustomObject]@{
+                        displayName     = [string]$_.DisplayName
+                        displayVersion  = if ($_.DisplayVersion) { [string]$_.DisplayVersion } else { "" }
+                        installLocation = if ($_.InstallLocation) { [string]$_.InstallLocation } else { "" }
+                        displayIcon     = if ($_.DisplayIcon) { [string]$_.DisplayIcon } else { "" }
+                    })
+                }
             }
         }
     } catch {}
 
+    $launchIndex = Get-AppLaunchIndex
+
     $items = New-Object System.Collections.Generic.List[PSCustomObject]
-    $installedCount = 0
-    $outdatedCount  = 0
+    $installedCount  = 0
+    $outdatedCount   = 0
+    $launchableCount = 0
 
     foreach ($app in $catalog) {
         $idKey = $app.id.ToLowerInvariant()
@@ -200,6 +322,15 @@ function Get-AppInstallerState {
         $availVer = ""
         $verTier = "none"
         $missedUpdates = 0
+
+        $needle = ($app.name -replace '\s*\([^)]*\)\s*', '').Trim()
+        $matchedReg = $null
+        if ($needle.Length -ge 4) {
+            $matchedReg = $regEntries | Where-Object { $_.displayName -ieq $needle } | Select-Object -First 1
+            if (-not $matchedReg) {
+                $matchedReg = $regEntries | Where-Object { $_.displayName -like "*$needle*" } | Select-Object -First 1
+            }
+        }
 
         if ($installedMap.ContainsKey($idKey)) {
             $isInstalled = $true
@@ -212,21 +343,25 @@ function Get-AppInstallerState {
         } elseif ($app.id -eq 'CoreWatch.PawnIO') {
             $pawnSvc = Get-Service -Name "PawnIO" -ErrorAction SilentlyContinue
             if ($pawnSvc) { $isInstalled = $true; $instVer = [string]$pawnSvc.Status; $verTier = 'uptodate' }
-        } else {
-            $needle = $app.name -replace '\s*\([^)]*\)\s*', ''
-            if ($needle.Length -ge 4) {
-                foreach ($rn in $regNames) {
-                    if ($rn -like "*$needle*") {
-                        $isInstalled = $true
-                        $instVer = "Detected"
-                        $verTier = "uptodate"
-                        break
-                    }
-                }
-            }
+        } elseif ($matchedReg) {
+            $isInstalled = $true
+            $instVer = if ($matchedReg.displayVersion) { $matchedReg.displayVersion } else { "Detected" }
+            $verTier = "uptodate"
         }
 
+        $launchTarget = $null
+        if ($isInstalled -or (-not ($app.ContainsKey('launchable') -and $app.launchable -eq $false))) {
+            $launchTarget = Resolve-CatalogAppLaunchTarget -App $app -LaunchIndex $launchIndex -RegEntry $(if ($matchedReg) { @{ displayIcon = $matchedReg.displayIcon; installLocation = $matchedReg.installLocation } } else { $null })
+            if ($launchTarget -and -not $isInstalled) {
+                $isInstalled = $true
+                $instVer = "Detected"
+                $verTier = "uptodate"
+            }
+        }
+        $canLaunch = (-not [string]::IsNullOrWhiteSpace($launchTarget))
+
         if ($isInstalled) { $installedCount++ }
+        if ($canLaunch) { $launchableCount++ }
         if ($verTier -eq 'update' -or $verTier -eq 'critical') { $outdatedCount++ }
 
         $items.Add([PSCustomObject]@{
@@ -239,6 +374,7 @@ function Get-AppInstallerState {
             url              = [string]$app.url
             customType       = if ($app.ContainsKey('customType')) { [string]$app.customType } else { 'winget' }
             installed        = [bool]$isInstalled
+            canLaunch        = [bool]$canLaunch
             version          = $instVer
             availableVersion = $availVer
             versionTier      = $verTier
@@ -252,11 +388,12 @@ function Get-AppInstallerState {
         wingetVersion   = $wgVersion
         apps            = @($items)
         summary         = @{
-            total     = $items.Count
-            installed = $installedCount
-            available = ($items.Count - $installedCount)
-            outdated  = $outdatedCount
-            requested = @($items | Where-Object { $_.requested }).Count
+            total      = $items.Count
+            installed  = $installedCount
+            launchable = $launchableCount
+            available  = ($items.Count - $installedCount)
+            outdated   = $outdatedCount
+            requested  = @($items | Where-Object { $_.requested }).Count
         }
         error           = $null
     }
@@ -318,6 +455,25 @@ function Start-WingetTerminalBatch {
             $safeName = if ($meta -and $meta.name) { $meta.name.Replace("'", "''") } else { $pkg }
 
             [void]$sb.AppendLine("Write-Host `"`n[$idx/$total] $($wgVerb.ToUpper()): $safeName ($pkg)`" -ForegroundColor Green")
+            if ($meta -and $meta.ContainsKey('customType') -and $meta.customType -eq 'github_msi' -and $meta.ContainsKey('githubRepo')) {
+                $ghRepo = ([string]$meta.githubRepo).Replace("'", "''")
+                [void]$sb.AppendLine('try {')
+                [void]$sb.AppendLine('  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12')
+                [void]$sb.AppendLine('  $arch = if ($env:PROCESSOR_ARCHITECTURE -match "ARM64") { "arm64" } else { "x64" }')
+                [void]$sb.AppendLine("  `$rel = Invoke-RestMethod -Uri 'https://api.github.com/repos/$ghRepo/releases/latest' -Headers @{'User-Agent'='CoreWatch'} -TimeoutSec 20 -ErrorAction Stop")
+                [void]$sb.AppendLine('  $msiAsset = $rel.assets | Where-Object { $_.name -match "windows-$arch\.msi$" } | Select-Object -First 1')
+                [void]$sb.AppendLine('  if (-not $msiAsset) { $msiAsset = $rel.assets | Where-Object { $_.name -match "\.msi$" } | Select-Object -First 1 }')
+                [void]$sb.AppendLine('  if ($msiAsset) {')
+                [void]$sb.AppendLine('    $dst = Join-Path $env:TEMP $msiAsset.name')
+                [void]$sb.AppendLine('    Write-Host "  Downloading $($msiAsset.name) ($($rel.tag_name))..." -ForegroundColor Cyan')
+                [void]$sb.AppendLine('    Invoke-WebRequest -Uri $msiAsset.browser_download_url -OutFile $dst -UseBasicParsing -ErrorAction Stop')
+                [void]$sb.AppendLine('    $p = Start-Process -FilePath "msiexec.exe" -ArgumentList @("/i", "`"$dst`"", "/qb") -Wait -PassThru')
+                [void]$sb.AppendLine('    Remove-Item -LiteralPath $dst -Force -ErrorAction SilentlyContinue')
+                [void]$sb.AppendLine('    Write-Host "  -> Installed $($rel.tag_name) via MSI (exit $($p.ExitCode))" -ForegroundColor Cyan')
+                [void]$sb.AppendLine("  } elseif ('$safeUrl') { Start-Process '$safeUrl' }")
+                [void]$sb.AppendLine("} catch { Write-Host `"  Download error: `$(`$_.Exception.Message)`" -ForegroundColor Yellow; if ('$safeUrl') { Start-Process '$safeUrl' } }")
+                continue
+            }
             if ($pkg -ieq 'Microsoft.PowerShell') {
                 # Always deploy latest PowerShell 7 to C:\Program Files\PowerShell\7 (MSI if present, else official ZIP — never WindowsApps!)
                 [void]$sb.AppendLine('try {')
@@ -478,6 +634,38 @@ function Invoke-AppInstallerAction {
                     results = @($found)
                     ok      = $true
                     message = "Found $($found.Count) WinGet package(s) matching '$query'."
+                }
+            }
+            'APPSTORE_LAUNCH_APP' {
+                $pkgId = ([string]$Payload.id).Trim()
+                $app = Get-CuratedAppCatalog | Where-Object { $_.id -ieq $pkgId } | Select-Object -First 1
+                if (-not $app) { throw "Application '$pkgId' is not in the curated catalog." }
+                if ($app.ContainsKey('launchable') -and $app.launchable -eq $false) {
+                    throw "$($app.name) is a system runtime or CLI toolchain and cannot be launched directly."
+                }
+                $launchIdx = Get-AppLaunchIndex
+                $regEntry = $null
+                $needle = ($app.name -replace '\s*\([^)]*\)\s*', '').Trim()
+                foreach ($rp in @(
+                    'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+                    'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*',
+                    'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
+                )) {
+                    $hit = Get-ItemProperty -Path $rp -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like "*$needle*" } | Select-Object -First 1
+                    if ($hit) {
+                        $regEntry = @{ displayIcon = [string]$hit.DisplayIcon; installLocation = [string]$hit.InstallLocation }
+                        break
+                    }
+                }
+                $target = Resolve-CatalogAppLaunchTarget -App $app -LaunchIndex $launchIdx -RegEntry $regEntry
+                if (-not $target -or -not (Test-Path -LiteralPath $target -PathType Leaf)) {
+                    throw "Could not locate a launchable executable or shortcut for $($app.name)."
+                }
+                Start-Process -FilePath $target -ErrorAction Stop
+                return @{
+                    type    = "APPSTORE_NOTICE"
+                    ok      = $true
+                    message = "Launched $($app.name)."
                 }
             }
             'APPSTORE_OPEN_URL' {
