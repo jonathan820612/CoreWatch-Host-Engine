@@ -682,6 +682,7 @@ pub(crate) enum Tool {
     Nslookup,
     Ipconfig,
     Powercfg,
+    Shutdown,
 }
 
 pub(crate) fn system_tool(
@@ -695,6 +696,7 @@ pub(crate) fn system_tool(
         Tool::Nslookup => "nslookup.exe",
         Tool::Ipconfig => "ipconfig.exe",
         Tool::Powercfg => "powercfg.exe",
+        Tool::Shutdown => "shutdown.exe",
     };
     let path = system_directory()?.join(program);
     let output = Command::new(path)

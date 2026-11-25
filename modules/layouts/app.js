@@ -622,8 +622,20 @@ const msgType = stats.type || stats.Type;
     else if (msgType === "HOMELAB_STATE") {
         RenderHomelabState(stats);
     }
+    else if (msgType === "HOMELAB_NODE_POLLED") {
+        RenderHomelabSingleNodePolled(stats);
+    }
     else if (msgType === "HOMELAB_NOTICE") {
         SetHomelabStatus(stats.error || stats.message || '', !stats.ok || !!stats.error);
+    }
+    else if (msgType === "TELEMETRY_PAUSE_STATE") {
+        HandleTelemetryPauseState(stats);
+    }
+    else if (msgType === "DISKPART_STATE") {
+        RenderDiskPartitionerState(stats);
+    }
+    else if (msgType === "DISKPART_NOTICE") {
+        SetDiskPartStatus(stats.error || stats.message || '', !stats.ok || !!stats.error);
     }
     else {
         // Dashboard Full Telemetry (1s cadence)
@@ -6687,6 +6699,7 @@ const COREWATCH_PALETTE_ITEMS = [
     { label: '🖥️ Switch Mode → Normal / Default', cat: 'Mode', moduleId: 'profiles', run: () => TriggerApplyProfile('normal') },
     { label: '✏️ Customize Dashboard Layout (Grid / Side Dock / Hide)', cat: 'UI', run: () => { SwitchAppLayoutView('dashboard'); OpenLayoutCustomizer(); } },
     { label: '🎨 Theme & Appearance Studio (Live Custom Colors & Background Image)', cat: 'UI', run: () => OpenThemeStudio() },
+    { label: '💿 Disk Partitioner (Floating Disk Setup — Pauses Telemetry)', cat: 'Storage', run: () => OpenDiskPartitioner() },
     { label: '◫ Toggle Side Pop-Out Telemetry Dock', cat: 'UI', run: () => ToggleSideTelemetryDock() },
     { label: '📌 Toggle Always on Top (Pin Window)', cat: 'Window', run: () => ToggleWindowAlwaysOnTop() },
     { label: '🔒 Cycle Window Lock (Unlocked → Position → Position & Size)', cat: 'Window', run: () => CycleWindowLockMode() },
@@ -8519,11 +8532,17 @@ document.addEventListener('DOMContentLoaded', () => {
     window._diagXDismissed = LoadLocalDiagXDismissed();
     ApplyThemeState(LoadLocalThemeFallback(), false);
     InitThemeStudioDrag();
+    InitDiskPartitionerDrag();
     ApplyDashboardLayout(false);
 });
 
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
+        const dpPop = document.getElementById('diskPartitionerPopup');
+        if (dpPop && dpPop.style.display !== 'none') {
+            CloseDiskPartitioner();
+            return;
+        }
         const themePop = document.getElementById('themeStudioPopup');
         if (themePop && themePop.style.display !== 'none') {
             CloseThemeStudio();
@@ -10689,7 +10708,9 @@ window.ToggleOpsGuardMenu = function(e) {
     const willOpen = !drop.classList.contains('open');
     drop.classList.toggle('open', willOpen);
     if (trig) trig.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
-    if (willOpen) ClampNavDropdownMenu(document.getElementById('navOpsMenu'));
+    if (willOpen && typeof ClampNavDropdownMenu === 'function') {
+        ClampNavDropdownMenu(document.getElementById('navOpsMenu'));
+    }
 };
 
 window.SelectOpsGuardMenuView = function(viewKey) {
@@ -10754,21 +10775,78 @@ window.TriggerDeleteAlertRule = function(ruleId) {
     window.chrome?.webview?.postMessage(JSON.stringify({ command: 'ALERTS_DELETE_RULE', ruleId }));
 };
 
+window.ToggleAlertRuleEditor = function(show, editRuleId = null) {
+    const card = document.getElementById('alertRuleEditorCard');
+    if (!card) return;
+    if (!show) {
+        card.style.display = 'none';
+        return;
+    }
+    const existing = editRuleId ? (window._alertsState?.rules || []).find(r => r.id === editRuleId) : null;
+    SetDomText('lblAlertEditorTitle', existing ? `✏️ Edit Watchdog Rule — ${existing.name}` : '➕ Add Watchdog Rule');
+    const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+    setVal('inpAlertId', existing ? existing.id : '');
+    setVal('inpAlertName', existing ? existing.name : '');
+    setVal('selAlertMetric', existing ? existing.metric : 'cpu_temp');
+    setVal('selAlertOperator', existing ? existing.operator : 'gt');
+    setVal('inpAlertThreshold', existing ? existing.threshold : 85);
+    setVal('inpAlertDuration', existing ? existing.durationSec : 30);
+    setVal('inpAlertCooldown', existing ? existing.cooldownMin : 5);
+    setVal('selAlertSeverity', existing ? (existing.severity || 'warning') : 'warning');
+    setVal('selAlertAction', existing ? (existing.action || 'toast') : 'toast');
+    setVal('inpAlertTarget', existing ? (existing.target || '') : '');
+    card.style.display = 'flex';
+    document.getElementById('inpAlertName')?.focus();
+};
+
+window.SyncAlertEditorMetricDefaults = function() {
+    const m = document.getElementById('selAlertMetric')?.value || 'cpu_temp';
+    const opEl = document.getElementById('selAlertOperator');
+    const thEl = document.getElementById('inpAlertThreshold');
+    const tgtEl = document.getElementById('inpAlertTarget');
+    if (m === 'drive_free_pct') {
+        if (opEl) opEl.value = 'lt';
+        if (thEl && !document.getElementById('inpAlertId')?.value) thEl.value = 10;
+        if (tgtEl && !tgtEl.value) tgtEl.placeholder = 'ANY or C: or D:';
+    } else if (m === 'internet_status' || m === 'service_stopped') {
+        if (opEl) opEl.value = 'eq';
+        if (thEl && !document.getElementById('inpAlertId')?.value) thEl.value = m === 'internet_status' ? 0 : 1;
+        if (tgtEl) tgtEl.placeholder = m === 'service_stopped' ? 'Dhcp,Dnscache,EventLog' : '(unused)';
+    } else {
+        if (opEl) opEl.value = 'gt';
+        if (tgtEl) tgtEl.placeholder = '(unused)';
+    }
+};
+
 window.TriggerSaveAlertRule = function() {
+    const id = (document.getElementById('inpAlertId')?.value || '').trim();
     const name = (document.getElementById('inpAlertName')?.value || '').trim();
     const metric = document.getElementById('selAlertMetric')?.value || 'cpu_temp';
-    const threshold = Number(document.getElementById('inpAlertThreshold')?.value || 85);
-    const durationSec = Number(document.getElementById('inpAlertDuration')?.value || 30);
-    const cooldownMin = Number(document.getElementById('inpAlertCooldown')?.value || 5);
+    const operator = document.getElementById('selAlertOperator')?.value || (metric === 'drive_free_pct' ? 'lt' : 'gt');
+    const threshold = Number(document.getElementById('inpAlertThreshold')?.value ?? 85);
+    const durationSec = Number(document.getElementById('inpAlertDuration')?.value ?? 30);
+    const cooldownMin = Number(document.getElementById('inpAlertCooldown')?.value ?? 5);
+    const severity = document.getElementById('selAlertSeverity')?.value || 'warning';
     const action = document.getElementById('selAlertAction')?.value || 'toast';
     const target = (document.getElementById('inpAlertTarget')?.value || '').trim();
-    const operator = metric === 'drive_free_pct' ? 'lt' : ((metric === 'internet_status' || metric === 'service_stopped') ? 'eq' : 'gt');
+    const prevRule = id ? (window._alertsState?.rules || []).find(r => r.id === id) : null;
     window.chrome?.webview?.postMessage(JSON.stringify({
         command: 'ALERTS_SAVE_RULE',
-        rule: { name: name || `Watch ${metric}`, metric, operator, threshold, durationSec, cooldownMin, action, target, severity: 'warning', enabled: true }
+        rule: {
+            id: id || undefined,
+            name: name || `Watch ${metric}`,
+            metric,
+            operator,
+            threshold,
+            durationSec,
+            cooldownMin,
+            severity,
+            action,
+            target,
+            enabled: prevRule ? !!prevRule.enabled : true
+        }
     }));
-    const inp = document.getElementById('inpAlertName');
-    if (inp) inp.value = '';
+    ToggleAlertRuleEditor(false);
 };
 
 function RenderSmartAlertsState(data) {
@@ -10796,18 +10874,21 @@ function RenderSmartAlertsState(data) {
         const rules = Array.isArray(data.rules) ? data.rules : [];
         rulesHost.innerHTML = rules.length ? rules.map(r => {
             const safeId = String(r.id || '').replace(/'/g, "\\'");
-            const opStr = r.operator === 'lt' ? '<' : (r.operator === 'eq' ? '=' : '>');
-            return `<div class="new-tab-row-item">
+            const opStr = r.operator === 'lt' ? '≤' : (r.operator === 'eq' ? '=' : '≥');
+            const sevCls = r.severity === 'critical' ? 'badge-danger' : (r.severity === 'warning' ? 'ver-update' : 'badge-info');
+            return `<div class="new-tab-row-item" style="${r.enabled ? '' : 'opacity:0.65;'}">
                 <div>
+                    <span class="sharing-badge ${sevCls}">${EscapeHtmlTp(r.severity || 'warning')}</span>
                     <strong>${EscapeHtmlTp(r.name)}</strong>
                     <div class="dev-repo-meta">${EscapeHtmlTp(r.metric)} ${opStr} ${r.threshold}${r.target ? ' · ' + EscapeHtmlTp(r.target) : ''} · ${r.durationSec}s hold · ${r.cooldownMin}m cooldown · ${EscapeHtmlTp(r.action)}</div>
                 </div>
-                <div style="display:flex; gap:5px; align-items:center;">
+                <div style="display:flex; gap:5px; align-items:center; flex-shrink:0;">
                     <label class="org-checkbox-label"><input type="checkbox" ${r.enabled ? 'checked' : ''} onchange="TriggerToggleAlertRule('${safeId}', this.checked)"><span>On</span></label>
-                    ${r.isBuiltIn ? '' : `<button type="button" class="console-clear-btn wsl-btn-danger" onclick="TriggerDeleteAlertRule('${safeId}')">✕</button>`}
+                    <button type="button" class="console-clear-btn" onclick="ToggleAlertRuleEditor(true, '${safeId}')" title="Edit rule thresholds and action">✏️</button>
+                    ${r.isBuiltIn ? '' : `<button type="button" class="console-clear-btn wsl-btn-danger" onclick="TriggerDeleteAlertRule('${safeId}')" title="Delete custom rule">✕</button>`}
                 </div>
             </div>`;
-        }).join('') : '<div class="driver-text-node">No watchdog rules configured.</div>';
+        }).join('') : '<div class="driver-text-node">No watchdog rules configured. Click "➕ New Rule" above.</div>';
     }
 
     const histHost = document.getElementById('alertsHistoryList');
@@ -10862,6 +10943,30 @@ window.TriggerOpenWindowsUpdateSettings = function() {
     window.chrome?.webview?.postMessage(JSON.stringify({ command: 'UPDATES_OPEN_WINUPDATE' }));
 };
 
+window.RenderUpdateWinGetList = function() {
+    const wgHost = document.getElementById('updWinGetList');
+    const data = window._updatesState;
+    if (!wgHost || !data) return;
+    const q = (document.getElementById('inpUpdSearch')?.value || '').trim().toLowerCase();
+    const hidePinned = !!document.getElementById('chkUpdHidePinned')?.checked;
+    const allItems = data.winget?.items || [];
+    const items = allItems.filter(it => {
+        if (hidePinned && it.pinned) return false;
+        if (!q) return true;
+        return `${it.name || ''} ${it.id || ''} ${it.installed || ''} ${it.available || ''}`.toLowerCase().includes(q);
+    });
+    wgHost.innerHTML = items.length ? items.map(it => {
+        const safeId = String(it.id || '').replace(/'/g, "\\'");
+        return `<div class="new-tab-row-item" style="${it.pinned ? 'opacity:0.6;' : ''}">
+            <label class="org-checkbox-label" style="flex:1 1 auto;">
+                <input type="checkbox" class="upd-pkg-chk" value="${EscapeHtmlTp(it.id)}" ${it.pinned ? 'disabled' : 'checked'}>
+                <span><strong>${EscapeHtmlTp(it.name)}</strong> <span class="dev-repo-meta">(${EscapeHtmlTp(it.id)}) · ${EscapeHtmlTp(it.installed)} → <strong>${EscapeHtmlTp(it.available)}</strong></span></span>
+            </label>
+            <button type="button" class="console-clear-btn" onclick="TriggerToggleUpdatePin('${safeId}')" title="Pin/Ignore this package from batch upgrades">${it.pinned ? '📌 Unpin' : '📌 Pin'}</button>
+        </div>`;
+    }).join('') : `<div class="driver-text-node">${allItems.length ? 'No packages match your current filter.' : EscapeHtmlTp(data.winget?.error || 'All WinGet packages are up to date!')}</div>`;
+};
+
 function RenderUpdateCenterState(data) {
     if (!data) return;
     window._updatesLoaded = true;
@@ -10874,20 +10979,7 @@ function RenderUpdateCenterState(data) {
     SetDomText('sumUpdCw', sum.cwHasUpdate ? 'Update Avail' : 'Up to date');
     SetUpdateCenterStatus(data.notice || `Unified scan completed at ${data.scannedAt || '--'}.`, !!data.noticeError);
 
-    const wgHost = document.getElementById('updWinGetList');
-    if (wgHost) {
-        const items = data.winget?.items || [];
-        wgHost.innerHTML = items.length ? items.map(it => {
-            const safeId = String(it.id || '').replace(/'/g, "\\'");
-            return `<div class="new-tab-row-item" style="${it.pinned ? 'opacity:0.6;' : ''}">
-                <label class="org-checkbox-label" style="flex:1 1 auto;">
-                    <input type="checkbox" class="upd-pkg-chk" value="${EscapeHtmlTp(it.id)}" ${it.pinned ? 'disabled' : 'checked'}>
-                    <span><strong>${EscapeHtmlTp(it.name)}</strong> <span class="dev-repo-meta">(${EscapeHtmlTp(it.id)}) · ${EscapeHtmlTp(it.installed)} → <strong>${EscapeHtmlTp(it.available)}</strong></span></span>
-                </label>
-                <button type="button" class="console-clear-btn" onclick="TriggerToggleUpdatePin('${safeId}')" title="Pin/Ignore this package from batch upgrades">${it.pinned ? '📌 Unpin' : '📌 Pin'}</button>
-            </div>`;
-        }).join('') : `<div class="driver-text-node">${EscapeHtmlTp(data.winget?.error || 'All WinGet packages are up to date!')}</div>`;
-    }
+    RenderUpdateWinGetList();
 
     const wuHost = document.getElementById('updWindowsList');
     if (wuHost) {
@@ -10902,22 +10994,36 @@ function RenderUpdateCenterState(data) {
     if (rtHost) {
         const ps = data.powershell || {};
         const cw = data.corewatch || {};
+        const devRts = Array.isArray(data.devRuntimes) ? data.devRuntimes : [];
         const safeUrl = String(cw.releaseUrl || '').replace(/'/g, "\\'");
+        const safePsVer = String(ps.current || '').replace(/'/g, "\\'");
+        const safePsLat = String(ps.latest || '').replace(/'/g, "\\'");
+        const safePsChan = String(ps.channel || 'msi').replace(/'/g, "\\'");
+        const psBtnHtml = ps.missed > 0
+            ? `<button type="button" class="console-clear-btn btn-accent-action" onclick="TriggerPowerShellUpdateToggle('${safePsVer}','${safePsLat}',${Number(ps.missed||0)},true,'${safePsChan}')">⬆️ Update PS</button>`
+            : '<span class="sharing-badge ver-uptodate">Current</span>';
+        const devChips = devRts.length
+            ? `<div class="runtime-chip-grid">${devRts.map(r => `<span class="runtime-chip" title="${EscapeHtmlTp(r.path || '')}">${EscapeHtmlTp(r.name)}: <strong>${EscapeHtmlTp(r.version)}</strong></span>`).join('')}</div>`
+            : '';
         rtHost.innerHTML = `
             <div class="new-tab-row-item">
                 <div><strong>PowerShell ${EscapeHtmlTp(ps.current || '--')} (${EscapeHtmlTp(ps.channel || 'msi')})</strong><div class="dev-repo-meta">${EscapeHtmlTp(ps.detail || '')}</div></div>
-                <span class="sharing-badge ${ps.missed > 0 ? 'ver-update' : 'ver-uptodate'}">${ps.missed > 0 ? 'Update' : 'Current'}</span>
+                ${psBtnHtml}
             </div>
             <div class="new-tab-row-item">
                 <div><strong>CoreWatch v${EscapeHtmlTp(cw.currentVersion || '--')}</strong><div class="dev-repo-meta">${EscapeHtmlTp(cw.message || '')}</div></div>
                 ${cw.hasUpdate && safeUrl ? `<button type="button" class="console-clear-btn btn-accent-action" onclick="OpenExternalHttpsUrl('${safeUrl}')">Download ↗</button>` : '<span class="sharing-badge ver-uptodate">Current</span>'}
-            </div>`;
+            </div>
+            ${devChips}`;
     }
 }
 
 // =========================================================================
 // 3. SYSTEM SNAPSHOTS & DIFF CONTROLLER
 // =========================================================================
+window._snapLastDiff = null;
+window._snapDiffFilterKind = 'all';
+
 function SetSnapshotsStatus(msg, isErr = false) {
     const el = document.getElementById('snapshotsStatus');
     if (el && msg) { el.classList.toggle('sharing-error', !!isErr); el.textContent = msg; }
@@ -10936,6 +11042,8 @@ window.TriggerCreateSnapshot = function() {
     window.chrome?.webview?.postMessage(JSON.stringify({ command: 'SNAP_CREATE', name, notes, createRestorePoint }));
     const inp = document.getElementById('inpSnapName');
     if (inp) inp.value = '';
+    const nInp = document.getElementById('inpSnapNotes');
+    if (nInp) nInp.value = '';
 };
 
 window.TriggerCompareSnapshots = function() {
@@ -10944,6 +11052,22 @@ window.TriggerCompareSnapshots = function() {
     if (!beforeId) { SetSnapshotsStatus('Capture at least one snapshot first to compare.', true); return; }
     SetSnapshotsStatus('Computing Before vs. After system diff...');
     window.chrome?.webview?.postMessage(JSON.stringify({ command: 'SNAP_DIFF', beforeId, afterId }));
+};
+
+window.TriggerExportSnapshotDiff = function() {
+    if (!window._snapLastDiff) return;
+    window.chrome?.webview?.postMessage(JSON.stringify({
+        command: 'SNAP_EXPORT_DIFF',
+        beforeLabel: window._snapLastDiff.beforeLabel || 'Before',
+        afterLabel: window._snapLastDiff.afterLabel || 'After',
+        categories: window._snapLastDiff.categories || []
+    }));
+};
+
+window.SetSnapDiffFilterKind = function(kind) {
+    window._snapDiffFilterKind = kind || 'all';
+    document.querySelectorAll('#snapDiffKindPills .filter-pill').forEach(b => b.classList.toggle('active', b.dataset.kind === window._snapDiffFilterKind));
+    RenderCurrentSnapDiff();
 };
 
 window.TriggerDeleteSnapshot = function(snapshotId) {
@@ -10959,6 +11083,11 @@ function RenderSnapshotsState(data) {
     if (!data) return;
     if (data.notice) SetSnapshotsStatus(data.notice, !!data.noticeError);
     const list = Array.isArray(data.snapshots) ? data.snapshots : [];
+
+    SetDomText('sumSnapTotal', list.length);
+    SetDomText('sumSnapRp', data.restorePointCount ?? list.filter(s => s.restorePoint).length);
+    SetDomText('sumSnapSize', `${data.totalSizeKB ?? 0} KB`);
+    SetDomText('sumSnapLatest', data.latestCreatedAt || (list[0]?.createdAt || 'None yet'));
 
     const selB = document.getElementById('selSnapBefore');
     const selA = document.getElementById('selSnapAfter');
@@ -10994,22 +11123,43 @@ function RenderSnapshotsState(data) {
     }
 }
 
-function RenderSnapshotsDiffResult(data) {
-    if (!data) return;
-    SetSnapshotsStatus(data.notice || 'Diff complete.', !data.ok);
+window.RenderCurrentSnapDiff = function() {
+    const data = window._snapLastDiff;
     const host = document.getElementById('snapDiffOutput');
-    if (!host) return;
-    const cats = (data.categories || []).filter(c => c.total > 0);
-    if (!cats.length) {
-        host.innerHTML = `<div class="new-tab-row-item"><strong>✓ Zero differences detected</strong><span class="cw-settings-sub">${EscapeHtmlTp(data.beforeLabel)} vs ${EscapeHtmlTp(data.afterLabel)}</span></div>`;
+    if (!data || !host) return;
+    const kind = window._snapDiffFilterKind || 'all';
+    const q = (document.getElementById('inpSnapDiffSearch')?.value || '').trim().toLowerCase();
+    const matchText = (t) => !q || String(t || '').toLowerCase().includes(q);
+
+    const blocks = [];
+    (data.categories || []).forEach(c => {
+        const adds = (kind === 'all' || kind === 'added') ? (c.added || []).filter(x => matchText(`${x.key} ${x.value}`)) : [];
+        const rems = (kind === 'all' || kind === 'removed') ? (c.removed || []).filter(x => matchText(`${x.key} ${x.value}`)) : [];
+        const mods = (kind === 'all' || kind === 'modified') ? (c.modified || []).filter(x => matchText(`${x.key} ${x.before} ${x.after}`)) : [];
+        const shown = adds.length + rems.length + mods.length;
+        if (!shown) return;
+        const addHtml = adds.map(x => `<div class="new-tab-row-item snap-diff-add"><span><strong>➕ ${EscapeHtmlTp(x.key)}</strong></span><span class="dev-repo-meta">${EscapeHtmlTp(x.value)}</span></div>`).join('');
+        const remHtml = rems.map(x => `<div class="new-tab-row-item snap-diff-rem"><span><strong>➖ ${EscapeHtmlTp(x.key)}</strong></span><span class="dev-repo-meta">${EscapeHtmlTp(x.value)}</span></div>`).join('');
+        const modHtml = mods.map(x => `<div class="new-tab-row-item snap-diff-mod"><div><strong>✏️ ${EscapeHtmlTp(x.key)}</strong><div class="dev-repo-meta">Before: ${EscapeHtmlTp(x.before)} → After: ${EscapeHtmlTp(x.after)}</div></div></div>`).join('');
+        blocks.push(`<div class="cw-set-card"><div class="cw-set-sec-title">${EscapeHtmlTp(c.category)} (${shown} change${shown===1?'':'s'})</div><div class="new-tab-stack">${addHtml}${remHtml}${modHtml}</div></div>`);
+    });
+
+    if (!blocks.length) {
+        host.innerHTML = `<div class="new-tab-row-item"><strong>${data.totalChanges > 0 ? 'No changes match your filter' : '✓ Zero differences detected'}</strong><span class="cw-settings-sub">${EscapeHtmlTp(data.beforeLabel)} vs ${EscapeHtmlTp(data.afterLabel)}</span></div>`;
         return;
     }
-    host.innerHTML = cats.map(c => {
-        const adds = (c.added || []).map(x => `<div class="new-tab-row-item snap-diff-add"><span><strong>➕ ${EscapeHtmlTp(x.key)}</strong></span><span class="dev-repo-meta">${EscapeHtmlTp(x.value)}</span></div>`).join('');
-        const rems = (c.removed || []).map(x => `<div class="new-tab-row-item snap-diff-rem"><span><strong>➖ ${EscapeHtmlTp(x.key)}</strong></span><span class="dev-repo-meta">${EscapeHtmlTp(x.value)}</span></div>`).join('');
-        const mods = (c.modified || []).map(x => `<div class="new-tab-row-item snap-diff-mod"><div><strong>✏️ ${EscapeHtmlTp(x.key)}</strong><div class="dev-repo-meta">Before: ${EscapeHtmlTp(x.before)} → After: ${EscapeHtmlTp(x.after)}</div></div></div>`).join('');
-        return `<div class="cw-set-card"><div class="cw-set-sec-title">${EscapeHtmlTp(c.category)} (${c.total} change${c.total===1?'':'s'})</div><div class="new-tab-stack">${adds}${rems}${mods}</div></div>`;
-    }).join('');
+    host.innerHTML = blocks.join('');
+};
+
+function RenderSnapshotsDiffResult(data) {
+    if (!data) return;
+    window._snapLastDiff = data;
+    SetSnapshotsStatus(data.notice || 'Diff complete.', !data.ok);
+    const expBtn = document.getElementById('btnSnapExportDiff');
+    if (expBtn) expBtn.style.display = 'inline-flex';
+    const fBar = document.getElementById('snapDiffFilterBar');
+    if (fBar) fBar.style.display = data.totalChanges > 0 ? 'flex' : 'none';
+    RenderCurrentSnapDiff();
 }
 
 // =========================================================================
@@ -11032,6 +11182,14 @@ window.TriggerOpenBatteryReport = function() {
 
 window.TriggerOpenSleepStudy = function() {
     window.chrome?.webview?.postMessage(JSON.stringify({ command: 'BATTERY_OPEN_SLEEPSTUDY' }));
+};
+
+window.TriggerOpenBluetoothSettings = function() {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'BATTERY_OPEN_BT_SETTINGS' }));
+};
+
+window.TriggerOpenPowerSettings = function() {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'BATTERY_OPEN_POWER_SETTINGS' }));
 };
 
 function RenderBatteryPeripheralsState(data) {
@@ -11067,11 +11225,40 @@ function RenderBatteryPeripheralsState(data) {
 // =========================================================================
 // 5. BACKUP & FOLDER SYNC CONTROLLER
 // =========================================================================
+window._backupState = null;
+
 function SetBackupStatus(msg, isErr = false) {
     const el = document.getElementById('backupSyncStatus');
     if (el && msg) { el.classList.toggle('sharing-error', !!isErr); el.textContent = msg; }
     if (msg) AppendConsoleLogEntry(`[BACKUP] ${msg}`);
 }
+
+window.ToggleBackupJobEditor = function(show, editJobId = null) {
+    const card = document.getElementById('backupJobEditorCard');
+    if (!card) return;
+    if (!show) { card.style.display = 'none'; return; }
+    const existing = editJobId ? (window._backupState?.jobs || []).find(j => j.id === editJobId) : null;
+    SetDomText('lblBkpEditorTitle', existing ? `✏️ Edit Sync Job — ${existing.name}` : '➕ Create Sync Job');
+    const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+    setVal('inpBkpId', existing ? existing.id : '');
+    setVal('inpBkpName', existing ? existing.name : '');
+    setVal('selBkpMode', existing ? (existing.mode || 'incremental') : 'incremental');
+    setVal('selBkpSchedule', existing ? (existing.schedule || 'manual') : 'manual');
+    setVal('inpBkpSource', existing ? (existing.source || '') : '');
+    setVal('inpBkpDest', existing ? (existing.destination || '') : '');
+    setVal('inpBkpExDirs', existing ? (existing.excludeDirs ?? '') : 'node_modules,.git,target,bin,obj,$RECYCLE.BIN,System Volume Information');
+    setVal('inpBkpExFiles', existing ? (existing.excludeFiles ?? '') : '*.tmp,Thumbs.db,desktop.ini');
+    card.style.display = 'flex';
+    document.getElementById('inpBkpName')?.focus();
+};
+
+window.ApplyBackupExcludePreset = function(preset) {
+    const inp = document.getElementById('inpBkpExDirs');
+    if (!inp) return;
+    if (preset === 'dev') inp.value = 'node_modules,.git,target,bin,obj,.venv,dist,build,$RECYCLE.BIN,System Volume Information';
+    else if (preset === 'media') inp.value = 'Cache,Media Cache,Previews,Proxy,Temp,$RECYCLE.BIN';
+    else inp.value = '';
+};
 
 window.BrowseBackupFolder = function(targetKey) {
     window.chrome?.webview?.postMessage(`Browse-Folder:${targetKey}`);
@@ -11082,17 +11269,23 @@ window.RequestBackupSyncState = function() {
 };
 
 window.TriggerSaveBackupJob = function() {
+    const id = (document.getElementById('inpBkpId')?.value || '').trim();
+    const prev = id ? (window._backupState?.jobs || []).find(j => j.id === id) : null;
     const job = {
+        id: id || undefined,
         name: (document.getElementById('inpBkpName')?.value || '').trim(),
         source: (document.getElementById('inpBkpSource')?.value || '').trim(),
         destination: (document.getElementById('inpBkpDest')?.value || '').trim(),
         mode: document.getElementById('selBkpMode')?.value || 'incremental',
         schedule: document.getElementById('selBkpSchedule')?.value || 'manual',
         excludeDirs: (document.getElementById('inpBkpExDirs')?.value || '').trim(),
-        excludeFiles: (document.getElementById('inpBkpExFiles')?.value || '').trim()
+        excludeFiles: (document.getElementById('inpBkpExFiles')?.value || '').trim(),
+        lastRun: prev?.lastRun || '',
+        lastStatus: prev?.lastStatus || 'Never run'
     };
     if (!job.source || !job.destination) { SetBackupStatus('Select both Source and Destination folders first.', true); return; }
     window.chrome?.webview?.postMessage(JSON.stringify({ command: 'BACKUP_SAVE_JOB', job }));
+    ToggleBackupJobEditor(false);
 };
 
 window.TriggerBackupDryRun = function(jobId) {
@@ -11106,6 +11299,10 @@ window.TriggerBackupRun = function(jobId, mode) {
     window.chrome?.webview?.postMessage(JSON.stringify({ command: 'BACKUP_RUN_JOB', jobId }));
 };
 
+window.TriggerOpenBackupFolder = function(path) {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'BACKUP_OPEN_FOLDER', path }));
+};
+
 window.TriggerDeleteBackupJob = function(jobId) {
     if (!ConfirmDestructiveAction('Delete this saved backup job and any scheduled Windows task?')) return;
     window.chrome?.webview?.postMessage(JSON.stringify({ command: 'BACKUP_DELETE_JOB', jobId }));
@@ -11113,13 +11310,22 @@ window.TriggerDeleteBackupJob = function(jobId) {
 
 function RenderBackupSyncState(data) {
     if (!data) return;
+    window._backupState = data;
+    const jobs = data.jobs || [];
+    const list = data.history || [];
+    SetDomText('sumBkpJobs', jobs.length);
+    SetDomText('sumBkpScheduled', data.scheduledCount ?? jobs.filter(j => j.schedule && j.schedule !== 'manual').length);
+    SetDomText('sumBkpRuns', data.totalRuns ?? list.length);
+    SetDomText('sumBkpLast', data.lastRunSummary || (list[0] ? `${list[0].jobName} · ${list[0].timestamp}` : 'Never run'));
     if (data.notice) SetBackupStatus(data.notice, !!data.noticeError);
+
     const grid = document.getElementById('backupJobsGrid');
     if (grid) {
-        const jobs = data.jobs || [];
         grid.innerHTML = jobs.length ? jobs.map(j => {
             const safeId = String(j.id || '').replace(/'/g, "\\'");
             const safeMode = String(j.mode || 'incremental').replace(/'/g, "\\'");
+            const safeSrc = String(j.source || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+            const safeDst = String(j.destination || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
             return `<article class="dev-repo-card">
                 <div class="dev-repo-head"><span class="dev-repo-name">💾 ${EscapeHtmlTp(j.name)}</span><div class="card-badge-group"><span class="sharing-badge ${j.mode==='mirror'?'ver-update':'badge-info'}">${EscapeHtmlTp(j.mode)}</span><span class="sharing-badge badge-purple">${EscapeHtmlTp(j.schedule||'manual')}</span></div></div>
                 <div class="dev-repo-meta" title="${EscapeHtmlTp(j.source)}">From: ${EscapeHtmlTp(j.source)}</div>
@@ -11127,15 +11333,17 @@ function RenderBackupSyncState(data) {
                 <div class="dev-repo-meta">Last: ${EscapeHtmlTp(j.lastRun || 'Never')} · ${EscapeHtmlTp(j.lastStatus || '')}</div>
                 <div class="dev-repo-actions">
                     <button type="button" onclick="TriggerBackupDryRun('${safeId}')">🔍 Dry-Run</button>
-                    <button type="button" class="btn-vscode" onclick="TriggerBackupRun('${safeId}', '${safeMode}')">▶️ Run Sync</button>
-                    <button type="button" class="wsl-btn-danger" onclick="TriggerDeleteBackupJob('${safeId}')">🗑️ Delete</button>
+                    <button type="button" class="btn-vscode" onclick="TriggerBackupRun('${safeId}', '${safeMode}')">▶️ Sync</button>
+                    <button type="button" onclick="ToggleBackupJobEditor(true, '${safeId}')" title="Edit job settings">✏️ Edit</button>
+                    <button type="button" onclick="TriggerOpenBackupFolder('${safeSrc}')" title="Open Source folder">📂 Src</button>
+                    <button type="button" onclick="TriggerOpenBackupFolder('${safeDst}')" title="Open Destination folder">📂 Dst</button>
+                    <button type="button" class="wsl-btn-danger" onclick="TriggerDeleteBackupJob('${safeId}')">🗑️</button>
                 </div>
             </article>`;
-        }).join('') : '<div class="driver-text-node">No backup sync jobs saved yet. Create one above!</div>';
+        }).join('') : '<div class="driver-text-node">No backup sync jobs saved yet. Click "➕ New Sync Job" above!</div>';
     }
     const hist = document.getElementById('backupHistoryList');
     if (hist) {
-        const list = data.history || [];
         hist.innerHTML = list.length ? list.map(h => `<div class="new-tab-row-item">
             <div><span class="sharing-badge ${h.ok?'ver-uptodate':'badge-danger'}">Exit ${h.exitCode}</span> <strong>${EscapeHtmlTp(h.jobName)}</strong><div class="dev-repo-meta">${EscapeHtmlTp(h.summary)} (${EscapeHtmlTp(h.duration)})</div></div>
             <span class="cw-settings-sub">${EscapeHtmlTp(h.timestamp)}</span>
@@ -11154,6 +11362,8 @@ function RenderBackupRunOutput(data) {
 // =========================================================================
 // 6. DOCKER / CONTAINERS & LOCAL DEV SERVICES CONTROLLER
 // =========================================================================
+window._dockerState = null;
+
 function SetDockerStatus(msg, isErr = false) {
     const el = document.getElementById('dockerStatus');
     if (el && msg) { el.classList.toggle('sharing-error', !!isErr); el.textContent = msg; }
@@ -11168,6 +11378,11 @@ window.RequestDockerState = function() {
 window.TriggerDockerContainerOp = function(containerId, op) {
     if (op === 'rm' && !ConfirmDestructiveAction(`Force remove container '${containerId}'?`)) return;
     window.chrome?.webview?.postMessage(JSON.stringify({ command: 'DOCKER_CONTAINER_ACTION', containerId, op }));
+};
+
+window.TriggerDockerRemoveImage = function(imageId, label) {
+    if (!ConfirmDestructiveAction(`Remove container image '${label || imageId}'?`)) return;
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'DOCKER_REMOVE_IMAGE', imageId }));
 };
 
 window.TriggerDockerLogs = function(containerId, containerName) {
@@ -11191,29 +11406,30 @@ window.JumpDockerPortToTasksPorts = function(portNum) {
     SwitchAppLayoutView('tasksports');
     if (typeof SetTasksPortsSubView === 'function') SetTasksPortsSubView('sockets');
     const srch = document.getElementById('tpSearchInput');
-    if (srch) { srch.value = String(portNum); if (typeof RenderTasksPortsActiveView === 'function') RenderTasksPortsActiveView(); }
+    if (srch) {
+        srch.value = String(portNum);
+        if (typeof RenderCurrentTasksPortsView === 'function') RenderCurrentTasksPortsView();
+    }
 };
 
-function RenderDockerState(data) {
+window.RenderDockerFilteredViews = function() {
+    const data = window._dockerState;
     if (!data) return;
-    const badge = document.getElementById('lblDockerEngineBadge');
-    if (badge) badge.innerHTML = `Engine: <strong>${EscapeHtmlTp(data.engine || 'None')} (${data.daemonRunning ? 'Running' : 'Stopped/Missing'})</strong>`;
-    SetDomText('sumDockerRunning', data.runningCount ?? 0);
-    SetDomText('sumDockerTotal', (data.containers || []).length);
-    SetDomText('sumDockerImages', (data.images || []).length);
-    SetDomText('sumDockerDevSvcs', (data.devServices || []).length);
-    SetDockerStatus(data.notice || data.engineError || `Loaded ${(data.containers||[]).length} container(s) & ${(data.devServices||[]).length} local dev service(s).`, !!data.noticeError || !!data.engineError);
+    const q = (document.getElementById('inpDockerSearch')?.value || '').trim().toLowerCase();
+    const match = (s) => !q || String(s || '').toLowerCase().includes(q);
 
     const cGrid = document.getElementById('dockerContainersGrid');
     if (cGrid) {
-        const list = data.containers || [];
+        const list = (data.containers || []).filter(c => match(`${c.name} ${c.image} ${c.ports} ${c.status}`));
         cGrid.innerHTML = list.length ? list.map(c => {
             const sId = String(c.id || '').replace(/'/g, "\\'");
             const sName = String(c.name || '').replace(/'/g, "\\'");
             const portBtns = (c.hostPorts || []).map(p => `<button type="button" class="docker-port-chip" onclick="JumpDockerPortToTasksPorts(${p})" title="Inspect port ${p} in Tasks &amp; Ports">:${p} ↗</button>`).join(' ');
+            const statLine = (c.cpuPerc || c.memUsage) ? `<div class="dev-repo-meta">CPU: ${EscapeHtmlTp(c.cpuPerc || '--')} · RAM: ${EscapeHtmlTp(c.memUsage || '--')}</div>` : '';
             return `<article class="dev-repo-card">
                 <div class="dev-repo-head"><span class="dev-repo-name">🐳 ${EscapeHtmlTp(c.name)}</span><span class="sharing-badge ${c.state==='running'?'ver-uptodate':'badge-neutral'}">${EscapeHtmlTp(c.state)}</span></div>
                 <div class="dev-repo-meta">${EscapeHtmlTp(c.image)} · ${EscapeHtmlTp(c.status)}</div>
+                ${statLine}
                 ${portBtns ? `<div style="display:flex;gap:4px;flex-wrap:wrap;">${portBtns}</div>` : ''}
                 <div class="dev-repo-actions">
                     ${c.state==='running'
@@ -11223,21 +11439,25 @@ function RenderDockerState(data) {
                     <button type="button" class="wsl-btn-danger" onclick="TriggerDockerContainerOp('${sId}','rm')">🗑️ Rm</button>
                 </div>
             </article>`;
-        }).join('') : `<div class="driver-text-node">${data.engine === 'none' ? 'No Docker or Podman CLI found on PATH. Install Docker Desktop or Podman (or use WSL Manager).' : 'No containers found.'}</div>`;
+        }).join('') : `<div class="driver-text-node">${q ? 'No containers match your filter.' : (data.engine === 'none' ? (data.engineError || 'No Docker or Podman CLI found on PATH or running WSL. Install Docker Desktop or Podman (or launch your WSL container distro).') : 'No containers found.')}</div>`;
     }
 
-    const dfStrip = document.getElementById('dockerDiskStrip');
-    if (dfStrip) {
-        dfStrip.innerHTML = (data.diskUsage || []).map(d => `<span class="summary-chip">${EscapeHtmlTp(d.type)}: <strong>${EscapeHtmlTp(d.size)}</strong> (${EscapeHtmlTp(d.reclaimable)} reclaimable)</span>`).join('');
-    }
     const imgHost = document.getElementById('dockerImagesList');
     if (imgHost) {
-        const imgs = data.images || [];
-        imgHost.innerHTML = imgs.length ? imgs.map(im => `<div class="new-tab-row-item"><strong>${EscapeHtmlTp(im.repository)}:${EscapeHtmlTp(im.tag)}</strong><span class="dev-repo-meta">${EscapeHtmlTp(im.size)} · ${EscapeHtmlTp(im.created)}</span></div>`).join('') : '<div class="driver-text-node">No container images listed.</div>';
+        const imgs = (data.images || []).filter(im => match(`${im.repository}:${im.tag} ${im.id}`));
+        imgHost.innerHTML = imgs.length ? imgs.map(im => {
+            const safeImgId = String(im.id || '').replace(/'/g, "\\'");
+            const safeLbl = `${im.repository}:${im.tag}`.replace(/'/g, "\\'");
+            return `<div class="new-tab-row-item">
+                <div><strong>${EscapeHtmlTp(im.repository)}:${EscapeHtmlTp(im.tag)}</strong><div class="dev-repo-meta">${EscapeHtmlTp(im.size)} · ${EscapeHtmlTp(im.created)}</div></div>
+                <button type="button" class="console-clear-btn wsl-btn-danger" onclick="TriggerDockerRemoveImage('${safeImgId}','${safeLbl}')" title="Remove image">🗑️</button>
+            </div>`;
+        }).join('') : '<div class="driver-text-node">No container images listed.</div>';
     }
+
     const svcHost = document.getElementById('dockerDevServicesList');
     if (svcHost) {
-        const svcs = data.devServices || [];
+        const svcs = (data.devServices || []).filter(s => match(`${s.displayName} ${s.name} ${s.status}`));
         svcHost.innerHTML = svcs.length ? svcs.map(s => {
             const sn = String(s.name || '').replace(/'/g, "\\'");
             const isRun = s.status === 'Running';
@@ -11250,6 +11470,24 @@ function RenderDockerState(data) {
             </div>`;
         }).join('') : '<div class="driver-text-node">No local database/web dev Windows services detected.</div>';
     }
+};
+
+function RenderDockerState(data) {
+    if (!data) return;
+    window._dockerState = data;
+    const badge = document.getElementById('lblDockerEngineBadge');
+    if (badge) badge.innerHTML = `Engine: <strong>${EscapeHtmlTp(data.engine || 'None')} (${data.daemonRunning ? 'Running' : 'Stopped/Missing'})</strong>`;
+    SetDomText('sumDockerRunning', data.runningCount ?? 0);
+    SetDomText('sumDockerTotal', (data.containers || []).length);
+    SetDomText('sumDockerImages', (data.images || []).length);
+    SetDomText('sumDockerDevSvcs', (data.devServices || []).length);
+    SetDockerStatus(data.notice || data.engineError || `Loaded ${(data.containers||[]).length} container(s) & ${(data.devServices||[]).length} local dev service(s).`, !!data.noticeError || (!!data.engineError && data.engine !== 'none'));
+
+    const dfStrip = document.getElementById('dockerDiskStrip');
+    if (dfStrip) {
+        dfStrip.innerHTML = (data.diskUsage || []).map(d => `<span class="summary-chip">${EscapeHtmlTp(d.type)}: <strong>${EscapeHtmlTp(d.size)}</strong> (${EscapeHtmlTp(d.reclaimable)} reclaimable)</span>`).join('');
+    }
+    RenderDockerFilteredViews();
 }
 
 function RenderDockerLogs(data) {
@@ -11263,16 +11501,43 @@ function RenderDockerLogs(data) {
 // =========================================================================
 // 7. SSH HOST LAUNCHER & CERTIFICATE INSPECTOR CONTROLLER
 // =========================================================================
+window._sshCertsState = null;
+window._sshCertFilter = 'all';
+
 function SetSshCertsStatus(msg, isErr = false) {
     const el = document.getElementById('sshCertsStatus');
     if (el && msg) { el.classList.toggle('sharing-error', !!isErr); el.textContent = msg; }
     if (msg) AppendConsoleLogEntry(`[SSH/CERTS] ${msg}`);
 }
 
+window.ToggleSshHostEditor = function(show, editAlias = null) {
+    const card = document.getElementById('sshHostEditorCard');
+    if (!card) return;
+    if (!show) { card.style.display = 'none'; return; }
+    SetSshSubView('hosts');
+    const existing = editAlias ? (window._sshCertsState?.hosts || []).find(h => h.alias === editAlias) : null;
+    SetDomText('lblSshHostEditorTitle', existing ? `✏️ Edit SSH Host — ${existing.alias}` : '➕ Add ~/.ssh/config Host');
+    const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+    setVal('inpSshAlias', existing ? existing.alias : '');
+    setVal('inpSshHostName', existing ? (existing.hostName || '') : '');
+    setVal('inpSshUser', existing ? (existing.user || '') : '');
+    setVal('inpSshPort', existing ? (existing.port || '22') : '22');
+    setVal('inpSshIdentity', existing ? (existing.identityFile || '') : '');
+    setVal('inpSshProxyJump', existing ? (existing.proxyJump || '') : '');
+    card.style.display = 'flex';
+    document.getElementById('inpSshAlias')?.focus();
+};
+
 window.SetSshSubView = function(sub) {
     document.querySelectorAll('#sshSubViewPills .filter-pill').forEach(b => b.classList.toggle('active', b.dataset.sub === sub));
     const map = { hosts: 'sshPaneHosts', keys: 'sshPaneKeys', certs: 'sshPaneCerts' };
     Object.entries(map).forEach(([k, id]) => { const el = document.getElementById(id); if (el) el.classList.toggle('active', k === sub); });
+};
+
+window.SetSshCertFilter = function(flt) {
+    window._sshCertFilter = flt || 'all';
+    document.querySelectorAll('#sshCertFilterPills .filter-pill').forEach(b => b.classList.toggle('active', b.dataset.cfilter === window._sshCertFilter));
+    RenderSshCertsList();
 };
 
 window.RequestSshCertsState = function() {
@@ -11281,6 +11546,11 @@ window.RequestSshCertsState = function() {
 
 window.TriggerLaunchSshHost = function(alias) {
     window.chrome?.webview?.postMessage(JSON.stringify({ command: 'SSH_LAUNCH_HOST', alias }));
+};
+
+window.TriggerTestSshHost = function(hostName, port) {
+    SetSshCertsStatus(`Testing TCP connectivity to ${hostName}:${port || 22}...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'SSH_TEST_HOST', hostName, port: Number(port || 22) }));
 };
 
 window.TriggerSaveSshHost = function() {
@@ -11294,6 +11564,7 @@ window.TriggerSaveSshHost = function() {
     };
     if (!host.alias || !host.hostName) { SetSshCertsStatus('Alias and HostName are required.', true); return; }
     window.chrome?.webview?.postMessage(JSON.stringify({ command: 'SSH_SAVE_HOST', host }));
+    ToggleSshHostEditor(false);
 };
 
 window.TriggerDeleteSshHost = function(alias) {
@@ -11312,32 +11583,68 @@ window.TriggerOpenSshConfigFile = function() {
     window.chrome?.webview?.postMessage(JSON.stringify({ command: 'SSH_OPEN_CONFIG' }));
 };
 
+window.TriggerOpenCertMgr = function() {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'SSH_OPEN_CERTMGR' }));
+};
+
+window.RenderSshHostsGrid = function() {
+    const hGrid = document.getElementById('sshHostsGrid');
+    const data = window._sshCertsState;
+    if (!hGrid || !data) return;
+    const q = (document.getElementById('inpSshHostSearch')?.value || '').trim().toLowerCase();
+    const list = (data.hosts || []).filter(h => !q || `${h.alias} ${h.hostName} ${h.user} ${h.proxyJump}`.toLowerCase().includes(q));
+    hGrid.innerHTML = list.length ? list.map(h => {
+        const sa = String(h.alias || '').replace(/'/g, "\\'");
+        const shn = String(h.hostName || h.alias || '').replace(/'/g, "\\'");
+        const cmdStr = `ssh ${h.alias}`.replace(/'/g, "\\'");
+        return `<article class="dev-repo-card">
+            <div class="dev-repo-head"><span class="dev-repo-name">🖥️ ${EscapeHtmlTp(h.alias)}</span><span class="sharing-badge badge-info">:${EscapeHtmlTp(h.port || '22')}</span></div>
+            <div class="dev-repo-meta">${h.user ? EscapeHtmlTp(h.user) + '@' : ''}${EscapeHtmlTp(h.hostName)}</div>
+            ${h.identityFile ? `<div class="dev-repo-meta">Key: ${EscapeHtmlTp(h.identityFile)}</div>` : ''}
+            ${h.proxyJump ? `<div class="dev-repo-meta">ProxyJump: ${EscapeHtmlTp(h.proxyJump)}</div>` : ''}
+            <div class="dev-repo-actions">
+                <button type="button" class="btn-vscode" onclick="TriggerLaunchSshHost('${sa}')">🚀 Connect</button>
+                <button type="button" onclick="TriggerTestSshHost('${shn}', '${EscapeHtmlTp(h.port || '22')}')" title="Test TCP reachability &amp; latency">📡 Test</button>
+                <button type="button" onclick="ToggleSshHostEditor(true, '${sa}')" title="Edit host entry">✏️ Edit</button>
+                <button type="button" onclick="CopyRawText('${cmdStr}', 'SSH command')">📋</button>
+                <button type="button" class="wsl-btn-danger" onclick="TriggerDeleteSshHost('${sa}')">🗑️</button>
+            </div>
+        </article>`;
+    }).join('') : `<div class="driver-text-node">${q ? 'No SSH hosts match your search.' : 'No SSH hosts configured in ~/.ssh/config yet. Click "➕ Add SSH Host" above!'}</div>`;
+};
+
+window.RenderSshCertsList = function() {
+    const cHost = document.getElementById('sshCertsList');
+    const data = window._sshCertsState;
+    if (!cHost || !data) return;
+    const flt = window._sshCertFilter || 'all';
+    const q = (document.getElementById('inpSshCertSearch')?.value || '').trim().toLowerCase();
+    const certs = (data.certs || []).filter(c => {
+        if (flt === 'warn' && c.status !== 'expired' && c.status !== 'expiring') return false;
+        if (flt === 'valid' && c.status !== 'valid') return false;
+        if (!q) return true;
+        return `${c.subject} ${c.issuer} ${c.store} ${c.thumbprint}`.toLowerCase().includes(q);
+    });
+    cHost.innerHTML = certs.length ? certs.map(c => {
+        const cls = c.status === 'expired' ? 'badge-danger' : (c.status === 'expiring' ? 'ver-update' : 'ver-uptodate');
+        const daysTxt = c.daysLeft < 0 ? `Expired ${Math.abs(c.daysLeft)}d ago` : `${c.daysLeft}d left`;
+        return `<div class="new-tab-row-item">
+            <div><strong>${EscapeHtmlTp(c.subject)}</strong> <span class="dev-repo-meta">(${EscapeHtmlTp(c.store)}${c.hasPrivKey ? ' · Private Key' : ''})</span><div class="dev-repo-meta">Issuer: ${EscapeHtmlTp(c.issuer)} · Expires: ${EscapeHtmlTp(c.notAfter)} · ${EscapeHtmlTp(c.thumbprint)}</div></div>
+            <span class="sharing-badge ${cls}">${daysTxt}</span>
+        </div>`;
+    }).join('') : `<div class="driver-text-node">${(data.certs || []).length ? 'No certificates match your current filter.' : 'No personal TLS or code-signing certificates found in LocalMachine\\My or CurrentUser\\My.'}</div>`;
+};
+
 function RenderSshCertsState(data) {
     if (!data) return;
+    window._sshCertsState = data;
     SetDomText('sumSshHosts', (data.hosts || []).length);
     SetDomText('sumSshKeys', (data.keys || []).length);
     SetDomText('sumSshCerts', (data.certs || []).length);
     SetDomText('sumSshExpiring', data.expiringCount ?? 0);
     SetSshCertsStatus(data.notice || `Loaded ${(data.hosts||[]).length} SSH host(s), ${(data.keys||[]).length} key(s), and ${(data.certs||[]).length} certificate(s).`, !!data.noticeError);
 
-    const hGrid = document.getElementById('sshHostsGrid');
-    if (hGrid) {
-        const list = data.hosts || [];
-        hGrid.innerHTML = list.length ? list.map(h => {
-            const sa = String(h.alias || '').replace(/'/g, "\\'");
-            const cmdStr = `ssh ${h.alias}`.replace(/'/g, "\\'");
-            return `<article class="dev-repo-card">
-                <div class="dev-repo-head"><span class="dev-repo-name">🖥️ ${EscapeHtmlTp(h.alias)}</span><span class="sharing-badge badge-info">:${EscapeHtmlTp(h.port || '22')}</span></div>
-                <div class="dev-repo-meta">${h.user ? EscapeHtmlTp(h.user) + '@' : ''}${EscapeHtmlTp(h.hostName)}</div>
-                ${h.identityFile ? `<div class="dev-repo-meta">Key: ${EscapeHtmlTp(h.identityFile)}</div>` : ''}
-                <div class="dev-repo-actions">
-                    <button type="button" class="btn-vscode" onclick="TriggerLaunchSshHost('${sa}')">🚀 Connect</button>
-                    <button type="button" onclick="CopyRawText('${cmdStr}', 'SSH command')">📋 Copy</button>
-                    <button type="button" class="wsl-btn-danger" onclick="TriggerDeleteSshHost('${sa}')">🗑️ Delete</button>
-                </div>
-            </article>`;
-        }).join('') : '<div class="driver-text-node">No SSH hosts configured in ~/.ssh/config yet. Add one above!</div>';
-    }
+    RenderSshHostsGrid();
 
     const kGrid = document.getElementById('sshKeysGrid');
     if (kGrid) {
@@ -11354,30 +11661,38 @@ function RenderSshCertsState(data) {
         }).join('') : '<div class="driver-text-node">No .pub SSH keys found in ~/.ssh/. Generate an ed25519 key above!</div>';
     }
 
-    const cHost = document.getElementById('sshCertsList');
-    if (cHost) {
-        const certs = data.certs || [];
-        cHost.innerHTML = certs.length ? certs.map(c => {
-            const cls = c.status === 'expired' ? 'badge-danger' : (c.status === 'expiring' ? 'ver-update' : 'ver-uptodate');
-            const daysTxt = c.daysLeft < 0 ? `Expired ${Math.abs(c.daysLeft)}d ago` : `${c.daysLeft}d left`;
-            return `<div class="new-tab-row-item">
-                <div><strong>${EscapeHtmlTp(c.subject)}</strong> <span class="dev-repo-meta">(${EscapeHtmlTp(c.store)})</span><div class="dev-repo-meta">Issuer: ${EscapeHtmlTp(c.issuer)} · Expires: ${EscapeHtmlTp(c.notAfter)} · ${EscapeHtmlTp(c.thumbprint)}</div></div>
-                <span class="sharing-badge ${cls}">${daysTxt}</span>
-            </div>`;
-        }).join('') : '<div class="driver-text-node">No personal TLS or code-signing certificates found in LocalMachine\\My or CurrentUser\\My.</div>';
-    }
+    RenderSshCertsList();
 }
 
 // =========================================================================
 // 8. MULTI-PC / HOMELAB MONITOR CONTROLLER
 // =========================================================================
 window._homelabTimer = null;
+window._homelabState = null;
 
 function SetHomelabStatus(msg, isErr = false) {
     const el = document.getElementById('homelabStatus');
     if (el && msg) { el.classList.toggle('sharing-error', !!isErr); el.textContent = msg; }
     if (msg) AppendConsoleLogEntry(`[HOMELAB] ${msg}`);
 }
+
+window.ToggleHomelabNodeEditor = function(show, editNodeId = null) {
+    const card = document.getElementById('homelabNodeEditorCard');
+    if (!card) return;
+    if (!show) { card.style.display = 'none'; return; }
+    const existing = editNodeId ? (window._homelabState?.nodes || []).find(n => n.id === editNodeId) : null;
+    SetDomText('lblHomelabEditorTitle', existing ? `✏️ Edit Node — ${existing.name}` : '➕ Add Remote PC / Server / NAS Target');
+    const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+    setVal('inpLabId', existing ? existing.id : '');
+    setVal('inpLabName', existing ? (existing.name || '') : '');
+    setVal('selLabMode', existing ? (existing.mode || 'ssh') : 'ssh');
+    setVal('inpLabHost', existing ? (existing.host || '') : '');
+    setVal('inpLabPort', existing ? (existing.port || 22) : 22);
+    setVal('inpLabUser', existing ? (existing.user || '') : '');
+    setVal('inpLabWebUrl', existing ? (existing.webUrl || '') : '');
+    card.style.display = 'flex';
+    document.getElementById('inpLabName')?.focus();
+};
 
 window.RequestHomelabState = function(pollNow = false) {
     window.chrome?.webview?.postMessage(JSON.stringify({ command: 'HOMELAB_LOAD', pollNow: !!pollNow }));
@@ -11386,6 +11701,16 @@ window.RequestHomelabState = function(pollNow = false) {
 window.TriggerPollHomelabAll = function() {
     SetHomelabStatus('Polling all configured homelab & remote PC nodes...');
     window.chrome?.webview?.postMessage(JSON.stringify({ command: 'HOMELAB_POLL_ALL' }));
+};
+
+window.TriggerPollHomelabOne = function(nodeId) {
+    SetHomelabStatus('Polling remote node...');
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'HOMELAB_POLL_ONE', nodeId }));
+};
+
+window.TriggerImportSshToHomelab = function() {
+    SetHomelabStatus('Importing hosts from ~/.ssh/config...');
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'HOMELAB_IMPORT_SSH_HOSTS' }));
 };
 
 window.OnHomelabAutoRefreshChange = function() {
@@ -11399,7 +11724,9 @@ window.OnHomelabAutoRefreshChange = function() {
 };
 
 window.TriggerSaveHomelabNode = function() {
+    const id = (document.getElementById('inpLabId')?.value || '').trim();
     const node = {
+        id: id || undefined,
         name: (document.getElementById('inpLabName')?.value || '').trim(),
         mode: document.getElementById('selLabMode')?.value || 'ssh',
         host: (document.getElementById('inpLabHost')?.value || '').trim(),
@@ -11408,8 +11735,9 @@ window.TriggerSaveHomelabNode = function() {
         webUrl: (document.getElementById('inpLabWebUrl')?.value || '').trim()
     };
     if (!node.host) { SetHomelabStatus('Enter a Host IP, hostname, or URL.', true); return; }
-    SetHomelabStatus(`Adding & polling ${node.name || node.host}...`);
+    SetHomelabStatus(`Saving & polling ${node.name || node.host}...`);
     window.chrome?.webview?.postMessage(JSON.stringify({ command: 'HOMELAB_SAVE_NODE', node }));
+    ToggleHomelabNodeEditor(false);
 };
 
 window.TriggerDeleteHomelabNode = function(nodeId) {
@@ -11425,8 +11753,23 @@ window.TriggerHomelabRdp = function(host) {
     window.chrome?.webview?.postMessage(JSON.stringify({ command: 'HOMELAB_LAUNCH_RDP', host }));
 };
 
+function RenderHomelabSingleNodePolled(data) {
+    if (!data || !data.node) return;
+    if (window._homelabState && Array.isArray(window._homelabState.nodes)) {
+        const idx = window._homelabState.nodes.findIndex(x => x.id === data.node.id);
+        if (idx >= 0) window._homelabState.nodes[idx] = data.node;
+        window._homelabState.onlineCount = window._homelabState.nodes.filter(x => x.online).length;
+        window._homelabState.notice = data.notice || '';
+        window._homelabState.noticeError = !data.ok;
+        RenderHomelabState(window._homelabState);
+    } else {
+        SetHomelabStatus(data.notice || 'Node polled.', !data.ok);
+    }
+}
+
 function RenderHomelabState(data) {
     if (!data) return;
+    window._homelabState = data;
     SetDomText('sumHomelabOnline', data.onlineCount ?? 0);
     SetDomText('sumHomelabTotal', data.totalCount ?? 0);
     if (data.notice) SetHomelabStatus(data.notice, !!data.noticeError);
@@ -11440,23 +11783,544 @@ function RenderHomelabState(data) {
         const sUser = String(n.user || '').replace(/'/g, "\\'");
         const sUrl = String(n.webUrl || '').replace(/'/g, "\\'");
         const latTxt = n.latencyMs >= 0 ? `${n.latencyMs} ms` : '--';
+        const bars = [];
+        if (n.cpuPct >= 0) bars.push(`<div class="homelab-bar-item"><div><span>CPU</span><strong>${n.cpuPct}%</strong></div><div class="track-bg"><div class="track-fill" style="width:${Math.min(100, n.cpuPct)}%;"></div></div></div>`);
+        if (n.ramPct >= 0) bars.push(`<div class="homelab-bar-item"><div><span>RAM</span><strong>${n.ramPct}%</strong></div><div class="track-bg"><div class="track-fill" style="width:${Math.min(100, n.ramPct)}%;"></div></div></div>`);
+        if (n.diskPct >= 0) bars.push(`<div class="homelab-bar-item"><div><span>Disk /</span><strong>${n.diskPct}%</strong></div><div class="track-bg"><div class="track-fill" style="width:${Math.min(100, n.diskPct)}%;"></div></div></div>`);
         return `<article class="dev-repo-card">
             <div class="dev-repo-head">
                 <span class="dev-repo-name">🌐 ${EscapeHtmlTp(n.name)}</span>
                 <div class="card-badge-group">
-                    <span class="sharing-badge badge-purple">${EscapeHtmlTp(n.mode.toUpperCase())}</span>
+                    <span class="sharing-badge badge-purple">${EscapeHtmlTp(String(n.mode || 'http').toUpperCase())}</span>
                     <span class="sharing-badge ${n.online ? 'ver-uptodate' : 'badge-danger'}">${n.online ? 'Online · ' + latTxt : 'Offline'}</span>
                 </div>
             </div>
             <div class="dev-repo-meta">${EscapeHtmlTp(n.host)}${n.osInfo ? ' · ' + EscapeHtmlTp(n.osInfo) : ''}${n.uptime ? ' · Up: ' + EscapeHtmlTp(n.uptime) : ''}</div>
-            ${n.ramPct >= 0 ? `<div class="dev-repo-meta">RAM: ${EscapeHtmlTp(n.ramText)} (${n.ramPct}%) ${n.diskPct >= 0 ? `· Disk /: ${n.diskPct}%` : ''} ${n.cpuPct >= 0 ? `· CPU: ${n.cpuPct}%` : ''}</div>` : ''}
+            ${bars.length ? `<div class="homelab-bars-grid">${bars.join('')}</div>` : ''}
+            ${n.ramText ? `<div class="dev-repo-meta">Memory: ${EscapeHtmlTp(n.ramText)}</div>` : ''}
             <div class="dev-repo-meta">${EscapeHtmlTp(n.detail || '')} · Checked ${EscapeHtmlTp(n.checkedAt || '--')}</div>
             <div class="dev-repo-actions">
+                <button type="button" onclick="TriggerPollHomelabOne('${sId}')" title="Poll this node right now">🔄 Poll</button>
                 ${n.mode === 'ssh' ? `<button type="button" class="btn-vscode" onclick="TriggerHomelabSsh('${sHost}','${sUser}',${n.port||22})">🐚 SSH</button>` : ''}
                 ${n.mode === 'winrm' ? `<button type="button" class="btn-vscode" onclick="TriggerHomelabRdp('${sHost}')">🖥️ RDP</button>` : ''}
-                ${sUrl ? `<button type="button" onclick="OpenExternalHttpsUrl('${sUrl}')">🌐 Web UI ↗</button>` : ''}
-                <button type="button" class="wsl-btn-danger" onclick="TriggerDeleteHomelabNode('${sId}')">🗑️ Remove</button>
+                ${sUrl ? `<button type="button" onclick="OpenExternalHttpsUrl('${sUrl}')">🌐 Web ↗</button>` : ''}
+                <button type="button" onclick="ToggleHomelabNodeEditor(true, '${sId}')" title="Edit target configuration">✏️</button>
+                <button type="button" class="wsl-btn-danger" onclick="TriggerDeleteHomelabNode('${sId}')">🗑️</button>
             </div>
         </article>`;
-    }).join('') : '<div class="driver-text-node">No remote PCs or servers added yet. Add a Linux server (SSH), Windows PC (WinRM), or Proxmox/NAS/Router (HTTP) above!</div>';
+    }).join('') : '<div class="driver-text-node">No remote PCs or servers added yet. Click "➕ Add Node" or "📥 Import SSH" above!</div>';
+}
+
+// =========================================================================
+// CUSTOM FLOATING DISK PARTITIONER CONTROLLER (AUTO-PAUSES LIVE TELEMETRY)
+// =========================================================================
+window._diskPartState = null;
+window._diskPartSelection = null; // { kind: 'disk'|'unallocated'|'partition', diskNumber, partitionNumber, offsetBytes }
+window._diskPartBusy = false;
+
+function SetDiskPartStatus(msg, isErr = false) {
+    const el = document.getElementById('diskPartStatus');
+    if (el && msg) {
+        el.classList.toggle('sharing-error', !!isErr);
+        el.textContent = msg;
+    }
+    if (msg) AppendConsoleLogEntry(`[DISKPART] ${msg}`);
+}
+
+function HandleTelemetryPauseState(data) {
+    const paused = !!data?.paused;
+    const badge = document.getElementById('lblDiskPartPauseBadge');
+    if (badge) {
+        badge.textContent = paused ? '⏸ Telemetry Paused' : '▶ Telemetry Live';
+    }
+    const cardHint = document.getElementById('lblStorageTelemetryPaused');
+    if (cardHint) cardHint.style.display = paused ? 'inline-block' : 'none';
+}
+
+function SendTelemetryPauseState(paused) {
+    window.chrome?.webview?.postMessage(JSON.stringify({
+        command: 'SET_TELEMETRY_PAUSED',
+        paused: !!paused,
+        reason: 'Disk Partitioner'
+    }));
+}
+
+window.OpenDiskPartitioner = function() {
+    const pop = document.getElementById('diskPartitionerPopup');
+    const btn = document.getElementById('btnOpenDiskPartitioner');
+    if (!pop) return;
+    pop.style.display = 'flex';
+    pop.classList.remove('is-collapsed');
+    SetDomText('btnDiskPartCollapse', '▾');
+    if (btn) btn.classList.add('active');
+    SendTelemetryPauseState(true);
+    SetDiskPartStatus('Telemetry paused — scanning physical disks & partitions...');
+    RequestDiskPartitionerState(false);
+    ClampDiskPartitionerIntoViewport();
+};
+
+window.CloseDiskPartitioner = function() {
+    const pop = document.getElementById('diskPartitionerPopup');
+    const btn = document.getElementById('btnOpenDiskPartitioner');
+    const wasOpen = pop && pop.style.display !== 'none';
+    if (pop) pop.style.display = 'none';
+    if (btn) btn.classList.remove('active');
+    if (wasOpen) {
+        SendTelemetryPauseState(false);
+        AppendConsoleLogEntry('[DISKPART] Closed Disk Partitioner — live telemetry resumed.');
+    }
+};
+
+window.ToggleDiskPartitionerCollapse = function() {
+    const pop = document.getElementById('diskPartitionerPopup');
+    if (!pop) return;
+    const isCol = pop.classList.toggle('is-collapsed');
+    SetDomText('btnDiskPartCollapse', isCol ? '▴' : '▾');
+};
+
+window.RequestDiskPartitionerState = function(rescan = false) {
+    SetDiskPartStatus(rescan ? 'Rescanning storage bus & disks...' : 'Loading physical disks & partitions...');
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'DISKPART_LOAD', rescan: !!rescan }));
+};
+
+window.TriggerDiskPartOpenDiskMgmt = function() {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'DISKPART_OPEN_DISKMGMT' }));
+};
+
+window.SelectDiskPartTarget = function(kind, diskNumber, partitionNumber = 0, offsetBytes = 0) {
+    window._diskPartSelection = {
+        kind,
+        diskNumber: Number(diskNumber),
+        partitionNumber: Number(partitionNumber || 0),
+        offsetBytes: Number(offsetBytes || 0)
+    };
+    RenderDiskPartitionerDisks();
+    RenderDiskPartitionerInspector();
+};
+
+window.TriggerDiskPartInit = function(diskNumber) {
+    const style = document.getElementById('selDpInitStyle')?.value || 'GPT';
+    if (!confirm(`Initialize Disk ${diskNumber} with a ${style} partition table?`)) return;
+    SetDiskPartStatus(`Initializing Disk ${diskNumber} as ${style}...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'DISKPART_INIT_DISK', diskNumber, style }));
+};
+
+window.TriggerDiskPartOnline = function(diskNumber, online) {
+    if (!online && !confirm(`Take Disk ${diskNumber} Offline? Volumes on this disk will become temporarily inaccessible.`)) return;
+    SetDiskPartStatus(`Setting Disk ${diskNumber} ${online ? 'Online' : 'Offline'}...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'DISKPART_SET_ONLINE', diskNumber, online: !!online }));
+};
+
+window.TriggerDiskPartCreate = function(diskNumber) {
+    const useMax = !!document.getElementById('chkDpCreateMax')?.checked;
+    const sizeGB = Number(document.getElementById('inpDpCreateSizeGB')?.value || 0);
+    const driveLetter = document.getElementById('selDpCreateLetter')?.value || 'AUTO';
+    const fileSystem = document.getElementById('selDpCreateFs')?.value || 'NTFS';
+    const label = (document.getElementById('inpDpCreateLabel')?.value || '').trim();
+    const allocUnitKB = Number(document.getElementById('selDpCreateAlloc')?.value || 0);
+    const quickFormat = !!document.getElementById('chkDpCreateQuick')?.checked;
+    if (!useMax && (!sizeGB || sizeGB <= 0)) {
+        SetDiskPartStatus('Enter a valid partition size in GB or check "Use Max Space".', true);
+        return;
+    }
+    SetDiskPartStatus(`Creating & formatting ${fileSystem} partition on Disk ${diskNumber}...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({
+        command: 'DISKPART_CREATE_PART',
+        diskNumber, useMax, sizeGB, driveLetter, fileSystem, label, allocUnitKB, quickFormat
+    }));
+};
+
+window.TriggerDiskPartFormat = function(diskNumber, partitionNumber) {
+    const fileSystem = document.getElementById('selDpFmtFs')?.value || 'NTFS';
+    const label = (document.getElementById('inpDpFmtLabel')?.value || '').trim();
+    const allocUnitKB = Number(document.getElementById('selDpFmtAlloc')?.value || 0);
+    const quickFormat = !!document.getElementById('chkDpFmtQuick')?.checked;
+    if (!confirm(`WARNING: Formatting Disk ${diskNumber} Partition ${partitionNumber} as ${fileSystem} will permanently erase ALL data on this volume.\n\nProceed?`)) return;
+    SetDiskPartStatus(`Formatting Disk ${diskNumber} Partition ${partitionNumber} (${fileSystem})...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({
+        command: 'DISKPART_FORMAT_PART',
+        diskNumber, partitionNumber, fileSystem, label, allocUnitKB, quickFormat
+    }));
+};
+
+window.TriggerDiskPartResize = function(diskNumber, partitionNumber) {
+    const targetSizeGB = Number(document.getElementById('inpDpResizeGB')?.value || 0);
+    if (!targetSizeGB || targetSizeGB <= 0) {
+        SetDiskPartStatus('Enter a valid target size in GB.', true);
+        return;
+    }
+    if (!confirm(`Resize Disk ${diskNumber} Partition ${partitionNumber} to ${targetSizeGB} GB?`)) return;
+    SetDiskPartStatus(`Resizing Disk ${diskNumber} Partition ${partitionNumber} to ${targetSizeGB} GB...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({
+        command: 'DISKPART_RESIZE_PART',
+        diskNumber, partitionNumber, targetSizeGB
+    }));
+};
+
+window.TriggerDiskPartSetLetter = function(diskNumber, partitionNumber) {
+    const newLetter = document.getElementById('selDpLetter')?.value ?? '';
+    SetDiskPartStatus(newLetter ? `Assigning drive letter ${newLetter}:...` : 'Removing drive letter...');
+    window.chrome?.webview?.postMessage(JSON.stringify({
+        command: 'DISKPART_SET_LETTER',
+        diskNumber, partitionNumber, newLetter
+    }));
+};
+
+window.TriggerDiskPartSetLabel = function(diskNumber, partitionNumber) {
+    const label = (document.getElementById('inpDpRenameLabel')?.value || '').trim();
+    SetDiskPartStatus(`Updating volume label to '${label}'...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({
+        command: 'DISKPART_SET_LABEL',
+        diskNumber, partitionNumber, label
+    }));
+};
+
+window.TriggerDiskPartDelete = function(diskNumber, partitionNumber) {
+    if (!confirm(`DANGER: Permanently DELETE Disk ${diskNumber} Partition ${partitionNumber}?\nAll files on this partition will be lost and converted to unallocated space.`)) return;
+    SetDiskPartStatus(`Deleting Disk ${diskNumber} Partition ${partitionNumber}...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({
+        command: 'DISKPART_DELETE_PART',
+        diskNumber, partitionNumber
+    }));
+};
+
+window.TriggerDiskPartClearDisk = function(diskNumber) {
+    const tok = (document.getElementById('inpDpWipeConfirm')?.value || '').trim().toUpperCase();
+    if (tok !== `DISK ${diskNumber}`) {
+        SetDiskPartStatus(`Type "DISK ${diskNumber}" exactly in the confirmation box to wipe this disk.`, true);
+        return;
+    }
+    if (!confirm(`FINAL WARNING: Wipe ALL partitions and data on Disk ${diskNumber}? This cannot be undone!`)) return;
+    SetDiskPartStatus(`Wiping Disk ${diskNumber}...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({
+        command: 'DISKPART_CLEAR_DISK',
+        diskNumber,
+        confirmToken: tok
+    }));
+};
+
+function RenderDiskPartitionerState(data) {
+    if (!data) return;
+    window._diskPartState = data;
+    SetDomText('lblDiskPartStamp', `Scanned ${data.scannedAt || '--'}${data.isAdmin ? ' · Admin' : ' · Read-Only'}`);
+    const defaultMsg = data.isAdmin
+        ? `Telemetry paused · Detected ${(data.disks || []).length} physical disk(s). Click any disk, unallocated block, or partition to manage.`
+        : `Read-Only mode (Administrator required to modify partitions) · Detected ${(data.disks || []).length} disk(s).`;
+    SetDiskPartStatus(data.notice || defaultMsg, !!data.noticeError);
+
+    // Keep or pick a sensible default selection
+    const disks = data.disks || [];
+    if (!window._diskPartSelection && disks.length) {
+        window._diskPartSelection = { kind: 'disk', diskNumber: disks[0].number, partitionNumber: 0, offsetBytes: 0 };
+    } else if (window._diskPartSelection) {
+        const dMatch = disks.find(d => d.number === window._diskPartSelection.diskNumber);
+        if (!dMatch && disks.length) {
+            window._diskPartSelection = { kind: 'disk', diskNumber: disks[0].number, partitionNumber: 0, offsetBytes: 0 };
+        } else if (dMatch && window._diskPartSelection.kind === 'partition') {
+            const pMatch = (dMatch.segments || []).find(s => s.kind === 'partition' && s.partitionNumber === window._diskPartSelection.partitionNumber);
+            if (!pMatch) window._diskPartSelection = { kind: 'disk', diskNumber: dMatch.number, partitionNumber: 0, offsetBytes: 0 };
+        }
+    }
+
+    RenderDiskPartitionerDisks();
+    RenderDiskPartitionerInspector();
+}
+
+function RenderDiskPartitionerDisks() {
+    const host = document.getElementById('diskPartDisksList');
+    const data = window._diskPartState;
+    if (!host || !data) return;
+    const disks = data.disks || [];
+    const sel = window._diskPartSelection || {};
+    if (!disks.length) {
+        host.innerHTML = '<div class="driver-text-node">No physical disks detected by Windows Storage API.</div>';
+        return;
+    }
+
+    host.innerHTML = disks.map(d => {
+        const isDiskSel = sel.kind === 'disk' && sel.diskNumber === d.number;
+        const segs = d.segments || [];
+        const segHtml = segs.length ? segs.map(s => {
+            const flexW = Math.max(6, Number(s.pctOfDisk || 10));
+            const isSegSel = (sel.diskNumber === d.number) && (
+                (s.kind === 'partition' && sel.kind === 'partition' && sel.partitionNumber === s.partitionNumber) ||
+                (s.kind === 'unallocated' && sel.kind === 'unallocated' && sel.offsetBytes === s.offsetBytes)
+            );
+            const cls = s.kind === 'unallocated' ? 'seg-unalloc' : (s.isProtected ? 'seg-protected' : '');
+            const topLbl = s.kind === 'unallocated'
+                ? `${EscapeHtmlTp(s.label)} (${s.sizeGB} GB)`
+                : `${s.driveLetter ? s.driveLetter + ': ' : ''}${EscapeHtmlTp(s.label || s.partType || 'Partition')}`;
+            const subLbl = s.kind === 'unallocated'
+                ? 'Click to Create Partition'
+                : `${s.sizeGB} GB${s.fileSystem ? ' · ' + EscapeHtmlTp(s.fileSystem) : ''}${s.isProtected ? ' · Protected' : ''}`;
+            return `<button type="button" class="dp-bar-seg ${cls}${isSegSel ? ' is-selected' : ''}" style="flex: ${flexW} 1 56px;" onclick="SelectDiskPartTarget('${s.kind}', ${d.number}, ${s.partitionNumber || 0}, ${s.offsetBytes || 0})" title="${topLbl} — ${subLbl}">
+                <span class="dp-seg-top">${topLbl}</span>
+                <span class="dp-seg-sub">${subLbl}</span>
+            </button>`;
+        }).join('') : '<div class="driver-text-node" style="padding:8px;">Empty / Offline Disk</div>';
+
+        return `<div class="dp-disk-card${isDiskSel ? ' is-selected' : ''}">
+            <div class="dp-disk-head" onclick="SelectDiskPartTarget('disk', ${d.number}, 0, 0)" title="Click to select Disk ${d.number} actions">
+                <div class="dp-disk-title">
+                    <span>💽 Disk ${d.number}: ${EscapeHtmlTp(d.friendlyName)}</span>
+                    <span class="sharing-badge badge-info">${EscapeHtmlTp(d.busType)}</span>
+                    <span class="sharing-badge ${d.partitionStyle === 'RAW' ? 'ver-update' : 'badge-purple'}">${EscapeHtmlTp(d.partitionStyle)}</span>
+                    ${d.isSystemOrBoot ? '<span class="sharing-badge badge-danger">System / Boot</span>' : ''}
+                    ${d.isOffline ? '<span class="sharing-badge ver-update">Offline</span>' : ''}
+                </div>
+                <div class="dp-disk-meta">${d.sizeGB} GB total · ${d.unallocatedGB} GB unallocated · ${EscapeHtmlTp(d.healthStatus)}</div>
+            </div>
+            <div class="dp-bar-track">${segHtml}</div>
+        </div>`;
+    }).join('');
+}
+
+function RenderDiskPartitionerInspector() {
+    const host = document.getElementById('diskPartInspector');
+    const data = window._diskPartState;
+    const sel = window._diskPartSelection;
+    if (!host || !data || !sel) return;
+
+    const disk = (data.disks || []).find(d => d.number === sel.diskNumber);
+    if (!disk) {
+        host.innerHTML = '<div class="driver-text-node">Select a disk, partition, or unallocated block above.</div>';
+        return;
+    }
+    const availLetters = data.availableLetters || [];
+    const letterOpts = `<option value="AUTO">Auto Assign</option>` +
+        availLetters.map(l => `<option value="${l}">${l}:</option>`).join('') +
+        `<option value="NONE">No Drive Letter</option>`;
+
+    // 1. DISK SELECTED
+    if (sel.kind === 'disk') {
+        const initBlock = disk.partitionStyle === 'RAW' ? `
+            <div class="dp-action-block">
+                <div class="dp-action-title">✨ Initialize Uninitialized (RAW) Disk ${disk.number}</div>
+                <div class="new-tab-inline-bar">
+                    <select id="selDpInitStyle" class="prof-select" style="max-width:220px;">
+                        <option value="GPT" selected>GPT (Modern UEFI · >2 TB)</option>
+                        <option value="MBR">MBR (Legacy BIOS · ≤2 TB)</option>
+                    </select>
+                    <button type="button" class="console-clear-btn btn-accent-action" onclick="TriggerDiskPartInit(${disk.number})">Initialize Disk</button>
+                </div>
+            </div>` : '';
+
+        const quickCreate = (disk.partitionStyle !== 'RAW' && disk.unallocatedGB >= 0.05) ? `
+            <div class="dp-action-block">
+                <div class="dp-action-title">➕ Quick-Create Partition in Unallocated Space (${disk.unallocatedGB} GB free)</div>
+                <button type="button" class="console-clear-btn btn-accent-action" style="align-self:flex-start;" onclick="SelectDiskPartTarget('unallocated', ${disk.number}, 0, ${(disk.segments.find(x => x.kind === 'unallocated')?.offsetBytes) || 0})">Configure New Partition →</button>
+            </div>` : '';
+
+        const dangerBlock = !disk.isSystemOrBoot ? `
+            <div class="dp-action-block dp-danger-block">
+                <div class="dp-action-title">⚠️ Danger Zone — Disk ${disk.number} (${EscapeHtmlTp(disk.friendlyName)})</div>
+                <div class="new-tab-inline-bar">
+                    <button type="button" class="console-clear-btn" onclick="TriggerDiskPartOnline(${disk.number}, ${disk.isOffline ? 'true' : 'false'})">${disk.isOffline ? '🔌 Bring Online' : '⏸ Take Offline'}</button>
+                    <input type="text" id="inpDpWipeConfirm" class="prof-input" style="max-width:170px;" placeholder="Type: DISK ${disk.number}">
+                    <button type="button" class="console-clear-btn wsl-btn-danger" onclick="TriggerDiskPartClearDisk(${disk.number})">🧨 Clean / Wipe Disk</button>
+                </div>
+            </div>` : `<div class="dev-repo-meta">🛡️ Disk ${disk.number} hosts the active Windows System/Boot volume — Wipe &amp; Offline actions are locked for safety.</div>`;
+
+        host.innerHTML = `
+            <div class="new-tab-section-head">
+                <div class="cw-set-sec-title" style="border:none;padding:0;">💽 Disk ${disk.number} — ${EscapeHtmlTp(disk.friendlyName)} (${disk.sizeGB} GB · ${EscapeHtmlTp(disk.partitionStyle)})</div>
+                <span class="cw-settings-sub">${EscapeHtmlTp(disk.busType)} · ${EscapeHtmlTp(disk.operationalStatus)} · ${disk.partitionCount} partition(s)</span>
+            </div>
+            ${initBlock}
+            ${quickCreate}
+            ${dangerBlock}`;
+        return;
+    }
+
+    // 2. UNALLOCATED SPACE SELECTED
+    if (sel.kind === 'unallocated') {
+        const seg = (disk.segments || []).find(s => s.kind === 'unallocated' && s.offsetBytes === sel.offsetBytes)
+            || (disk.segments || []).find(s => s.kind === 'unallocated');
+        const freeGB = seg ? seg.sizeGB : disk.unallocatedGB;
+        if (disk.partitionStyle === 'RAW') {
+            host.innerHTML = `
+                <div class="new-tab-section-head">
+                    <div class="cw-set-sec-title" style="border:none;padding:0;">✨ Disk ${disk.number} is Uninitialized (RAW · ${freeGB} GB)</div>
+                </div>
+                <div class="dp-action-block">
+                    <div class="dp-action-title">Step 1: Initialize Partition Table (GPT recommended)</div>
+                    <div class="new-tab-inline-bar">
+                        <select id="selDpInitStyle" class="prof-select" style="max-width:240px;">
+                            <option value="GPT" selected>GPT (GUID Partition Table — Recommended)</option>
+                            <option value="MBR">MBR (Master Boot Record — Legacy)</option>
+                        </select>
+                        <button type="button" class="console-clear-btn btn-accent-action" onclick="TriggerDiskPartInit(${disk.number})">Initialize Disk ${disk.number}</button>
+                    </div>
+                </div>`;
+            return;
+        }
+        host.innerHTML = `
+            <div class="new-tab-section-head">
+                <div class="cw-set-sec-title" style="border:none;padding:0;">➕ New Partition on Disk ${disk.number} (${freeGB} GB Unallocated)</div>
+            </div>
+            <div class="dp-action-block">
+                <div class="new-tab-form-grid">
+                    <div class="cw-dir-row"><label for="inpDpCreateSizeGB">Size (GB)</label><input type="number" id="inpDpCreateSizeGB" class="prof-input" step="0.1" min="0.1" max="${freeGB}" value="${freeGB}"></div>
+                    <div class="cw-dir-row"><label for="selDpCreateLetter">Drive Letter</label><select id="selDpCreateLetter" class="prof-select">${letterOpts}</select></div>
+                    <div class="cw-dir-row"><label for="selDpCreateFs">File System</label>
+                        <select id="selDpCreateFs" class="prof-select">
+                            <option value="NTFS" selected>NTFS (Windows Standard)</option>
+                            <option value="exFAT">exFAT (USB / Cross-Platform)</option>
+                            <option value="FAT32">FAT32 (≤32 GB Legacy)</option>
+                            <option value="ReFS">ReFS (Resilient Storage)</option>
+                        </select>
+                    </div>
+                    <div class="cw-dir-row"><label for="inpDpCreateLabel">Volume Label</label><input type="text" id="inpDpCreateLabel" class="prof-input" placeholder="e.g. Games or Data"></div>
+                    <div class="cw-dir-row"><label for="selDpCreateAlloc">Allocation Unit</label>
+                        <select id="selDpCreateAlloc" class="prof-select">
+                            <option value="0" selected>Default</option>
+                            <option value="4">4 KB</option>
+                            <option value="16">16 KB</option>
+                            <option value="64">64 KB (Large Media/VMs)</option>
+                        </select>
+                    </div>
+                    <div class="cw-dir-row" style="justify-content:flex-end;">
+                        <label class="org-checkbox-label"><input type="checkbox" id="chkDpCreateMax" checked onchange="document.getElementById('inpDpCreateSizeGB').disabled = this.checked"><span>Use Max Space</span></label>
+                        <label class="org-checkbox-label"><input type="checkbox" id="chkDpCreateQuick" checked><span>Quick Format</span></label>
+                    </div>
+                </div>
+                <div style="display:flex;justify-content:flex-end;margin-top:4px;">
+                    <button type="button" class="console-clear-btn btn-accent-action" onclick="TriggerDiskPartCreate(${disk.number})">✨ Create &amp; Format Partition</button>
+                </div>
+            </div>`;
+        const sizeInp = document.getElementById('inpDpCreateSizeGB');
+        if (sizeInp) sizeInp.disabled = true;
+        return;
+    }
+
+    // 3. PARTITION SELECTED
+    const part = (disk.segments || []).find(s => s.kind === 'partition' && s.partitionNumber === sel.partitionNumber);
+    if (!part) return;
+
+    const curLetterOpts = `<option value="">(Remove Drive Letter)</option>` +
+        (part.driveLetter ? `<option value="${part.driveLetter}" selected>${part.driveLetter}: (Current)</option>` : '') +
+        availLetters.map(l => `<option value="${l}">${l}:</option>`).join('');
+
+    const resizeBlock = (part.minSizeGB > 0 && part.maxSizeGB > 0) ? `
+        <div class="dp-action-block">
+            <div class="dp-action-title">↔️ Shrink / Extend Partition (Supported: ${part.minSizeGB} GB – ${part.maxSizeGB} GB)</div>
+            <div class="new-tab-inline-bar">
+                <input type="number" id="inpDpResizeGB" class="prof-input" style="max-width:140px;" step="0.1" min="${part.minSizeGB}" max="${part.maxSizeGB}" value="${part.sizeGB}">
+                <span class="cw-settings-sub">GB</span>
+                <button type="button" class="console-clear-btn btn-accent-action" onclick="TriggerDiskPartResize(${disk.number}, ${part.partitionNumber})">Apply Resize</button>
+            </div>
+        </div>` : '';
+
+    const labelLetterBlock = `
+        <div class="dp-action-block">
+            <div class="dp-action-title">🏷️ Volume Label &amp; Drive Letter</div>
+            <div class="new-tab-form-grid">
+                <div class="cw-dir-row">
+                    <label for="inpDpRenameLabel">Volume Label</label>
+                    <div class="cw-dir-input-wrap">
+                        <input type="text" id="inpDpRenameLabel" class="prof-input" value="${EscapeHtmlTp(part.label || '')}" placeholder="Volume name">
+                        <button type="button" class="console-clear-btn" onclick="TriggerDiskPartSetLabel(${disk.number}, ${part.partitionNumber})">Rename</button>
+                    </div>
+                </div>
+                ${!part.isProtected ? `
+                <div class="cw-dir-row">
+                    <label for="selDpLetter">Drive Letter</label>
+                    <div class="cw-dir-input-wrap">
+                        <select id="selDpLetter" class="prof-select">${curLetterOpts}</select>
+                        <button type="button" class="console-clear-btn" onclick="TriggerDiskPartSetLetter(${disk.number}, ${part.partitionNumber})">Assign</button>
+                    </div>
+                </div>` : '<div class="cw-dir-row"><label>Drive Letter</label><span class="cw-settings-sub">Locked on System/Boot partition</span></div>'}
+            </div>
+        </div>`;
+
+    const formatDeleteBlock = !part.isProtected ? `
+        <div class="dp-action-block dp-danger-block">
+            <div class="dp-action-title">⚠️ Format or Delete Partition</div>
+            <div class="new-tab-form-grid">
+                <div class="cw-dir-row"><label for="selDpFmtFs">File System</label>
+                    <select id="selDpFmtFs" class="prof-select">
+                        <option value="NTFS" ${part.fileSystem==='NTFS'?'selected':''}>NTFS</option>
+                        <option value="exFAT" ${part.fileSystem==='exFAT'?'selected':''}>exFAT</option>
+                        <option value="FAT32" ${part.fileSystem==='FAT32'?'selected':''}>FAT32</option>
+                        <option value="ReFS" ${part.fileSystem==='ReFS'?'selected':''}>ReFS</option>
+                    </select>
+                </div>
+                <div class="cw-dir-row"><label for="inpDpFmtLabel">New Label</label><input type="text" id="inpDpFmtLabel" class="prof-input" value="${EscapeHtmlTp(part.label || '')}"></div>
+                <div class="cw-dir-row"><label for="selDpFmtAlloc">Cluster Size</label>
+                    <select id="selDpFmtAlloc" class="prof-select">
+                        <option value="0" selected>Default</option>
+                        <option value="4">4 KB</option>
+                        <option value="16">16 KB</option>
+                        <option value="64">64 KB</option>
+                    </select>
+                </div>
+                <div class="cw-dir-row" style="justify-content:flex-end; flex-direction:row; align-items:flex-end; gap:6px;">
+                    <label class="org-checkbox-label"><input type="checkbox" id="chkDpFmtQuick" checked><span>Quick</span></label>
+                    <button type="button" class="console-clear-btn wsl-btn-danger" onclick="TriggerDiskPartFormat(${disk.number}, ${part.partitionNumber})">🧹 Format</button>
+                    <button type="button" class="console-clear-btn wsl-btn-danger" onclick="TriggerDiskPartDelete(${disk.number}, ${part.partitionNumber})">🗑️ Delete</button>
+                </div>
+            </div>
+        </div>` : `<div class="dev-repo-meta">🛡️ Protected System / Boot / EFI / Recovery partition — Format and Delete are disabled for safety.</div>`;
+
+    host.innerHTML = `
+        <div class="new-tab-section-head">
+            <div class="cw-set-sec-title" style="border:none;padding:0;">📂 Disk ${disk.number} · Partition ${part.partitionNumber} ${part.driveLetter ? `(${part.driveLetter}:)` : ''} — ${part.sizeGB} GB</div>
+            <span class="cw-settings-sub">${EscapeHtmlTp(part.fileSystem || 'RAW')} · ${EscapeHtmlTp(part.partType)}${part.usedGB >= 0 ? ` · ${part.usedGB} GB used / ${part.freeGB} GB free` : ''}</span>
+        </div>
+        ${labelLetterBlock}
+        ${resizeBlock}
+        ${formatDeleteBlock}`;
+}
+
+function ClampDiskPartitionerIntoViewport() {
+    const pop = document.getElementById('diskPartitionerPopup');
+    if (!pop || pop.style.display === 'none') return;
+    if (pop.style.transform && pop.style.transform !== 'none') return;
+    const rect = pop.getBoundingClientRect();
+    const maxL = Math.max(8, window.innerWidth - rect.width - 8);
+    const maxT = Math.max(8, window.innerHeight - 48);
+    const curL = parseFloat(pop.style.left) || rect.left;
+    const curT = parseFloat(pop.style.top) || rect.top;
+    pop.style.left = `${Math.max(8, Math.min(maxL, curL))}px`;
+    pop.style.top  = `${Math.max(8, Math.min(maxT, curT))}px`;
+}
+
+function InitDiskPartitionerDrag() {
+    const pop = document.getElementById('diskPartitionerPopup');
+    const hdr = document.getElementById('diskPartHeader');
+    if (!pop || !hdr || hdr._dragBound) return;
+    hdr._dragBound = true;
+
+    let dragging = false;
+    let startX = 0, startY = 0, origL = 0, origT = 0;
+
+    hdr.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        if (e.target.closest('button')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const rect = pop.getBoundingClientRect();
+        pop.style.transform = 'none';
+        pop.style.left = `${rect.left}px`;
+        pop.style.top  = `${rect.top}px`;
+        dragging = true;
+        startX = e.clientX;
+        startY = e.clientY;
+        origL = rect.left;
+        origT = rect.top;
+    });
+
+    window.addEventListener('mousemove', (e) => {
+        if (!dragging) return;
+        const rect = pop.getBoundingClientRect();
+        const maxL = Math.max(8, window.innerWidth - rect.width - 8);
+        const maxT = Math.max(8, window.innerHeight - 48);
+        const nextL = Math.max(8, Math.min(maxL, origL + (e.clientX - startX)));
+        const nextT = Math.max(8, Math.min(maxT, origT + (e.clientY - startY)));
+        pop.style.left = `${nextL}px`;
+        pop.style.top  = `${nextT}px`;
+    });
+
+    window.addEventListener('mouseup', () => { dragging = false; });
+    window.addEventListener('resize', ClampDiskPartitionerIntoViewport);
 }

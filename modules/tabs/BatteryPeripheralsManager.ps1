@@ -16,18 +16,35 @@ function Get-InternalBatteryDiagnostics {
     $cycleList  = @(Get-CimInstance -Namespace root\WMI -ClassName BatteryCycleCount -ErrorAction SilentlyContinue)
     $statusList = @(Get-CimInstance -Namespace root\WMI -ClassName BatteryStatus -ErrorAction SilentlyContinue)
 
+    $xmlFallback = @()
+    if ($w32Bats.Count -gt 0) {
+        $needXml = ($staticList.Count -eq 0 -or $fullList.Count -eq 0 -or $cycleList.Count -eq 0)
+        if ($needXml) {
+            try {
+                $tmpXml = Join-Path $env:TEMP "cw_bat_probe.xml"
+                $null = & powercfg /batteryreport /xml /output "$tmpXml" 2>$null
+                if (Test-Path -LiteralPath $tmpXml -PathType Leaf) {
+                    [xml]$xDoc = Get-Content -LiteralPath $tmpXml -Raw -ErrorAction Stop
+                    $xmlFallback = @($xDoc.BatteryReport.Batteries.Battery)
+                    Remove-Item -LiteralPath $tmpXml -Force -ErrorAction SilentlyContinue
+                }
+            } catch {}
+        }
+    }
+
     for ($i = 0; $i -lt $w32Bats.Count; $i++) {
         $b = $w32Bats[$i]
         $st = if ($i -lt $staticList.Count) { $staticList[$i] } else { $null }
         $fc = if ($i -lt $fullList.Count)   { $fullList[$i] }   else { $null }
         $cy = if ($i -lt $cycleList.Count)  { $cycleList[$i] }  else { $null }
         $bs = if ($i -lt $statusList.Count) { $statusList[$i] } else { $null }
+        $xb = if ($i -lt $xmlFallback.Count) { $xmlFallback[$i] } else { $null }
 
-        $designMwh = if ($st -and $st.DesignedCapacity) { [int]$st.DesignedCapacity } elseif ($b.DesignCapacity) { [int]$b.DesignCapacity } else { 0 }
-        $fullMwh   = if ($fc -and $fc.FullChargedCapacity) { [int]$fc.FullChargedCapacity } else { 0 }
+        $designMwh = if ($st -and $st.DesignedCapacity) { [int]$st.DesignedCapacity } elseif ($xb -and $xb.DesignCapacity) { [int]$xb.DesignCapacity } elseif ($b.DesignCapacity) { [int]$b.DesignCapacity } else { 0 }
+        $fullMwh   = if ($fc -and $fc.FullChargedCapacity) { [int]$fc.FullChargedCapacity } elseif ($xb -and $xb.FullChargeCapacity) { [int]$xb.FullChargeCapacity } else { 0 }
         $healthPct = if ($designMwh -gt 0 -and $fullMwh -gt 0) { [math]::Round([math]::Min(100, ($fullMwh / $designMwh) * 100), 1) } else { 0 }
         $wearPct   = if ($healthPct -gt 0) { [math]::Round([math]::Max(0, 100 - $healthPct), 1) } else { 0 }
-        $cycles    = if ($cy -and $null -ne $cy.CycleCount) { [int]$cy.CycleCount } else { -1 }
+        $cycles    = if ($cy -and $null -ne $cy.CycleCount) { [int]$cy.CycleCount } elseif ($xb -and $xb.CycleCount -and [int]$xb.CycleCount -gt 0) { [int]$xb.CycleCount } else { -1 }
 
         $chargePct = if ($null -ne $b.EstimatedChargeRemaining) { [int]$b.EstimatedChargeRemaining } else { 0 }
         $runMin    = if ($b.EstimatedRunTime -and [uint32]$b.EstimatedRunTime -lt 700000) { [int]$b.EstimatedRunTime } else { -1 }
@@ -154,6 +171,14 @@ function Invoke-BatteryPeripheralsAction {
                     return @{ type = "BATTERY_NOTICE"; ok = $true; message = "Generated and opened Windows Modern Standby SleepStudy ($outHtml)." }
                 }
                 throw "Windows SleepStudy requires a Modern Standby (S0 Low Power Idle) capable system."
+            }
+            "BATTERY_OPEN_BT_SETTINGS" {
+                Start-Process "ms-settings:bluetooth"
+                return @{ type = "BATTERY_NOTICE"; ok = $true; message = "Opened Windows Bluetooth & Devices settings." }
+            }
+            "BATTERY_OPEN_POWER_SETTINGS" {
+                Start-Process "ms-settings:powersleep"
+                return @{ type = "BATTERY_NOTICE"; ok = $true; message = "Opened Windows Power & Battery settings." }
             }
             default { throw "Unknown Battery & Peripherals command: $cmd" }
         }

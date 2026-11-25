@@ -6,16 +6,12 @@ const unavailable = "—";
 const detailsLabels = {
     domain: "lblWorkgroup", host: "lblHostName", os: "lblOsEdition", build: "lblWinBuild",
     update: "lblUpdateLevel", directX: "lblDirectX", virtualization: "lblVirtualization",
-    secureBoot: "lblSecureBoot", engine: "lblPsVersion", java: "lblJavaVersion", telemetry: "lblTelemetry",
-    elevation: "lblElevation", pendingReboot: "lblPendingReboot", lastCrash: "lblLastCrash",
+    secureBoot: "lblSecureBoot", elevation: "lblElevation", lastCrash: "lblLastCrash",
     board: "lblMotherboard", bios: "lblBiosVersion", powerPlan: "lblPowerPlan",
     audioOutput: "lblAudioOutput", audioInput: "lblAudioInput", ipv4: "lblIntIPv4",
     subnet: "lblSubnetMask", gateway: "lblGateway", assignment: "lblNetAssignment",
-    networkStatus: "lblNetworkStatus", wifiSsid: "lblWlanSsid", link: "lblLinkCap",
-    firewall: "lblFirewall", realtime: "lblRealtime", tamper: "lblTamperProtection",
-    behavior: "lblBehaviorMonitor", cloud: "lblCloudProtection", ioav: "lblIoavProtection",
-    ethernet: "lblEthernet", wifi: "lblWifi",
-    sharing: "lblSharing"
+    wifiSsid: "lblWlanSsid", link: "lblLinkCap",
+    ethernet: "lblEthernet", wifi: "lblWifi"
 };
 
 function show(id, value) {
@@ -195,6 +191,8 @@ function renderSelectedDisplay() {
     show("lblMonConnection", display?.connection);
     show("lblMonHdr", display?.advanced_color);
     tint("lblMonHdr", display?.advanced_color === "On" ? "diag-ok" : display?.advanced_color === "Off" ? "diag-crit" : "diag-neutral");
+    byId("lblMonHdr").disabled = !["On", "Off"].includes(display?.advanced_color);
+    for (const id of ["lblMonRefresh", "lblMonScale", "lblMonOrientation"]) byId(id).disabled = !display;
     show("lblMonColorProfile", display?.color_profile);
     byId("lblMonColorProfile").title = display?.color_profile ?? "";
 }
@@ -262,25 +260,9 @@ function renderDetails(details) {
     for (const [key, id] of Object.entries(detailsLabels)) show(id, fields[key]);
     networkView?.setGateway(fields.gateway);
     dashboardNetwork?.update(details);
-    const firewall = fields.firewall;
-    const enabled = firewall?.endsWith(" on");
-    badge("lblFirewall", firewall ? firewall.includes(" · ") ? firewall : enabled ? "ON" : "OFF" : null, enabled, firewall);
-    for (const [id, key] of [["lblRealtime", "realtime"], ["lblTamperProtection", "tamper"], ["lblBehaviorMonitor", "behavior"],
-        ["lblCloudProtection", "cloud"], ["lblIoavProtection", "ioav"]]) {
-        badge(id, fields[key]?.toUpperCase(), fields[key] === "On");
-    }
-    const pending = fields.pendingReboot === "Yes";
-    badge("lblPendingReboot", fields.pendingReboot ? pending ? "Yes" : "No" : null, !pending);
+    dashboardControls?.update(details);
     tint("lblElevation", fields.elevation === "Administrator" ? "diag-ok" : "diag-neutral");
     byId("lblElevation").disabled = fields.elevation === "Administrator";
-    const profile = fields.networkStatus?.split(" · ");
-    badge("lblNetworkStatus", profile?.length === 2 ? profile[0].toUpperCase() : fields.networkStatus, false, fields.networkStatus, "diag-neutral");
-    const sharing = fields.sharing;
-    badge("lblSharing", sharing == null ? null : Number(sharing) > 0 ? sharing + " active" : "None", Number(sharing) > 0);
-    badge("lblTelemetry", fields.telemetry?.includes("disabled") ? "OFF" : fields.telemetry ? "ON" : null,
-        Boolean(fields.telemetry && !fields.telemetry.includes("disabled")), fields.telemetry);
-    badge("night-light-settings", fields.nightLight ?? "Settings", fields.nightLight === "On", null,
-        fields.nightLight ? undefined : "diag-neutral");
     show("badgeThrottleState", "Throttle: " + (fields.throttle ?? unavailable));
     tint("badgeThrottleState", fields.throttle === "ACPI active" ? "diag-warn" : fields.throttle ? "diag-ok" : "diag-neutral");
     latestTemperature = { cpuTemp: fields.cpuTemp, cpuTempSource: fields.cpuTempSource, gpuTemp: fields.gpuTemp };
@@ -327,6 +309,7 @@ function log(message) {
 
 let networkView;
 let dashboardNetwork;
+let dashboardControls;
 let invokeDashboard;
 
 async function dashboardCommand(name, args, success) {
@@ -341,11 +324,14 @@ async function dashboardCommand(name, args, success) {
     }
 }
 
-function askDashboard(title, message, field, timeout = 0) {
+function askDashboard(title, message, field, timeout = 0, confirmLabel = "Apply") {
     const dialog = byId("dashboard-dialog");
     if (dialog.open) return Promise.resolve(null);
     show("dialog-title", title);
     show("dialog-message", message);
+    const confirm = dialog.querySelector('button[value="confirm"]');
+    confirm.textContent = confirmLabel;
+    dialog.querySelector('button[value="cancel"]').hidden = confirmLabel === "Close";
     byId("dialog-field").hidden = !field || Boolean(field.options);
     byId("dialog-options").hidden = !field?.options;
     const input = byId("dialog-input");
@@ -374,6 +360,16 @@ function selectedDisplay() {
 async function changeDisplay(kind) {
     const display = selectedDisplay();
     if (!display) return;
+    if (kind === "scale") {
+        const scale = await dashboardCommand("display_scale_options", { id: display.id });
+        if (!scale) return;
+        const options = scale.available.map((percent) => ({ id: percent, name: `${percent}%`, active: percent === scale.current }));
+        const choice = await askDashboard("Display scale", display.name, { options });
+        if (choice && Number(choice) !== scale.current) {
+            await dashboardCommand("apply_dashboard_change", { change: { kind: "display_scale", id: display.id, percent: Number(choice) } }, "Display scale updated.");
+        }
+        return;
+    }
     const modes = await dashboardCommand("display_modes", { id: display.id });
     const refresh = kind === "refresh";
     const options = !modes ? [] : refresh
@@ -381,10 +377,7 @@ async function changeDisplay(kind) {
         : ["Landscape", "Portrait", "Landscape (flipped)", "Portrait (flipped)"].map((name, index) => ({
             id: index, name, active: index === modes.current_orientation
         }));
-    if (!options.length) {
-        await dashboardCommand("open_windows_settings", { page: refresh ? "advanced_display" : "display" });
-        return;
-    }
+    if (!options.length) return;
     const choice = await askDashboard(refresh ? "Display refresh rate" : "Display orientation", display.name, { options });
     if (choice == null || choice === "") return;
     const change = refresh ? { kind, hz: Number(choice) } : { kind, orientation: Number(choice) };
@@ -404,6 +397,7 @@ async function start() {
     invokeDashboard = invoke;
     networkView = createNetworkView(invoke);
     dashboardNetwork = createDashboardNetwork(invoke);
+    dashboardControls = createDashboardControls();
     const nativeWindow = tauri.window.getCurrentWindow();
     const preferences = createDashboardPreferences(tauri.core, nativeWindow, (unit) => {
         temperatureUnit = unit;
@@ -440,20 +434,12 @@ async function start() {
             catch { log("Clipboard access is unavailable."); }
         });
     }
-    for (const [id, page] of Object.entries({
-        lblMonScale: "display", "night-light-settings": "night_light", lblSharing: "sharing",
-        "discovery-settings": "sharing", lblFirewall: "firewall", lblRealtime: "defender"
-    })) {
-        byId(id).addEventListener("click", () => dashboardCommand("open_windows_settings", { page }));
-    }
     byId("lblMonRefresh").addEventListener("click", () => changeDisplay("refresh"));
+    byId("lblMonScale").addEventListener("click", () => changeDisplay("scale"));
     byId("lblMonOrientation").addEventListener("click", () => changeDisplay("orientation"));
     byId("lblMonHdr").addEventListener("click", async () => {
         const display = selectedDisplay();
-        if (!display || !["On", "Off"].includes(display.advanced_color)) {
-            await dashboardCommand("open_windows_settings", { page: "display" });
-            return;
-        }
+        if (!display || !["On", "Off"].includes(display.advanced_color)) return;
         const enabled = display.advanced_color === "Off";
         if (await askDashboard("Advanced Color", (enabled ? "Enable" : "Disable") + " Advanced Color on " + display.name + "?")) {
             await dashboardCommand("set_advanced_color", { id: display.id, enabled }, "Advanced Color updated.");
@@ -602,6 +588,61 @@ async function start() {
                         throw new Error("Dashboard DNS dialog did not render the active adapter and IPv4 preset controls.");
                     }
                     byId("dashboard-dns-close").click();
+                    for (const [field, id, label] of [["discovery", "lblDiscovery", "Network Discovery"],
+                        ["sharing", "lblSharing", "File and Printer Sharing"]]) {
+                        const button = byId(id);
+                        const state = full.fields[field];
+                        const pressed = { On: "true", Off: "false", Mixed: "mixed" }[state] ?? null;
+                        if (button.textContent !== (state?.toUpperCase() ?? unavailable)
+                            || button.disabled !== !state || button.getAttribute("aria-pressed") !== pressed) {
+                            throw new Error(`${label} did not render its Windows firewall group state.`);
+                        }
+                        if (!state) continue;
+                        const confirmation = byId("dashboard-dialog");
+                        button.click();
+                        const expected = full.fields.elevation === "Administrator" ? "all profiles, including Public" : "administrator access";
+                        if (!confirmation.open || !byId("dialog-message").textContent.includes(expected)
+                            || !byId("dialog-message").textContent.includes(label)) {
+                            throw new Error(`${label} did not open its confirmation dialog.`);
+                        }
+                        confirmation.close("cancel");
+                    }
+                    if (full.fields.elevation === "Standard user") {
+                        let rejection;
+                        try {
+                            await invoke("set_discovery_sharing", { group: "discovery", enabled: false });
+                        } catch (error) {
+                            rejection = String(error);
+                        }
+                        if (!rejection?.includes("Restart CoreWatch as administrator")) {
+                            throw new Error("Windows Firewall controls did not report the administrator requirement.");
+                        }
+                    }
+                    const current = full.fields;
+                    if (!document.querySelector(".rust-version").getClientRects().length
+                        || byId("lblPendingReboot").textContent !== current.pendingReboot
+                        || byId("lblPendingReboot").disabled !== (current.pendingReboot !== "Yes")
+                        || byId("lblPsVersion").textContent !== (current.powershell ?? "Check")
+                        || byId("night-light-settings").textContent !== (current.nightLight?.toUpperCase() ?? unavailable)) {
+                        throw new Error("System and display controls did not render their live readouts.");
+                    }
+                    const confirm = byId("dashboard-dialog");
+                    if (current.telemetry) {
+                        byId("lblTelemetry").click();
+                        await new Promise((resolve) => setTimeout(resolve, 0));
+                        if (!confirm.open || !byId("dialog-title").textContent.includes(current.elevation === "Administrator" ? "telemetry" : "administrator")) {
+                            throw new Error("The telemetry control did not offer its in-app action.");
+                        }
+                        confirm.close("cancel");
+                    }
+                    byId("lblJavaVersion").click();
+                    for (let i = 0; !confirm.open && i < 100; i++) {
+                        await new Promise((resolve) => setTimeout(resolve, 25));
+                    }
+                    if (!confirm.open || !byId("dialog-select").querySelector('option[value="install-25"]')) {
+                        throw new Error("The Java picker did not load the App Installer catalog options.");
+                    }
+                    confirm.close("cancel");
                     const sensorStatus = await invoke("cpu_sensor_status");
                     if (typeof sensorStatus.helper_available !== "boolean" || typeof sensorStatus.pawn_io !== "string") {
                         throw new Error("CPU sensor diagnostic did not report helper and driver state.");
@@ -610,6 +651,8 @@ async function start() {
                     if (display) {
                         const modes = await invoke("display_modes", { id: display.id });
                         if (modes.current_orientation > 3) throw new Error("Invalid display mode");
+                        const scale = await invoke("display_scale_options", { id: display.id }).catch(() => null);
+                        if (scale && !scale.available.includes(scale.current)) throw new Error("Invalid display scale options");
                     }
                     await selectView("network", "adapters");
                     const adapters = byId("adapterInterfaceContainer");

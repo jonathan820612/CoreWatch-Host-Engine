@@ -2,7 +2,7 @@ use crate::{
     native,
     network::{self, Tool},
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::{
     path::Path,
     sync::atomic::{AtomicUsize, Ordering},
@@ -10,31 +10,6 @@ use std::{
 };
 use tauri::{AppHandle, PhysicalPosition, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use windows_sys::Win32::Storage::FileSystem::SetVolumeLabelW;
-
-#[derive(Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SettingsPage {
-    Display,
-    AdvancedDisplay,
-    Hdr,
-    NightLight,
-    Firewall,
-    Defender,
-    Sharing,
-}
-
-pub fn open_settings(page: SettingsPage) -> Result<(), String> {
-    let uri = match page {
-        SettingsPage::Display => "ms-settings:display",
-        SettingsPage::AdvancedDisplay => "ms-settings:display-advanced",
-        SettingsPage::Hdr => "ms-settings:display",
-        SettingsPage::NightLight => "ms-settings:nightlight",
-        SettingsPage::Firewall => "windowsdefender://network/",
-        SettingsPage::Defender => "windowsdefender://threat/",
-        SettingsPage::Sharing => "ms-settings:network-advancedsettings",
-    };
-    shell_open(uri, None, false)
-}
 
 pub fn relaunch_elevated() -> Result<(), String> {
     if native::elevated() {

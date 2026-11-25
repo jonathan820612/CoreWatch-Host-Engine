@@ -184,7 +184,7 @@ function Get-FileOrganizerState {
     }
 }
 
-function Sanitize-SubfolderName {
+function Format-SafeSubfolderName {
     param([string]$Name)
     if (-not $Name) { return "" }
     $clean = $Name.Trim() -replace '[:*?"<>|]', ''
@@ -222,7 +222,7 @@ function Build-OrganizerPlan {
         $rules = @($Payload.mediaRules)
         foreach ($r in $rules) {
             if (-not $r.enabled) { continue }
-            $folderName = Sanitize-SubfolderName -Name ([string]$r.folderName)
+            $folderName = Format-SafeSubfolderName -Name ([string]$r.folderName)
             if (-not $folderName) { continue }
             $null = $reservedTargetNames.Add(($folderName -split '\\')[0])
 
@@ -256,7 +256,7 @@ function Build-OrganizerPlan {
         $extOverrides = @{}
         foreach ($ov in @($Payload.extOverrides)) {
             $ext = ([string]$ov.extension).Trim().ToLowerInvariant()
-            $folder = Sanitize-SubfolderName -Name ([string]$ov.folderName)
+            $folder = Format-SafeSubfolderName -Name ([string]$ov.folderName)
             if ($ext -and $folder) {
                 if (-not $ext.StartsWith('.')) { $ext = ".$ext" }
                 $extOverrides[$ext] = $folder
@@ -325,7 +325,7 @@ function Build-OrganizerPlan {
                     $ruleLabel = "$extLower → $targetSubfolder"
                 } else {
                     $rendered = $extTemplate -replace '\{EXT\}', $extClean -replace '\{ext\}', $extLower.TrimStart('.')
-                    $targetSubfolder = Sanitize-SubfolderName -Name $rendered
+                    $targetSubfolder = Format-SafeSubfolderName -Name $rendered
                     if (-not $targetSubfolder) { $targetSubfolder = $extClean }
                     $ruleLabel = "Extension ($extLower)"
                 }

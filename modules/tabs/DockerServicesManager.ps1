@@ -10,10 +10,42 @@
 
 function Get-ContainerEngineCli {
     $d = Get-Command docker -ErrorAction SilentlyContinue
-    if ($d -and $d.Source) { return @{ engine = "docker"; exe = $d.Source } }
+    if ($d -and $d.Source) { return @{ engine = "docker"; exe = $d.Source; wslDistro = ""; wslHint = "" } }
     $p = Get-Command podman -ErrorAction SilentlyContinue
-    if ($p -and $p.Source) { return @{ engine = "podman"; exe = $p.Source } }
-    return @{ engine = "none"; exe = "" }
+    if ($p -and $p.Source) { return @{ engine = "podman"; exe = $p.Source; wslDistro = ""; wslHint = "" } }
+
+    # Fallback: check running WSL distros for docker or podman (never cold-boots stopped VMs)
+    $wsl = Get-Command wsl.exe -ErrorAction SilentlyContinue
+    $wslHint = ""
+    if ($wsl -and $wsl.Source) {
+        try {
+            $running = @(& $wsl.Source -l --running -q 2>$null | ForEach-Object { ([string]$_ -replace '\0', '').Trim() } | Where-Object { $_ })
+            foreach ($dist in $running) {
+                $hasD = (& $wsl.Source -d $dist -- which docker 2>$null | Out-String).Trim()
+                if ($LASTEXITCODE -eq 0 -and $hasD) { return @{ engine = "docker (WSL:$dist)"; exe = $wsl.Source; wslDistro = $dist; wslBin = "docker"; wslHint = "" } }
+                $hasP = (& $wsl.Source -d $dist -- which podman 2>$null | Out-String).Trim()
+                if ($LASTEXITCODE -eq 0 -and $hasP) { return @{ engine = "podman (WSL:$dist)"; exe = $wsl.Source; wslDistro = $dist; wslBin = "podman"; wslHint = "" } }
+            }
+            $allDists = @(& $wsl.Source -l -q 2>$null | ForEach-Object { ([string]$_ -replace '\0', '').Trim() } | Where-Object { $_ })
+            $containerDist = @($allDists | Where-Object { $_ -match '(?i)docker|podman' }) | Select-Object -First 1
+            if ($containerDist) {
+                $wslHint = "Detected stopped container WSL distro '$containerDist'. Launch it from the WSL tab or start Docker/Podman Desktop, then click Refresh."
+            }
+        } catch {}
+    }
+    return @{ engine = "none"; exe = ""; wslDistro = ""; wslBin = ""; wslHint = $wslHint }
+}
+
+function Invoke-ContainerCli {
+    param(
+        [Parameter(Mandatory)][System.Collections.IDictionary]$Cli,
+        [Parameter(Mandatory)][string[]]$CliArgs
+    )
+    if ($Cli.wslDistro) {
+        $fullArgs = @("-d", $Cli.wslDistro, "--", $Cli.wslBin) + $CliArgs
+        return @(& $Cli.exe @fullArgs 2>&1)
+    }
+    return @(& $Cli.exe @CliArgs 2>&1)
 }
 
 function Get-LocalDevWindowsServices {
@@ -47,9 +79,30 @@ function Get-DockerServicesState {
 
     if ($cli.exe) {
         try {
-            $psRaw = @(& $cli.exe ps -a --format '{{json .}}' 2>&1)
+            $psRaw = Invoke-ContainerCli -Cli $cli -CliArgs @("ps", "-a", "--format", "{{json .}}")
             if ($LASTEXITCODE -eq 0) {
                 $daemonOk = $true
+                $statsMap = @{}
+                try {
+                    $stRaw = Invoke-ContainerCli -Cli $cli -CliArgs @("stats", "--no-stream", "--format", "{{json .}}")
+                    if ($LASTEXITCODE -eq 0) {
+                        foreach ($sln in $stRaw) {
+                            $ss = ([string]$sln).Trim()
+                            if (-not $ss -or -not $ss.StartsWith("{")) { continue }
+                            try {
+                                $so = $ss | ConvertFrom-Json
+                                $sid = ([string]($so.ID ?? $so.Id ?? $so.Container ?? "")).Trim()
+                                if ($sid) {
+                                    $statsMap[$sid] = @{
+                                        cpu = [string]($so.CPUPerc ?? "")
+                                        mem = [string]($so.MemUsage ?? "")
+                                    }
+                                }
+                            } catch {}
+                        }
+                    }
+                } catch {}
+
                 foreach ($ln in $psRaw) {
                     $s = ([string]$ln).Trim()
                     if (-not $s -or -not $s.StartsWith("{")) { continue }
@@ -61,19 +114,23 @@ function Get-DockerServicesState {
                         $statusStr = [string]($obj.Status ?? $stateVal)
                         $isRunning = ($stateVal -eq "running" -or $statusStr -match '^Up\b')
                         $cName = ([string]($obj.Names ?? $obj.Name ?? "")).TrimStart('/')
+                        $cId   = [string]($obj.ID ?? $obj.Id ?? "")
+                        $cStat = if ($statsMap.ContainsKey($cId)) { $statsMap[$cId] } else { $null }
                         $containers.Add([PSCustomObject]@{
-                            id        = [string]($obj.ID ?? $obj.Id ?? "")
+                            id        = $cId
                             name      = $cName
                             image     = [string]($obj.Image ?? "")
                             state     = if ($isRunning) { "running" } else { "stopped" }
                             status    = $statusStr
                             ports     = $portsStr
                             hostPorts = $hostPorts
+                            cpuPerc   = if ($cStat) { $cStat.cpu } else { "" }
+                            memUsage  = if ($cStat) { $cStat.mem } else { "" }
                         })
                     } catch {}
                 }
 
-                $imgRaw = @(& $cli.exe images --format '{{json .}}' 2>$null)
+                $imgRaw = Invoke-ContainerCli -Cli $cli -CliArgs @("images", "--format", "{{json .}}")
                 foreach ($ln in $imgRaw) {
                     $s = ([string]$ln).Trim()
                     if (-not $s -or -not $s.StartsWith("{")) { continue }
@@ -89,7 +146,7 @@ function Get-DockerServicesState {
                     } catch {}
                 }
 
-                $dfRaw = @(& $cli.exe system df --format '{{json .}}' 2>$null)
+                $dfRaw = Invoke-ContainerCli -Cli $cli -CliArgs @("system", "df", "--format", "{{json .}}")
                 foreach ($ln in $dfRaw) {
                     $s = ([string]$ln).Trim()
                     if (-not $s -or -not $s.StartsWith("{")) { continue }
@@ -110,6 +167,8 @@ function Get-DockerServicesState {
         } catch {
             $engineErr = $_.Exception.Message
         }
+    } elseif ($cli.wslHint) {
+        $engineErr = $cli.wslHint
     }
 
     $devSvcs = @(Get-LocalDevWindowsServices)
@@ -144,19 +203,28 @@ function Invoke-DockerServicesAction {
                 return (Get-DockerServicesState)
             }
             "DOCKER_CONTAINER_ACTION" {
-                if (-not $cli.exe) { throw "No Docker or Podman CLI found on PATH." }
+                if (-not $cli.exe) { throw "No Docker or Podman CLI found on PATH or running WSL." }
                 $cid = ([string]($payload["containerId"] ?? "")).Trim()
                 $op  = ([string]($payload["op"] ?? "")).Trim().ToLowerInvariant()
                 if (-not $cid -or $op -notin @("start", "stop", "restart", "rm")) { throw "Invalid container action." }
-                $out = if ($op -eq "rm") { & $cli.exe rm -f $cid 2>&1 } else { & $cli.exe $op $cid 2>&1 }
+                $cArgs = if ($op -eq "rm") { @("rm", "-f", $cid) } else { @($op, $cid) }
+                $out = Invoke-ContainerCli -Cli $cli -CliArgs $cArgs
                 if ($LASTEXITCODE -ne 0) { throw "Container $op failed: $($out -join ' ')" }
                 return (Get-DockerServicesState -Notice "Executed '$($cli.engine) $op $cid' successfully.")
+            }
+            "DOCKER_REMOVE_IMAGE" {
+                if (-not $cli.exe) { throw "No Docker or Podman CLI found." }
+                $imgId = ([string]($payload["imageId"] ?? "")).Trim()
+                if (-not $imgId) { throw "Image ID is required." }
+                $out = Invoke-ContainerCli -Cli $cli -CliArgs @("rmi", "-f", $imgId)
+                if ($LASTEXITCODE -ne 0) { throw "Image removal failed: $($out -join ' ')" }
+                return (Get-DockerServicesState -Notice "Removed container image '$imgId'.")
             }
             "DOCKER_CONTAINER_LOGS" {
                 if (-not $cli.exe) { throw "No Docker or Podman CLI found." }
                 $cid   = ([string]($payload["containerId"] ?? "")).Trim()
                 $cname = ([string]($payload["containerName"] ?? $cid)).Trim()
-                $logs  = (& $cli.exe logs --tail 150 $cid 2>&1 | Out-String)
+                $logs  = ((Invoke-ContainerCli -Cli $cli -CliArgs @("logs", "--tail", "150", $cid)) -join "`n")
                 return [ordered]@{
                     type          = "DOCKER_LOGS_RESULT"
                     ok            = $true
@@ -168,16 +236,17 @@ function Invoke-DockerServicesAction {
                 if (-not $cli.exe) { throw "No Docker or Podman CLI found." }
                 $cid = ([string]($payload["containerId"] ?? "")).Trim()
                 $wt = Get-Command wt.exe -ErrorAction SilentlyContinue
+                $shellArgs = if ($cli.wslDistro) { @("-d", $cli.wslDistro, "--", $cli.wslBin, "exec", "-it", $cid, "/bin/sh") } else { @("exec", "-it", $cid, "/bin/sh") }
                 if ($wt) {
-                    Start-Process -FilePath $wt.Source -ArgumentList @($cli.exe, "exec", "-it", $cid, "/bin/sh")
+                    Start-Process -FilePath $wt.Source -ArgumentList (@($cli.exe) + $shellArgs)
                 } else {
-                    Start-Process -FilePath $cli.exe -ArgumentList @("exec", "-it", $cid, "/bin/sh")
+                    Start-Process -FilePath $cli.exe -ArgumentList $shellArgs
                 }
                 return @{ type = "DOCKER_NOTICE"; ok = $true; message = "Opened interactive shell in container '$cid'." }
             }
             "DOCKER_PRUNE" {
                 if (-not $cli.exe) { throw "No Docker or Podman CLI found." }
-                $out = (& $cli.exe system prune -f 2>&1 | Out-String).Trim()
+                $out = ((Invoke-ContainerCli -Cli $cli -CliArgs @("system", "prune", "-f")) -join "`n").Trim()
                 return (Get-DockerServicesState -Notice "Pruned unused containers, networks & dangling images: $($out.Split("`n")[-1])")
             }
             "DOCKER_SERVICE_TOGGLE" {

@@ -353,7 +353,9 @@ pub fn displays() -> Vec<Display> {
                 _ => "Landscape",
             };
             displays.push(Display {
-                scale: scales.get(&id).copied(),
+                scale: target
+                    .and_then(|target| display_scale(target).ok().map(|scale| scale.current))
+                    .or_else(|| scales.get(&id).copied()),
                 id,
                 name: target
                     .and_then(|target| target.name.clone())
@@ -485,7 +487,14 @@ pub fn last_crash() -> Option<String> {
             .or_else(|| xml.split_once("SystemTime=\""))?
             .1;
         let stamp = time.get(..19)?.replace('T', " ");
-        Some(format!("{stamp} UTC"))
+        let tag = if xml.contains("<EventID>41</EventID>") {
+            "KP-41"
+        } else if xml.contains("<EventID>1001</EventID>") {
+            "BSOD 1001"
+        } else {
+            return Some(format!("{stamp} UTC"));
+        };
+        Some(format!("{stamp} UTC ({tag})"))
     }
 }
 
@@ -509,8 +518,11 @@ struct DisplayTarget {
     connection: &'static str,
     refresh_hz: Option<f64>,
     advanced_color: Option<&'static str>,
+    hdr_api: bool,
     adapter: windows_sys::Win32::Foundation::LUID,
     target_id: u32,
+    source_adapter: windows_sys::Win32::Foundation::LUID,
+    source_id: u32,
 }
 
 fn display_targets() -> HashMap<String, DisplayTarget> {
@@ -518,6 +530,14 @@ fn display_targets() -> HashMap<String, DisplayTarget> {
         Devices::Display::*,
         Foundation::{ERROR_INSUFFICIENT_BUFFER, LUID},
     };
+    #[repr(C)]
+    struct AdvancedColorInfo2 {
+        header: DISPLAYCONFIG_DEVICE_INFO_HEADER,
+        flags: u32,
+        encoding: i32,
+        bits_per_channel: u32,
+        mode: i32,
+    }
     fn header<T>(
         kind: DISPLAYCONFIG_DEVICE_INFO_TYPE,
         adapter: LUID,
@@ -583,15 +603,33 @@ fn display_targets() -> HashMap<String, DisplayTarget> {
                 let name = (DisplayConfigGetDeviceInfo(&mut target_name.header) == 0)
                     .then(|| utf16(&target_name.monitorFriendlyDeviceName))
                     .filter(|name| !name.is_empty());
-                let mut info = DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO {
-                    header: header::<DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO>(
-                        DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO,
-                        target.adapterId,
-                        target.id,
-                    ),
-                    ..Default::default()
+                let mut hdr = AdvancedColorInfo2 {
+                    header: header::<AdvancedColorInfo2>(15, target.adapterId, target.id),
+                    flags: 0,
+                    encoding: 0,
+                    bits_per_channel: 0,
+                    mode: 0,
                 };
-                let advanced_color =
+                let hdr_api = DisplayConfigGetDeviceInfo(&mut hdr.header) == 0;
+                let advanced_color = if hdr_api {
+                    Some(if hdr.flags & 0x10 == 0 {
+                        "Unsupported"
+                    } else if hdr.flags & 0x08 != 0 {
+                        "Managed"
+                    } else if hdr.flags & 0x20 != 0 || hdr.mode == 2 {
+                        "On"
+                    } else {
+                        "Off"
+                    })
+                } else {
+                    let mut info = DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO {
+                        header: header::<DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO>(
+                            DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO,
+                            target.adapterId,
+                            target.id,
+                        ),
+                        ..Default::default()
+                    };
                     (DisplayConfigGetDeviceInfo(&mut info.header) == 0).then(|| {
                         let flags = info.Anonymous.value;
                         if flags & 2 != 0 {
@@ -601,7 +639,8 @@ fn display_targets() -> HashMap<String, DisplayTarget> {
                         } else {
                             "Unsupported"
                         }
-                    });
+                    })
+                };
                 let connection = match target.outputTechnology {
                     DISPLAYCONFIG_OUTPUT_TECHNOLOGY_HDMI => "HDMI",
                     DISPLAYCONFIG_OUTPUT_TECHNOLOGY_DISPLAYPORT_EXTERNAL
@@ -622,14 +661,110 @@ fn display_targets() -> HashMap<String, DisplayTarget> {
                         refresh_hz: (rate.Numerator > 0 && rate.Denominator > 0)
                             .then(|| f64::from(rate.Numerator) / f64::from(rate.Denominator)),
                         advanced_color,
+                        hdr_api,
                         adapter: target.adapterId,
                         target_id: target.id,
+                        source_adapter: source.adapterId,
+                        source_id: source.id,
                     });
             }
             return targets;
         }
     }
     HashMap::new()
+}
+
+const DPI_SCALES: [u32; 12] = [100, 125, 150, 175, 200, 225, 250, 300, 350, 400, 450, 500];
+
+#[derive(Serialize)]
+pub struct DisplayScale {
+    pub current: u32,
+    pub available: &'static [u32],
+    recommended: i32,
+}
+
+#[repr(C)]
+struct ScaleRequest<const N: usize> {
+    header: windows_sys::Win32::Devices::Display::DISPLAYCONFIG_DEVICE_INFO_HEADER,
+    values: [i32; N],
+}
+
+impl<const N: usize> ScaleRequest<N> {
+    fn new(target: &DisplayTarget, kind: i32, values: [i32; N]) -> Self {
+        Self {
+            header: windows_sys::Win32::Devices::Display::DISPLAYCONFIG_DEVICE_INFO_HEADER {
+                r#type: kind,
+                size: mem::size_of::<Self>() as u32,
+                adapterId: target.source_adapter,
+                id: target.source_id,
+            },
+            values,
+        }
+    }
+}
+
+fn display_scale(target: &DisplayTarget) -> Result<DisplayScale, String> {
+    use windows_sys::Win32::Devices::Display::DisplayConfigGetDeviceInfo;
+    // Windows uses signed relative steps from the recommended scale in this CCD request.
+    let mut request = ScaleRequest::new(target, -3, [0; 3]);
+    let result = unsafe { DisplayConfigGetDeviceInfo(&mut request.header) };
+    if result != 0 {
+        return Err(format!(
+            "Windows did not expose scale options for this display ({result})."
+        ));
+    }
+    let [min, current, max] = request.values;
+    let indices = || {
+        let recommended = min.checked_neg()?;
+        let index = usize::try_from(recommended.checked_add(current)?).ok()?;
+        let last = usize::try_from(recommended.checked_add(max)?).ok()?;
+        (min <= 0 && max >= 0 && index <= last && last < DPI_SCALES.len()).then_some((
+            recommended,
+            index,
+            last,
+        ))
+    };
+    let (recommended, index, last) =
+        indices().ok_or("Windows returned an invalid display scale range.")?;
+    Ok(DisplayScale {
+        current: DPI_SCALES[index],
+        available: &DPI_SCALES[..=last],
+        recommended,
+    })
+}
+
+pub fn display_scale_options(id: &str) -> Result<DisplayScale, String> {
+    let targets = display_targets();
+    display_scale(
+        targets
+            .get(id)
+            .ok_or("The selected display is no longer active.")?,
+    )
+}
+
+pub fn set_display_scale(id: &str, percent: u32) -> Result<(), String> {
+    use windows_sys::Win32::Devices::Display::DisplayConfigSetDeviceInfo;
+    let targets = display_targets();
+    let target = targets
+        .get(id)
+        .ok_or("The selected display is no longer active.")?;
+    let scale = display_scale(target)?;
+    let index = scale
+        .available
+        .iter()
+        .position(|&item| item == percent)
+        .ok_or("The selected scale is unavailable for this display.")?;
+    if percent == scale.current {
+        return Ok(());
+    }
+    let request = ScaleRequest::new(target, -4, [index as i32 - scale.recommended]);
+    let result = unsafe { DisplayConfigSetDeviceInfo(&request.header) };
+    if result != 0 {
+        return Err(format!(
+            "Windows rejected the display scale change ({result})."
+        ));
+    }
+    Ok(())
 }
 
 pub fn set_hd_color(id: &str, enabled: bool) -> Result<(), String> {
@@ -645,7 +780,12 @@ pub fn set_hd_color(id: &str, enabled: bool) -> Result<(), String> {
     }
     let request = DISPLAYCONFIG_SET_ADVANCED_COLOR_STATE {
         header: DISPLAYCONFIG_DEVICE_INFO_HEADER {
-            r#type: DISPLAYCONFIG_DEVICE_INFO_SET_ADVANCED_COLOR_STATE,
+            // Newer Windows versions distinguish the HDR switch from wide-gamut color.
+            r#type: if target.hdr_api {
+                16
+            } else {
+                DISPLAYCONFIG_DEVICE_INFO_SET_ADVANCED_COLOR_STATE
+            },
             size: mem::size_of::<DISPLAYCONFIG_SET_ADVANCED_COLOR_STATE>() as u32,
             adapterId: target.adapter,
             id: target.target_id,

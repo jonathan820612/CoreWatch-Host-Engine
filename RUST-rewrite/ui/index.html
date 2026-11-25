@@ -3,13 +3,14 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>CoreWatch Dashboard</title>
+    <title>CoreWatch · RUST Vers.</title>
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="dashboard.css">
     <link rel="stylesheet" href="dashboard-preferences.css">
     <script src="dashboard.js" defer></script>
     <script src="network.js" defer></script>
     <script src="dashboard-network.js" defer></script>
+    <script src="dashboard-controls.js" defer></script>
     <script src="dashboard-layout.js" defer></script>
     <script src="dashboard-theme.js" defer></script>
     <script src="dashboard-preferences.js" defer></script>
@@ -20,7 +21,8 @@
     <header class="app-header-deck" data-tauri-drag-region>
         <div class="header-left-group" data-tauri-drag-region>
             <div class="icon-square-frame" data-tauri-drag-region><img src="icon.png" class="header-corner-brand" alt="CoreWatch" draggable="false" data-tauri-drag-region></div>
-            <span class="header-brand-title" aria-hidden="true" data-tauri-drag-region>COREWATCH</span>
+            <span class="header-brand-title" data-tauri-drag-region>COREWATCH</span>
+            <small class="rust-version" data-tauri-drag-region>RUST Vers.</small>
         </div>
         <nav class="modular-tabs" aria-label="CoreWatch views">
             <button id="tabDashboard" class="tab-btn active" type="button" aria-controls="viewDashboardGrid" aria-pressed="true">📟 Dashboard</button>
@@ -144,14 +146,14 @@
             <div class="metric-group" data-metric-key="id-runtime">
                 <div class="data-field"><span>🎮</span> DirectX: <strong id="lblDirectX">—</strong></div>
                 <div class="data-field"><span>🔲</span> Virtualization: <strong id="lblVirtualization">—</strong> <span class="id-inline-sep">·</span> Secure Boot: <strong id="lblSecureBoot">--</strong></div>
-                <div class="data-field"><span>❯_</span> Engine: <strong id="lblPsVersion">—</strong></div>
+                <div class="data-field"><span>❯_</span> PowerShell: <button id="lblPsVersion" class="diag-pill diag-neutral clickable-pill" type="button" aria-label="Check for PowerShell updates">—</button></div>
             </div>
-            <div class="data-field" data-metric-key="id-java"><span>☕</span> Java: <strong id="lblJavaVersion" class="hardware-stat-tag therm-cool">—</strong></div>
-            <div class="data-field" data-metric-key="id-telemetry"><span>📡</span> Telemetry: <strong id="lblTelemetry">—</strong></div>
+            <div class="data-field" data-metric-key="id-java"><span>☕</span> Java: <button id="lblJavaVersion" class="diag-pill diag-neutral clickable-pill" type="button" aria-haspopup="dialog" aria-label="Choose or install a Java runtime">—</button></div>
+            <div class="data-field" data-metric-key="id-telemetry"><span>📡</span> Telemetry: <button id="lblTelemetry" class="diag-pill diag-neutral clickable-pill" type="button" aria-label="Windows telemetry" disabled>—</button></div>
             <!-- [DIAGNOSTIC ADDITION] Elevation, pending reboot, and last unexpected shutdown -->
             <div class="identity-diag-group" data-metric-key="id-stability">
                 <div class="data-field"><span>🛡️</span> Privilege: <button id="lblElevation" class="diag-pill diag-neutral clickable-pill" type="button" title="Restart CoreWatch as administrator">—</button></div>
-                <div class="data-field"><span>🔄</span> Pending Reboot: <span id="lblPendingReboot" class="diag-pill diag-ok" title="Windows Update, servicing and pending file rename flags">—</span></div>
+                <div class="data-field"><span>🔄</span> Pending Reboot: <button id="lblPendingReboot" class="diag-pill diag-neutral clickable-pill" type="button" disabled>—</button></div>
                 <div class="data-field"><span>💥</span> Last Crash/BSOD: <strong id="lblLastCrash" class="diag-crash-val" title="Kernel-Power (41) / BugCheck (1001)">—</strong></div>
             </div>
         </div>
@@ -193,12 +195,13 @@
                     <div class="video-metric-item"><span>Resolution:</span> <strong id="lblMonResolution">--</strong></div>
                     <div class="video-metric-item"><span>Refresh Rate:</span> <button id="lblMonRefresh" class="display-setting" type="button" title="Choose a driver-supported refresh rate">—</button></div>
                     <div class="video-metric-item"><span>Connection:</span> <strong id="lblMonConnection">--</strong></div>
-                    <div class="video-metric-item"><span>Scale:</span> <button id="lblMonScale" class="display-setting" type="button" title="Open display settings">—</button></div>
+                    <div class="video-metric-item"><span>Scale:</span> <button id="lblMonScale" class="display-setting" type="button" title="Change the selected display scale">—</button></div>
                     <div class="video-metric-item"><span>Orientation:</span> <button id="lblMonOrientation" class="display-setting" type="button" title="Choose display orientation">—</button></div>
                     <div class="video-metric-item"><span>HDR / Color:</span> <button id="lblMonHdr" class="diag-pill diag-neutral clickable-pill" type="button" title="Change Windows Advanced Color">—</button></div>
-                    <div class="video-metric-item"><span>Night Light:</span> <button id="night-light-settings" class="diag-pill diag-neutral clickable-pill" type="button">Settings</button></div>
+                    <div class="video-metric-item"><span>Night Light:</span> <button id="night-light-settings" class="diag-pill diag-neutral clickable-pill" type="button" aria-label="Night Light" disabled>—</button></div>
                     <div class="video-metric-item"><span>Color Profile:</span> <strong id="lblMonColorProfile" class="video-truncate">--</strong></div>
                 </div>
+                <label class="night-warmth" for="night-warmth"><span>🌙 Blue Light</span><input id="night-warmth" type="range" min="0" max="100" value="32" disabled><output id="night-warmth-value" for="night-warmth">—</output></label>
             </div>
         </div>
         <!-- NETWORK PROFILE SYSTEM -->
@@ -209,19 +212,19 @@
                 <div class="net-node"><span>🔏</span> Subnet Mask: <strong id="lblSubnetMask">—</strong></div>
                 <div class="net-node"><span>🚪</span> Gateway: <button id="lblGateway" class="value-action clickable-value" type="button" title="Copy gateway">—</button></div>
                 <div class="net-node"><span>⚙️</span> IP Assignment: <button id="lblNetAssignment" class="toggle-pill-btn state-purple" type="button" title="Open Adapters &amp; IP">—</button></div>
-                <div class="net-node"><span>🛡️</span> Profile Status: <strong id="lblNetworkStatus">—</strong></div>
+                <div class="net-node"><span>🛡️</span> Profile Status: <button id="lblNetworkStatus" class="diag-pill diag-neutral clickable-pill" type="button" disabled>—</button></div>
                 <div class="net-node"><span>📶</span> WLAN SSID: <strong id="lblWlanSsid">—</strong></div>
                 <div class="net-node"><span>🌍</span> Ext IPv4: <button id="lblExtIPv4" class="value-action clickable-value" type="button" title="Look up or copy external IPv4">—</button></div>
                 <div class="net-node"><span>🚀</span> Link Capacity: <strong id="lblLinkCap">—</strong></div>
-                <div class="net-node"><span>🧱</span> Firewall: <button id="lblFirewall" class="diag-pill diag-neutral clickable-pill" type="button" title="Open Windows Firewall">—</button></div>
-                <div class="net-node"><span>👁️</span> Realtime Protection: <button id="lblRealtime" class="diag-pill diag-neutral clickable-pill" type="button" title="Open Windows Security">—</button></div>
-                <div class="net-node"><span>📣</span> Discovery: <button id="discovery-settings" class="diag-pill diag-neutral clickable-pill" type="button">Settings</button></div>
-                <div class="net-node"><span>📂</span> Sharing: <button id="lblSharing" class="diag-pill diag-neutral clickable-pill" type="button" title="Open Windows sharing settings">—</button></div>
+                <div class="net-node"><span>🧱</span> Firewall: <button id="lblFirewall" class="diag-pill diag-neutral clickable-pill" type="button" aria-label="Windows Firewall" disabled>—</button></div>
+                <div class="net-node"><span>👁️</span> Realtime Protection: <button id="lblRealtime" class="diag-pill diag-neutral clickable-pill" type="button" aria-label="Real-time Protection" disabled>—</button></div>
+                <div class="net-node"><span>📣</span> Discovery: <button id="lblDiscovery" class="diag-pill diag-neutral clickable-pill" type="button" aria-label="Network Discovery" disabled>—</button></div>
+                <div class="net-node"><span>📂</span> Sharing: <button id="lblSharing" class="diag-pill diag-neutral clickable-pill" type="button" aria-label="File and Printer Sharing" disabled>—</button></div>
                 <!-- [DEFENDER TAMPER-GATED CONTROLS] T. Protection + Dependent Defender Protections -->
-                <div class="net-node" data-metric-key="net-defender"><span>🛡️</span> T. Protection: <strong id="lblTamperProtection">Unknown</strong></div>
-                <div class="net-node" data-metric-key="net-defender"><span>🧠</span> Behavior Mon: <strong id="lblBehaviorMonitor">Unknown</strong></div>
-                <div class="net-node" data-metric-key="net-defender"><span>☁️</span> Cloud Protect: <strong id="lblCloudProtection">Unknown</strong></div>
-                <div class="net-node" data-metric-key="net-defender"><span>📥</span> IOAV Scan: <strong id="lblIoavProtection">Unknown</strong></div>
+                <div class="net-node" data-metric-key="net-defender"><span>🛡️</span> T. Protection: <button id="lblTamperProtection" class="diag-pill diag-neutral clickable-pill" type="button" aria-label="Tamper Protection policy" disabled>—</button></div>
+                <div class="net-node" data-metric-key="net-defender"><span>🧠</span> Behavior Mon: <button id="lblBehaviorMonitor" class="diag-pill diag-neutral clickable-pill" type="button" aria-label="Behavior Monitoring" disabled>—</button></div>
+                <div class="net-node" data-metric-key="net-defender"><span>☁️</span> Cloud Protect: <button id="lblCloudProtection" class="diag-pill diag-neutral clickable-pill" type="button" aria-label="Cloud-delivered Protection" disabled>—</button></div>
+                <div class="net-node" data-metric-key="net-defender"><span>📥</span> IOAV Scan: <button id="lblIoavProtection" class="diag-pill diag-neutral clickable-pill" type="button" aria-label="Download and Attachment Scanning" disabled>—</button></div>
                 <!-- [DIAGNOSTIC ADDITION] DNS servers, DNS resolution check, and gateway ARP status -->
                 <div class="net-node net-node-span2 dashboard-dns-node" data-metric-key="net-dnsarp"><span>🔎</span> DNS Servers: <button id="lblDnsServers" class="value-action clickable-value" type="button" title="View or configure active adapter DNS">—</button></div>
                 <div class="net-node" data-metric-key="net-dnsarp"><span>🌐</span> DNS Check: <button id="lblDnsStatus" class="diag-pill diag-neutral clickable-pill" type="button" title="Flush the Windows DNS cache and run a live lookup">Test</button></div>

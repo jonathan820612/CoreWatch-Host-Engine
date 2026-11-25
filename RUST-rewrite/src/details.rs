@@ -5,10 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 use sysinfo::{Disks, System};
-use winreg::{
-    RegKey,
-    enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE},
-};
+use winreg::{RegKey, enums::HKEY_LOCAL_MACHINE};
 use wmi::{Variant, WMIConnection};
 
 type Row = HashMap<String, Variant>;
@@ -82,7 +79,12 @@ impl Collector {
         };
         let f = &mut sample.fields;
         put(f, "powerPlan", native::power_plan());
-        put(f, "nightLight", night_light());
+        put(f, "nightLight", crate::night_light::status().map(on_off));
+        put(
+            f,
+            "nightWarmth",
+            crate::night_light::warmth().map(|value| value.to_string()),
+        );
         let thermal = rows(
             self.wmi.as_ref(),
             "SELECT ThrottleReasons, Temperature, HighPrecisionTemperature FROM Win32_PerfFormattedData_Counters_ThermalZoneInformation",
@@ -136,8 +138,12 @@ impl Collector {
         let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
         put(f, "host", System::host_name());
         put(f, "os", System::long_os_version());
-        put(f, "engine", Some("Rust · WebView2"));
-        put(f, "java", java_home_version());
+        put(
+            f,
+            "powershell",
+            crate::dashboard_runtimes::powershell_label(),
+        );
+        put(f, "java", crate::dashboard_runtimes::java_current());
         put(
             f,
             "elevation",
@@ -173,13 +179,7 @@ impl Collector {
                 r"SYSTEM\CurrentControlSet\Services\DiagTrack",
                 "Start",
             )
-            .map(|value| {
-                if value == 4 {
-                    "DiagTrack disabled"
-                } else {
-                    "DiagTrack enabled"
-                }
-            }),
+            .map(|value| if value == 4 { "Off" } else { "On" }),
         );
         let version = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion";
         let build = registry::<String>(&hklm, version, "CurrentBuildNumber");
@@ -193,19 +193,44 @@ impl Collector {
             r"SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending";
         let windows_update =
             r"SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired";
-        let pending = [cbs, windows_update]
-            .iter()
-            .any(|path| hklm.open_subkey(path).is_ok())
-            || registry::<Vec<String>>(
-                &hklm,
-                r"SYSTEM\CurrentControlSet\Control\Session Manager",
-                "PendingFileRenameOperations",
-            )
-            .is_some_and(|paths| !paths.is_empty());
+        let mut reasons: Vec<_> = [
+            (cbs, "Component Based Servicing"),
+            (windows_update, "Windows Update"),
+        ]
+        .into_iter()
+        .filter(|(path, _)| hklm.open_subkey(path).is_ok())
+        .map(|(_, reason)| reason.to_owned())
+        .collect();
+        let active = registry::<String>(
+            &hklm,
+            r"SYSTEM\CurrentControlSet\Control\ComputerName\ActiveComputerName",
+            "ComputerName",
+        );
+        let configured = registry::<String>(
+            &hklm,
+            r"SYSTEM\CurrentControlSet\Control\ComputerName\ComputerName",
+            "ComputerName",
+        );
+        if let (Some(active), Some(configured)) = (active, configured)
+            && !active.eq_ignore_ascii_case(&configured)
+        {
+            reasons.push(format!("Computer rename ({active} → {configured})"));
+        }
+        if registry::<Vec<String>>(
+            &hklm,
+            r"SYSTEM\CurrentControlSet\Control\Session Manager",
+            "PendingFileRenameOperations",
+        )
+        .is_some_and(|paths| !paths.is_empty())
+        {
+            reasons.push("Pending file rename or deletion".to_owned());
+        }
+        let pending = !reasons.is_empty();
+        put(f, "pendingReboot", Some(if pending { "Yes" } else { "No" }));
         put(
             f,
-            "pendingReboot",
-            Some(if pending { "Yes" } else { "No known flags" }),
+            "pendingRebootDetail",
+            pending.then(|| reasons.join(" · ")),
         );
         put(
             f,
@@ -627,14 +652,17 @@ impl Collector {
                 );
             }
         }
-        put(f, "firewall", crate::devices::firewall());
-        if let Some(wmi) = &self.wmi {
-            let shares: Result<Vec<Row>, _> =
-                wmi.raw_query("SELECT Name FROM Win32_Share WHERE Type = 0");
+        if let Ok(firewall) = crate::devices::Firewall::read() {
+            put(f, "firewall", firewall.status());
+            put(
+                f,
+                "discovery",
+                firewall.group_status(crate::devices::FirewallGroup::Discovery),
+            );
             put(
                 f,
                 "sharing",
-                shares.ok().map(|shares| shares.len().to_string()),
+                firewall.group_status(crate::devices::FirewallGroup::Sharing),
             );
         }
         if let Some(defender) = rows(self.defender.as_ref(), "SELECT RealTimeProtectionEnabled, IsTamperProtected, BehaviorMonitorEnabled, IoavProtectionEnabled FROM MSFT_MpComputerStatus").first() {
@@ -733,61 +761,6 @@ fn gpu_instance_suffix<'a>(name: &'a str, adapter: &str) -> Option<&'a str> {
     name.get(start..end)
         .filter(|instance| instance.eq_ignore_ascii_case(adapter))?;
     name.get(end..)
-}
-
-fn java_home_version() -> Option<String> {
-    use std::{fs::File, io::Read, path::PathBuf};
-    let home = PathBuf::from(std::env::var_os("JAVA_HOME")?);
-    let mut contents = String::new();
-    File::open(home.join("release"))
-        .ok()?
-        .take(8192)
-        .read_to_string(&mut contents)
-        .ok()?;
-    let entry = |key: &str| {
-        contents.lines().find_map(|line| {
-            let (name, value) = line.split_once('=')?;
-            (name == key).then_some(value.trim_matches('"'))
-        })
-    };
-    let version = entry("JAVA_VERSION")?;
-    Some(match entry("IMPLEMENTOR") {
-        Some(vendor) => format!("{version} ({vendor})"),
-        None => version.to_owned(),
-    })
-}
-
-fn night_light() -> Option<&'static str> {
-    let user = RegKey::predef(HKEY_CURRENT_USER);
-    for path in [
-        r"Software\Microsoft\Windows\CurrentVersion\CloudStore\Store\DefaultAccount\Current\default$windows.data.bluelightreduction.bluelightreductionstate\windows.data.bluelightreduction.bluelightreductionstate",
-        r"Software\Microsoft\Windows\CurrentVersion\CloudStore\Store\Cache\DefaultAccount\$$windows.data.bluelightreduction.bluelightreductionstate\Current",
-    ] {
-        let Ok(data) = user
-            .open_subkey(path)
-            .and_then(|key| key.get_raw_value("Data"))
-        else {
-            continue;
-        };
-        let Some(payload) = data.bytes.get(10..) else {
-            continue;
-        };
-        if let Some(index) = payload
-            .windows(4)
-            .position(|marker| marker == b"CB\x01\x00")
-        {
-            let inner = payload.get(index + 4..)?;
-            if inner.starts_with(&[0x10, 0x00]) {
-                return Some("On");
-            }
-            if inner.starts_with(&[0xd0, 0x0a]) {
-                return Some("Off");
-            }
-        } else if data.bytes.len() > 24 && data.bytes[18] == 0x15 {
-            return Some("On");
-        }
-    }
-    None
 }
 
 #[cfg(test)]

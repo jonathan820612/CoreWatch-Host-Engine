@@ -93,7 +93,7 @@ function Test-HomelabNodeTelemetry {
         $sshExe = Get-Command ssh -ErrorAction SilentlyContinue
         if (-not $sshExe) { $res["detail"] = "OpenSSH client not found on PATH"; return $res }
         $target = if ($user) { "$user@$addr" } else { $addr }
-        $remoteCmd = 'printf "HOST=%s|OS=%s|UP=%s|MEM=%s|DISK=%s|LOAD=%s\n" "$(hostname)" "$(uname -sr)" "$(uptime -p 2>/dev/null || uptime)" "$(free -m 2>/dev/null | awk ''/Mem:/{printf \"%d/%d\",$3,$2}'')" "$(df -P / 2>/dev/null | awk ''NR==2{gsub(/%/,\"\",$5); print $5}'')" "$(cut -d\" \" -f1 /proc/loadavg 2>/dev/null)"'
+        $remoteCmd = 'printf "HOST=%s|OS=%s|UP=%s|CPU=%s|MEM=%s|DISK=%s|LOAD=%s\n" "$(hostname)" "$(uname -sr)" "$(uptime -p 2>/dev/null || uptime)" "$(LC_ALL=C top -bn1 2>/dev/null | awk -F, ''/Cpu\(s\)/{for(i=1;i<=NF;i++) if($i~/id/){gsub(/[^0-9.]/,\"\",$i); printf \"%.0f\", 100-$i; exit}}'')" "$(free -m 2>/dev/null | awk ''/Mem:/{printf \"%d/%d\",$3,$2}'')" "$(df -P / 2>/dev/null | awk ''NR==2{gsub(/%/,\"\",$5); print $5}'')" "$(cut -d\" \" -f1 /proc/loadavg 2>/dev/null)"'
         try {
             $sshOut = (& $sshExe.Source -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new -p $port $target $remoteCmd 2>&1 | Out-String).Trim()
             if ($LASTEXITCODE -eq 0 -and $sshOut -match 'HOST=') {
@@ -105,6 +105,7 @@ function Test-HomelabNodeTelemetry {
                 }
                 $res["osInfo"] = [string]($kv["OS"] ?? "Linux/SSH")
                 $res["uptime"] = [string]($kv["UP"] ?? "")
+                if ($kv["CPU"] -match '^\d+$') { $res["cpuPct"] = [int]$kv["CPU"] }
                 if ($kv["MEM"] -match '^(\d+)/(\d+)$' -and [int]$Matches[2] -gt 0) {
                     $uMb = [int]$Matches[1]; $tMb = [int]$Matches[2]
                     $res["ramPct"]  = [math]::Round(($uMb / $tMb) * 100, 1)
@@ -202,6 +203,54 @@ function Invoke-HomelabAction {
             }
             "HOMELAB_POLL_ALL" {
                 return (Get-HomelabState -PollNow -Notice "Polled $($store.nodes.Count) homelab node(s).")
+            }
+            "HOMELAB_POLL_ONE" {
+                $nid = ([string]($payload["nodeId"] ?? "")).Trim()
+                $targetNode = @($store.nodes | Where-Object { $_["id"] -eq $nid }) | Select-Object -First 1
+                if (-not $targetNode) { throw "Node '$nid' not found." }
+                $polled = Test-HomelabNodeTelemetry -Node $targetNode
+                return [ordered]@{
+                    type   = "HOMELAB_NODE_POLLED"
+                    ok     = $true
+                    node   = $polled
+                    notice = "Polled '$($polled.name)': $(if ($polled.online) { 'Online' } else { 'Offline' }) ($($polled.detail))."
+                }
+            }
+            "HOMELAB_IMPORT_SSH_HOSTS" {
+                $sshMod = Join-Path $RootPath "modules\tabs\SshCertsManager.ps1"
+                if (-not (Test-Path -LiteralPath $sshMod -PathType Leaf)) { throw "SSH module not found." }
+                . $sshMod
+                $sshHosts = @(Get-ParsedSshConfigHosts)
+                if ($sshHosts.Count -eq 0) { throw "No hosts found in ~/.ssh/config to import." }
+                $list = New-Object System.Collections.Generic.List[object]
+                $existingHosts = @{}
+                foreach ($old in @($store.nodes)) {
+                    $list.Add($old)
+                    $existingHosts[([string]$old["host"]).ToLowerInvariant()] = $true
+                    $existingHosts[([string]$old["name"]).ToLowerInvariant()] = $true
+                }
+                $added = 0
+                foreach ($sh in $sshHosts) {
+                    $hn = if ($sh.hostName) { [string]$sh.hostName } else { [string]$sh.alias }
+                    if ($existingHosts.ContainsKey($hn.ToLowerInvariant()) -or $existingHosts.ContainsKey(([string]$sh.alias).ToLowerInvariant())) { continue }
+                    $pInt = 22
+                    [void][int]::TryParse([string]$sh.port, [ref]$pInt)
+                    if ($pInt -le 0) { $pInt = 22 }
+                    $list.Add([ordered]@{
+                        id     = "node_" + ([guid]::NewGuid().ToString("N").Substring(0, 8))
+                        name   = [string]$sh.alias
+                        mode   = "ssh"
+                        host   = $hn
+                        port   = $pInt
+                        user   = [string]$sh.user
+                        webUrl = ""
+                    })
+                    $added++
+                }
+                $store["nodes"] = $list.ToArray()
+                Save-HomelabStore -Store $store
+                $msg = if ($added -gt 0) { "Imported $added host(s) from ~/.ssh/config." } else { "All ~/.ssh/config hosts are already in Homelab Monitor." }
+                return (Get-HomelabState -Notice $msg)
             }
             "HOMELAB_SAVE_NODE" {
                 $n = $payload["node"]

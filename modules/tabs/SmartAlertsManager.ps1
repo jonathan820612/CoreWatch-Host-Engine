@@ -419,6 +419,7 @@ function Invoke-SmartAlertsAction {
                 foreach ($r in @($store.rules)) {
                     if ($r["id"] -eq $rid) { $r["enabled"] = [bool]($payload["enabled"] ?? (-not $r["enabled"])) }
                 }
+                if ($script:WatchdogBreachStarts.ContainsKey($rid)) { $script:WatchdogBreachStarts.Remove($rid) }
                 Save-SmartAlertsStore -Store $store
                 return (Get-SmartAlertsState -Notice "Updated alert rule state.")
             }
@@ -429,13 +430,21 @@ function Invoke-SmartAlertsAction {
                 $list = New-Object System.Collections.Generic.List[object]
                 $replaced = $false
                 foreach ($r in @($store.rules)) {
-                    if ($r["id"] -eq $norm["id"]) { $list.Add($norm); $replaced = $true }
-                    else { $list.Add($r) }
+                    if ($r["id"] -eq $norm["id"]) {
+                        if ($r.ContainsKey("isBuiltIn") -and [bool]$r["isBuiltIn"]) { $norm["isBuiltIn"] = $true }
+                        $list.Add($norm)
+                        $replaced = $true
+                    } else {
+                        $list.Add($r)
+                    }
                 }
                 if (-not $replaced) { $list.Add($norm) }
+                if ($script:WatchdogBreachStarts.ContainsKey($norm["id"])) { $script:WatchdogBreachStarts.Remove($norm["id"]) }
+                if ($script:WatchdogLastFired.ContainsKey($norm["id"])) { $script:WatchdogLastFired.Remove($norm["id"]) }
                 $store["rules"] = $list.ToArray()
                 Save-SmartAlertsStore -Store $store
-                return (Get-SmartAlertsState -Notice "Saved watchdog rule '$($norm.name)'.")
+                $verb = if ($replaced) { "Updated" } else { "Added" }
+                return (Get-SmartAlertsState -Notice "$verb watchdog rule '$($norm.name)'.")
             }
             "ALERTS_DELETE_RULE" {
                 $rid = [string]($payload["ruleId"] ?? "")

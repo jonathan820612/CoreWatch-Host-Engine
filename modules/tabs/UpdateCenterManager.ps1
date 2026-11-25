@@ -42,10 +42,16 @@ function Get-WinGetPendingUpgrades {
 
     $items = New-Object System.Collections.Generic.List[object]
     try {
-        $rawOut = @(& $wg.Source upgrade --accept-source-agreements 2>$null)
+        $rawOut = @(& $wg.Source upgrade --accept-source-agreements 2>$null | ForEach-Object {
+            $s = [string]$_
+            # Strip ANSI escape codes and CR spinner prefixes
+            $s = $s -replace '\x1b\[[0-9;]*[A-Za-z]', ''
+            if ($s.Contains("`r")) { $s = ($s -split "`r")[-1] }
+            $s
+        })
         $sepIdx = -1
         for ($i = 0; $i -lt $rawOut.Count; $i++) {
-            if ($rawOut[$i] -match '^-{10,}') { $sepIdx = $i; break }
+            if ($rawOut[$i] -match '^\s*-{10,}') { $sepIdx = $i; break }
         }
         if ($sepIdx -ge 1) {
             $header = [string]$rawOut[$sepIdx - 1]
@@ -121,6 +127,30 @@ function Get-PendingWindowsUpdatesFast {
     }
 }
 
+function Get-InstalledDevRuntimesSummary {
+    $runtimes = New-Object System.Collections.Generic.List[object]
+    $probes = @(
+        @{ name = ".NET SDK"; cmd = "dotnet"; args = @("--version"); rx = '([\d]+\.[\d]+\.[\d]+[^\s]*)' },
+        @{ name = "Node.js";  cmd = "node";   args = @("--version"); rx = 'v?([\d]+\.[\d]+\.[\d]+)' },
+        @{ name = "Python";   cmd = "python"; args = @("--version"); rx = '([\d]+\.[\d]+\.[\d]+)' },
+        @{ name = "Git";      cmd = "git";    args = @("--version"); rx = '([\d]+\.[\d]+\.[\d]+[^\s]*)' },
+        @{ name = "Rust";     cmd = "rustc";  args = @("--version"); rx = '([\d]+\.[\d]+\.[\d]+)' },
+        @{ name = "Go";       cmd = "go";     args = @("version");   rx = 'go([\d]+\.[\d]+(?:\.[\d]+)?)' }
+    )
+    foreach ($pr in $probes) {
+        $c = Get-Command $pr.cmd -ErrorAction SilentlyContinue
+        if ($c -and $c.Source) {
+            $ver = "Installed"
+            try {
+                $out = (& $c.Source @($pr.args) 2>&1 | Out-String).Trim()
+                if ($out -match $pr.rx) { $ver = $Matches[1] }
+            } catch {}
+            $runtimes.Add([PSCustomObject]@{ name = $pr.name; version = $ver; installed = $true; path = $c.Source })
+        }
+    }
+    return $runtimes.ToArray()
+}
+
 function Get-UpdateCenterState {
     param(
         [Parameter(Mandatory)][string]$RootPath,
@@ -139,6 +169,7 @@ function Get-UpdateCenterState {
     $wu   = Get-PendingWindowsUpdatesFast -IncludeOnline:$OnlineWindowsUpdate
     $ps   = Get-PowerShellUpdateStatus -Force:$ForcePsCheck
     $cw   = Invoke-CoreWatchUpdateCheck -RootPath $RootPath
+    $rt   = @(Get-InstalledDevRuntimesSummary)
 
     $activeWg = (@($wg.items | Where-Object { -not $_.pinned })).Count
     $pinnedWg = (@($wg.items | Where-Object { $_.pinned })).Count
@@ -149,6 +180,7 @@ function Get-UpdateCenterState {
         pinnedIds      = @($pins)
         winget         = $wg
         windowsUpdates = $wu
+        devRuntimes    = $rt
         powershell     = [ordered]@{
             current = [string]$global:PSVersionTable.PSVersion.ToString()
             latest  = [string]$ps.latest
@@ -165,6 +197,7 @@ function Get-UpdateCenterState {
             windowsCount  = $wu.items.Count
             psMissed      = [int]$ps.missed
             cwHasUpdate   = [bool]$cw.hasUpdate
+            runtimeCount  = $rt.Count
         }
         notice         = $Notice
         noticeError    = $NoticeError

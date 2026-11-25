@@ -300,9 +300,9 @@ function Start-ParsedCommandLine {
 
     if ($cmd -match '^"([^"]+)"\s*(.*)$') {
         $file = [System.Environment]::ExpandEnvironmentVariables($Matches[1])
-        $args = $Matches[2].Trim()
-        if ($args) {
-            Start-Process -FilePath $file -ArgumentList $args -ErrorAction Stop
+        $uninstArgs = $Matches[2].Trim()
+        if ($uninstArgs) {
+            Start-Process -FilePath $file -ArgumentList $uninstArgs -ErrorAction Stop
         } else {
             Start-Process -FilePath $file -ErrorAction Stop
         }
@@ -312,9 +312,9 @@ function Start-ParsedCommandLine {
     # Unquoted executable path (may contain spaces before .exe)
     if ($cmd -match '^(.+?\.(?:exe|bat|cmd|msi))\s*(.*)$') {
         $file = [System.Environment]::ExpandEnvironmentVariables($Matches[1].Trim())
-        $args = $Matches[2].Trim()
-        if ($args) {
-            Start-Process -FilePath $file -ArgumentList $args -ErrorAction Stop
+        $uninstArgs = $Matches[2].Trim()
+        if ($uninstArgs) {
+            Start-Process -FilePath $file -ArgumentList $uninstArgs -ErrorAction Stop
         } else {
             Start-Process -FilePath $file -ErrorAction Stop
         }

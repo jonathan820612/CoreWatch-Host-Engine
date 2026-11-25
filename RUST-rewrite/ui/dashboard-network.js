@@ -25,6 +25,61 @@ function createDashboardNetwork(invoke) {
     let resolvingGateway = false;
     let profile = "";
 
+    const firewallGroups = [
+        ["discovery", "lblDiscovery", "Network Discovery"],
+        ["sharing", "lblSharing", "File and Printer Sharing"]
+    ].map(([key, id, label]) => {
+        const button = byId(id);
+        let status;
+        let saving = false;
+
+        function render() {
+            const on = status === "On";
+            const mixed = status === "Mixed";
+            const action = on || mixed ? "turn off" : "turn on";
+            const title = !status ? `${label} status is unavailable.`
+                : mixed ? `${label} differs across active firewall profiles.`
+                : `${label} is ${status.toLowerCase()} on the active firewall profile(s).`;
+            badge(id, saving ? "…" : status?.toUpperCase(), on,
+                title + (status && !saving ? elevated ? ` Click to ${action}.` : " Administrator access is required to change it." : ""),
+                saving || !status ? "diag-neutral" : mixed ? "diag-warn" : undefined);
+            if (status) button.setAttribute("aria-pressed", mixed ? "mixed" : String(on));
+            else button.removeAttribute("aria-pressed");
+            button.disabled = !status || saving;
+        }
+
+        button.addEventListener("click", async () => {
+            if (!status || saving) return;
+            if (!elevated) {
+                if (await askDashboard("Restart as administrator", `Windows requires administrator access to change ${label}.`)) {
+                    await dashboardCommand("elevate");
+                }
+                return;
+            }
+            const enabled = status === "Off";
+            const verb = enabled ? "Enable" : "Disable";
+            if (!await askDashboard(`${verb} ${label}`,
+                `${verb} ${label} firewall rules for all profiles, including Public?`)) return;
+            saving = true;
+            render();
+            try {
+                await invoke("set_discovery_sharing", { group: key, enabled });
+                log(`${label} turned ${enabled ? "on" : "off"}.`);
+            } catch (error) {
+                log(String(error));
+                show("status", "Action failed. See log.");
+            } finally {
+                saving = false;
+                render();
+            }
+        });
+
+        return (fields) => {
+            status = fields[key];
+            render();
+        };
+    });
+
     const adapterKey = (uplink) => uplink ? JSON.stringify([uplink.index, uplink.name]) : "";
 
     function updateForm() {
@@ -144,6 +199,7 @@ function createDashboardNetwork(invoke) {
             current = details.dns_uplink;
             gateway = details.fields.gateway;
             elevated = details.fields.elevation === "Administrator";
+            for (const updateGroup of firewallGroups) updateGroup(details.fields);
             const next = JSON.stringify([adapterKey(current), current?.ipv4, current?.ipv6]);
             if (profile !== next) {
                 profile = next;

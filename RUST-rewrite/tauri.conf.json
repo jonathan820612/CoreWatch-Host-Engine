@@ -7,7 +7,7 @@
     "withGlobalTauri": true,
     "windows": [{
       "label": "main",
-      "title": "CoreWatch · Telemetry Dashboard",
+      "title": "CoreWatch · RUST Vers.",
       "decorations": false,
       "width": 1080,
       "height": 970,

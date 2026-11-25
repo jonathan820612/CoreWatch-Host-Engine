@@ -159,11 +159,18 @@ function Get-SavedSnapshotsMetadata {
 function Get-SnapshotsState {
     param([string]$Notice = "", [bool]$NoticeError = $false)
     $snaps = @(Get-SavedSnapshotsMetadata)
+    $rpCount = (@($snaps | Where-Object { $_.restorePoint })).Count
+    $totalKB = 0.0
+    foreach ($s in $snaps) { $totalKB += [double]($s.sizeKB ?? 0) }
+    $latestAt = if ($snaps.Count -gt 0) { [string]$snaps[0].createdAt } else { "None yet" }
     return [ordered]@{
-        type        = "SNAPSHOTS_STATE"
-        snapshots   = $snaps
-        notice      = $Notice
-        noticeError = $NoticeError
+        type              = "SNAPSHOTS_STATE"
+        snapshots         = $snaps
+        restorePointCount = $rpCount
+        totalSizeKB       = [math]::Round($totalKB, 1)
+        latestCreatedAt   = $latestAt
+        notice            = $Notice
+        noticeError       = $NoticeError
     }
 }
 
@@ -265,6 +272,38 @@ function Invoke-SnapshotsAction {
             "SNAP_OPEN_RESTORE_UI" {
                 Start-Process "rstrui.exe"
                 return @{ type = "SNAPSHOTS_NOTICE"; ok = $true; message = "Opened Windows System Restore (rstrui.exe)." }
+            }
+            "SNAP_EXPORT_DIFF" {
+                $beforeLabel = [string]($payload["beforeLabel"] ?? "Before")
+                $afterLabel  = [string]($payload["afterLabel"] ?? "After")
+                $cats        = @($payload["categories"])
+                $expDir = Join-Path (Join-Path $env:LOCALAPPDATA "CoreWatch") "exports"
+                if (-not (Test-Path -LiteralPath $expDir)) { $null = New-Item -ItemType Directory -Path $expDir -Force }
+                $outFile = Join-Path $expDir ("CoreWatch_SnapshotDiff_{0}.md" -f (Get-Date -Format "yyyyMMdd_HHmmss"))
+
+                $sb = New-Object System.Text.StringBuilder
+                [void]$sb.AppendLine("# CoreWatch System Snapshot Diff Report")
+                [void]$sb.AppendLine("")
+                [void]$sb.AppendLine("- **Generated:** $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')")
+                [void]$sb.AppendLine("- **Computer:** $env:COMPUTERNAME")
+                [void]$sb.AppendLine("- **Before:** $beforeLabel")
+                [void]$sb.AppendLine("- **After:** $afterLabel")
+                [void]$sb.AppendLine("")
+                foreach ($c in $cats) {
+                    $tot = [int]($c["total"] ?? 0)
+                    [void]$sb.AppendLine("## $($c['category']) ($tot change(s))")
+                    if ($tot -eq 0) {
+                        [void]$sb.AppendLine("_No changes detected._")
+                    } else {
+                        foreach ($a in @($c["added"]))    { [void]$sb.AppendLine("- **+ ADDED** ``$($a['key'])``: $($a['value'])") }
+                        foreach ($r in @($c["removed"]))  { [void]$sb.AppendLine("- **- REMOVED** ``$($r['key'])``: $($r['value'])") }
+                        foreach ($m in @($c["modified"])) { [void]$sb.AppendLine("- **~ MODIFIED** ``$($m['key'])``: ``$($m['before'])`` → ``$($m['after'])``") }
+                    }
+                    [void]$sb.AppendLine("")
+                }
+                [System.IO.File]::WriteAllText($outFile, $sb.ToString(), (New-Object System.Text.UTF8Encoding($false)))
+                Start-Process "explorer.exe" -ArgumentList "/select,`"$outFile`""
+                return @{ type = "SNAPSHOTS_NOTICE"; ok = $true; message = "Exported Markdown diff report: $outFile" }
             }
             default { throw "Unknown Snapshots command: $cmd" }
         }

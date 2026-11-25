@@ -302,6 +302,10 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
             <div id="storageVolumeContainer" class="storage-dynamic-mesh-grid">
                 <div class="driver-text-node">Evaluating connected media arrays...</div>
             </div>
+            <div class="storage-card-footer">
+                <span id="lblStorageTelemetryPaused" class="dp-card-paused-hint" style="display: none;">⏸ Telemetry paused</span>
+                <button type="button" id="btnOpenDiskPartitioner" class="storage-part-btn" onclick="OpenDiskPartitioner()" title="Open floating Disk Partitioner to initialize, partition, format, resize, or assign drive letters (automatically pauses live telemetry while open)">💿 Disk Partitioner</button>
+            </div>
         </div>
 
         <!-- SYSTEM INFRASTRUCTURE NODE -->
@@ -1526,6 +1530,7 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
                 <button type="button" id="btnDiskMapScanNow" class="console-clear-btn btn-accent-action" onclick="TriggerDiskMapScanFromInput()">⚡ Scan Now</button>
             </div>
         </div>
+        <p>Rapidly map folder sizes, locate the largest files and extensions consuming storage, and drill down interactively with a WizTree-style squarified treemap.</p>
 
         <!-- Drive Selector Cards + Custom Target Path -->
         <div class="diskmap-top-bar">
@@ -1602,6 +1607,7 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
                 <button type="button" class="console-clear-btn btn-accent-action" onclick="RequestGitHubManagerState()">Refresh</button>
             </div>
         </div>
+        <p>Inspect local Git workspaces, pull or open repositories in VS Code, clone any GitHub URL to a chosen folder, and publish tagged Releases with attached installer assets.</p>
 
         <!-- Collapsible GitHub PAT Auth Bar -->
         <div id="ghPatAuthBar" class="dev-auth-bar" style="display: none;">
@@ -1721,6 +1727,7 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
                 <button type="button" class="console-clear-btn" onclick="RequestJiraManagerState()" title="Re-sync issues and projects from Jira">Refresh</button>
             </div>
         </div>
+        <p>Connect to Jira Cloud or Data Center (with DPAPI-encrypted tokens) to browse sprint work, transition issue statuses, post comments, log time, and create new tickets.</p>
 
         <!-- Jira Sign-In / Connection Card -->
         <div id="jiraAuthPanel" class="cw-set-card" style="margin-bottom: 10px;">
@@ -1909,7 +1916,7 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
                         </div>
                         <div class="cw-dir-row">
                             <label for="inpProfAccent">Accent</label>
-                            <input type="color" id="inpProfAccent" value="#4299e1" style="height: 28px; width: 54px; background: #0f141d; border: 1px solid #3a4659; cursor: pointer;">
+                            <input type="color" id="inpProfAccent" value="#4299e1" style="height: 28px; width: 54px; background: var(--cw-bg-inset); border: 1px solid var(--cw-border-strong); cursor: pointer;">
                         </div>
                     </div>
                     <div class="cw-dir-row">
@@ -2072,13 +2079,15 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
         <div class="console-header-row">
             <h2 id="smartAlertsTitle">🔔 SMART ALERTS &amp; WATCHDOG RULES</h2>
             <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                <button type="button" class="console-clear-btn btn-accent-action" onclick="ToggleAlertRuleEditor(true)" title="Create a new threshold or service watchdog rule">➕ New Rule</button>
                 <button type="button" id="btnAlertsMuteToggle" class="console-clear-btn" onclick="TriggerToggleAlertsMute()" title="Temporarily silence all watchdog notifications">🔇 Mute</button>
                 <button type="button" class="console-clear-btn" onclick="TriggerTestAlertToast()" title="Fire a sample native Windows toast notification right now">🧪 Test Toast</button>
                 <button type="button" class="console-clear-btn" onclick="TriggerAckAllAlerts()" title="Mark all alert history items as acknowledged">✓ Ack All</button>
-                <button type="button" class="console-clear-btn wsl-btn-danger" onclick="TriggerResetDefaultAlerts()" title="Restore the 6 factory starter watchdog rules">↺ Reset Defaults</button>
-                <button type="button" class="console-clear-btn btn-accent-action" onclick="RequestSmartAlertsState()">Refresh</button>
+                <button type="button" class="console-clear-btn wsl-btn-danger" onclick="TriggerResetDefaultAlerts()" title="Restore the 6 factory starter watchdog rules">↺ Defaults</button>
+                <button type="button" class="console-clear-btn" onclick="RequestSmartAlertsState()">Refresh</button>
             </div>
         </div>
+        <p>Define automated threshold rules over CPU/GPU temperatures, RAM pressure, low disk space, internet drops, or critical Windows services with sustained-hold timing and native toast notifications.</p>
         <div class="tab-summary-strip" style="margin-bottom: 8px;">
             <span class="summary-chip chip-accent">Active Rules: <strong id="sumAlertsEnabled">0</strong></span>
             <span class="summary-chip">Unacknowledged: <strong id="sumAlertsUnacked">0</strong></span>
@@ -2087,12 +2096,16 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
         <div id="alertsStatus" class="sharing-status" style="margin-bottom: 8px;" role="status">Watchdog rules evaluate automatically against live telemetry.</div>
 
         <div class="organizer-scroll-area">
-            <div class="cw-set-card" style="margin-bottom: 10px;">
-                <div class="cw-set-sec-title">➕ Add / Edit Watchdog Rule</div>
+            <div id="alertRuleEditorCard" class="cw-set-card" style="display: none; margin-bottom: 10px;">
+                <div class="new-tab-section-head">
+                    <div id="lblAlertEditorTitle" class="cw-set-sec-title" style="border: none; padding: 0;">➕ Add Watchdog Rule</div>
+                    <button type="button" class="console-clear-btn" onclick="ToggleAlertRuleEditor(false)">✕ Close</button>
+                </div>
+                <input type="hidden" id="inpAlertId">
                 <div class="new-tab-form-grid">
                     <div class="cw-dir-row"><label for="inpAlertName">Rule Name</label><input type="text" id="inpAlertName" class="prof-input" placeholder="e.g. CPU Thermal Spike"></div>
                     <div class="cw-dir-row"><label for="selAlertMetric">Metric</label>
-                        <select id="selAlertMetric" class="prof-select">
+                        <select id="selAlertMetric" class="prof-select" onchange="SyncAlertEditorMetricDefaults()">
                             <option value="cpu_temp">CPU Temp (°C)</option>
                             <option value="gpu_temp">GPU Temp (°C)</option>
                             <option value="cpu_load">CPU Load (%)</option>
@@ -2102,9 +2115,23 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
                             <option value="service_stopped">Windows Service Stopped</option>
                         </select>
                     </div>
+                    <div class="cw-dir-row"><label for="selAlertOperator">Condition</label>
+                        <select id="selAlertOperator" class="prof-select">
+                            <option value="gt">≥ Above or Equal</option>
+                            <option value="lt">≤ Below or Equal</option>
+                            <option value="eq">= Equals / Triggered</option>
+                        </select>
+                    </div>
                     <div class="cw-dir-row"><label for="inpAlertThreshold">Threshold</label><input type="number" id="inpAlertThreshold" class="prof-input" value="85"></div>
                     <div class="cw-dir-row"><label for="inpAlertDuration">Sustained (sec)</label><input type="number" id="inpAlertDuration" class="prof-input" value="30" title="How many seconds the condition must hold before firing"></div>
                     <div class="cw-dir-row"><label for="inpAlertCooldown">Cooldown (min)</label><input type="number" id="inpAlertCooldown" class="prof-input" value="5" title="Minimum minutes between repeated alerts for this rule"></div>
+                    <div class="cw-dir-row"><label for="selAlertSeverity">Severity</label>
+                        <select id="selAlertSeverity" class="prof-select">
+                            <option value="warning">Warning</option>
+                            <option value="critical">Critical</option>
+                            <option value="info">Info</option>
+                        </select>
+                    </div>
                     <div class="cw-dir-row"><label for="selAlertAction">Action</label>
                         <select id="selAlertAction" class="prof-select">
                             <option value="toast">Windows Toast Notification</option>
@@ -2113,8 +2140,11 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
                             <option value="restart_service">Toast + Auto-Restart Service</option>
                         </select>
                     </div>
-                    <div class="cw-dir-row"><label for="inpAlertTarget">Target (Drive / Service list)</label><input type="text" id="inpAlertTarget" class="prof-input" placeholder="ANY or C: or Dhcp,Dnscache"></div>
-                    <div class="cw-dir-row" style="justify-content: flex-end;"><button type="button" class="console-clear-btn btn-accent-action" onclick="TriggerSaveAlertRule()">💾 Save Rule</button></div>
+                    <div class="cw-dir-row"><label for="inpAlertTarget">Target (Drive / Services)</label><input type="text" id="inpAlertTarget" class="prof-input" placeholder="ANY or C: or Dhcp,Dnscache"></div>
+                    <div class="cw-dir-row" style="justify-content: flex-end; flex-direction: row; align-items: flex-end; gap: 6px;">
+                        <button type="button" class="console-clear-btn" onclick="ToggleAlertRuleEditor(false)">Cancel</button>
+                        <button type="button" class="console-clear-btn btn-accent-action" onclick="TriggerSaveAlertRule()">💾 Save Rule</button>
+                    </div>
                 </div>
             </div>
 
@@ -2124,7 +2154,7 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
                     <div id="alertsRulesList" class="new-tab-stack"></div>
                 </div>
                 <div class="cw-set-card">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div class="new-tab-section-head">
                         <div class="cw-set-sec-title" style="border: none; padding: 0;">🕒 Alert Trigger History</div>
                         <button type="button" class="console-clear-btn" onclick="TriggerClearAlertHistory()">Clear</button>
                     </div>
@@ -2145,6 +2175,7 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
                 <button type="button" class="console-clear-btn btn-accent-action" onclick="RequestUpdateCenterState(false)">🔄 Scan All</button>
             </div>
         </div>
+        <p>Audit pending WinGet package upgrades (with persistent Pin/Ignore exclusions), pending Windows Updates, PowerShell 7 &amp; CoreWatch self-updates, and installed local dev runtimes in one screen.</p>
         <div class="tab-summary-strip" style="margin-bottom: 8px;">
             <span class="summary-chip chip-accent">WinGet Pending: <strong id="sumUpdWinget">0</strong></span>
             <span class="summary-chip">Pinned/Ignored: <strong id="sumUpdPinned">0</strong></span>
@@ -2156,9 +2187,11 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
 
         <div class="organizer-scroll-area">
             <div class="cw-set-card" style="margin-bottom: 10px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <div class="new-tab-section-head">
                     <div class="cw-set-sec-title" style="border: none; padding: 0;">📦 WinGet Application Upgrades</div>
-                    <div style="display: flex; gap: 6px;">
+                    <div class="new-tab-inline-bar">
+                        <input type="text" id="inpUpdSearch" class="tab-search-input" style="max-width: 210px; padding: 3px 8px; font-size: 10.5px;" placeholder="Filter packages..." oninput="RenderUpdateWinGetList()">
+                        <label class="org-checkbox-label"><input type="checkbox" id="chkUpdHidePinned" onchange="RenderUpdateWinGetList()"><span>Hide Pinned</span></label>
                         <button type="button" class="console-clear-btn" onclick="ToggleSelectAllUpdates(true)">Select Active</button>
                         <button type="button" class="console-clear-btn btn-accent-action" onclick="TriggerUpgradeSelectedWinGet()" title="Upgrade only the checked, unpinned packages in a terminal">⬆️ Upgrade Selected</button>
                     </div>
@@ -2172,7 +2205,7 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
                     <div id="updWindowsList" class="new-tab-stack"></div>
                 </div>
                 <div class="cw-set-card">
-                    <div class="cw-set-sec-title">⚙️ CoreWatch &amp; PowerShell Runtime</div>
+                    <div class="cw-set-sec-title">⚙️ PowerShell, CoreWatch &amp; Dev Runtimes</div>
                     <div id="updRuntimeCard" class="new-tab-stack"></div>
                 </div>
             </div>
@@ -2189,6 +2222,13 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
                 <button type="button" class="console-clear-btn btn-accent-action" onclick="RequestSnapshotsState()">Refresh</button>
             </div>
         </div>
+        <p>Capture lightweight point-in-time fingerprints of installed apps, startup items, Windows services, signed drivers, hosts entries, and IP/DNS configuration (optionally paired with a Windows Restore Point) to diff Before vs. After.</p>
+        <div class="tab-summary-strip" style="margin-bottom: 8px;">
+            <span class="summary-chip chip-accent">Saved Snapshots: <strong id="sumSnapTotal">0</strong></span>
+            <span class="summary-chip">With Restore Point: <strong id="sumSnapRp">0</strong></span>
+            <span class="summary-chip">Total Size: <strong id="sumSnapSize">0 KB</strong></span>
+            <span class="summary-chip">Latest Capture: <strong id="sumSnapLatest">None yet</strong></span>
+        </div>
         <div id="snapshotsStatus" class="sharing-status" style="margin-bottom: 8px;" role="status">Capture a baseline snapshot of apps, startup, services, drivers, hosts, and network config to diff Before vs. After.</div>
 
         <div class="organizer-scroll-area">
@@ -2203,7 +2243,10 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
             </div>
 
             <div class="cw-set-card" style="margin-bottom: 10px;">
-                <div class="cw-set-sec-title">🔍 Compare Before vs. After ("What Changed?")</div>
+                <div class="new-tab-section-head">
+                    <div class="cw-set-sec-title" style="border: none; padding: 0;">🔍 Compare Before vs. After ("What Changed?")</div>
+                    <button type="button" id="btnSnapExportDiff" class="console-clear-btn" style="display: none;" onclick="TriggerExportSnapshotDiff()" title="Save the current diff report as a Markdown file">📄 Export Diff (.md)</button>
+                </div>
                 <div class="dev-auth-row" style="flex-wrap: wrap;">
                     <select id="selSnapBefore" class="prof-select" style="flex: 1 1 200px;" aria-label="Before Snapshot"></select>
                     <span class="cw-settings-sub">vs.</span>
@@ -2211,6 +2254,15 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
                         <option value="LIVE">⚡ Live Current PC State</option>
                     </select>
                     <button type="button" class="console-clear-btn btn-accent-action" onclick="TriggerCompareSnapshots()">🔍 Run Diff</button>
+                </div>
+                <div id="snapDiffFilterBar" class="new-tab-inline-bar" style="display: none; margin-top: 8px;">
+                    <div class="tab-filter-pills" id="snapDiffKindPills" style="margin: 0;">
+                        <button type="button" class="filter-pill active" data-kind="all" onclick="SetSnapDiffFilterKind('all')">All Changes</button>
+                        <button type="button" class="filter-pill" data-kind="added" onclick="SetSnapDiffFilterKind('added')">➕ Added</button>
+                        <button type="button" class="filter-pill" data-kind="removed" onclick="SetSnapDiffFilterKind('removed')">➖ Removed</button>
+                        <button type="button" class="filter-pill" data-kind="modified" onclick="SetSnapDiffFilterKind('modified')">✏️ Modified</button>
+                    </div>
+                    <input type="text" id="inpSnapDiffSearch" class="tab-search-input" style="max-width: 240px; padding: 3px 8px; font-size: 10.5px;" placeholder="Filter diff results..." oninput="RenderCurrentSnapDiff()">
                 </div>
                 <div id="snapDiffOutput" class="new-tab-stack" style="margin-top: 8px;"></div>
             </div>
@@ -2227,11 +2279,14 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
         <div class="console-header-row">
             <h2 id="batteryTitle">🔋 BATTERY HEALTH &amp; WIRELESS PERIPHERALS</h2>
             <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                <button type="button" class="console-clear-btn" onclick="TriggerOpenBluetoothSettings()" title="Open Windows Bluetooth &amp; Devices settings">🎧 Bluetooth</button>
+                <button type="button" class="console-clear-btn" onclick="TriggerOpenPowerSettings()" title="Open Windows Power &amp; Battery settings">⚡ Power Settings</button>
                 <button type="button" class="console-clear-btn" onclick="TriggerOpenBatteryReport()" title="Generate &amp; open official Windows powercfg /batteryreport HTML">📄 Battery Report</button>
                 <button type="button" class="console-clear-btn" onclick="TriggerOpenSleepStudy()" title="Generate &amp; open Windows Modern Standby powercfg /sleepstudy report">🌙 SleepStudy</button>
                 <button type="button" class="console-clear-btn btn-accent-action" onclick="RequestBatteryState()">🔄 Refresh</button>
             </div>
         </div>
+        <p>Monitor laptop battery wear, design vs. full-charge capacity, cycle counts, and live Windows Bluetooth battery levels for wireless mice, keyboards, headsets, and game controllers.</p>
         <div class="tab-summary-strip" style="margin-bottom: 8px;">
             <span class="summary-chip chip-accent">Power Plan: <strong id="sumBatPowerPlan">--</strong></span>
             <span class="summary-chip">Internal Batteries: <strong id="sumBatInternal">0</strong></span>
@@ -2256,15 +2311,27 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
     <section id="viewBackupSyncPanel" class="tab-view-panel sharing-panel" style="display: none;" aria-labelledby="backupSyncTitle">
         <div class="console-header-row">
             <h2 id="backupSyncTitle">💾 BACKUP &amp; FOLDER SYNC MANAGER (ROBOCOPY)</h2>
-            <div style="display: flex; gap: 6px;">
-                <button type="button" class="console-clear-btn btn-accent-action" onclick="RequestBackupSyncState()">Refresh</button>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                <button type="button" class="console-clear-btn btn-accent-action" onclick="ToggleBackupJobEditor(true)" title="Create a new incremental or mirror robocopy sync job">➕ New Sync Job</button>
+                <button type="button" class="console-clear-btn" onclick="RequestBackupSyncState()">Refresh</button>
             </div>
+        </div>
+        <p>Manage fast multi-threaded <code>robocopy</code> incremental or exact-mirror backup jobs to external USB drives or NAS UNC shares with dry-run previews, dev ignore presets, and optional Windows Task Scheduler automation.</p>
+        <div class="tab-summary-strip" style="margin-bottom: 8px;">
+            <span class="summary-chip chip-accent">Saved Jobs: <strong id="sumBkpJobs">0</strong></span>
+            <span class="summary-chip">Auto-Scheduled: <strong id="sumBkpScheduled">0</strong></span>
+            <span class="summary-chip">Recorded Runs: <strong id="sumBkpRuns">0</strong></span>
+            <span class="summary-chip">Last Sync: <strong id="sumBkpLast">Never run</strong></span>
         </div>
         <div id="backupSyncStatus" class="sharing-status" style="margin-bottom: 8px;" role="status">Create incremental or mirror robocopy backup jobs to USB drives or NAS shares with dry-run preview.</div>
 
         <div class="organizer-scroll-area">
-            <div class="cw-set-card" style="margin-bottom: 10px;">
-                <div class="cw-set-sec-title">➕ Create / Edit Sync Job</div>
+            <div id="backupJobEditorCard" class="cw-set-card" style="display: none; margin-bottom: 10px;">
+                <div class="new-tab-section-head">
+                    <div id="lblBkpEditorTitle" class="cw-set-sec-title" style="border: none; padding: 0;">➕ Create Sync Job</div>
+                    <button type="button" class="console-clear-btn" onclick="ToggleBackupJobEditor(false)">✕ Close</button>
+                </div>
+                <input type="hidden" id="inpBkpId">
                 <div class="new-tab-form-grid">
                     <div class="cw-dir-row"><label for="inpBkpName">Job Name</label><input type="text" id="inpBkpName" class="prof-input" placeholder="e.g. GitHub Projects to NAS"></div>
                     <div class="cw-dir-row"><label for="selBkpMode">Sync Mode</label>
@@ -2286,9 +2353,22 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
                     <div class="cw-dir-row"><label for="inpBkpDest">Destination Folder (USB / Local / NAS)</label>
                         <div class="cw-dir-input-wrap"><input type="text" id="inpBkpDest" class="prof-input" placeholder="E:\Backups or \\NAS\Backups"><button type="button" class="console-clear-btn" onclick="BrowseBackupFolder('backup_dest')">Browse...</button></div>
                     </div>
-                    <div class="cw-dir-row"><label for="inpBkpExDirs">Exclude Folders (comma-separated)</label><input type="text" id="inpBkpExDirs" class="prof-input" value="node_modules,.git,target,bin,obj,$RECYCLE.BIN,System Volume Information"></div>
+                    <div class="cw-dir-row">
+                        <div style="display:flex; justify-content:space-between; align-items:center; gap:4px;">
+                            <label for="inpBkpExDirs">Exclude Folders</label>
+                            <span class="new-tab-preset-group">
+                                <button type="button" class="new-tab-preset-chip" onclick="ApplyBackupExcludePreset('dev')" title="Ignore node_modules, .git, target, bin, obj, .venv">Dev</button>
+                                <button type="button" class="new-tab-preset-chip" onclick="ApplyBackupExcludePreset('media')" title="Ignore Cache, Temp, Previews, Proxy">Media</button>
+                                <button type="button" class="new-tab-preset-chip" onclick="ApplyBackupExcludePreset('clear')">Clear</button>
+                            </span>
+                        </div>
+                        <input type="text" id="inpBkpExDirs" class="prof-input" value="node_modules,.git,target,bin,obj,$RECYCLE.BIN,System Volume Information">
+                    </div>
                     <div class="cw-dir-row"><label for="inpBkpExFiles">Exclude Files</label><input type="text" id="inpBkpExFiles" class="prof-input" value="*.tmp,Thumbs.db,desktop.ini"></div>
-                    <div class="cw-dir-row" style="justify-content: flex-end;"><button type="button" class="console-clear-btn btn-accent-action" onclick="TriggerSaveBackupJob()">💾 Save Job</button></div>
+                    <div class="cw-dir-row" style="justify-content: flex-end; flex-direction: row; align-items: flex-end; gap: 6px;">
+                        <button type="button" class="console-clear-btn" onclick="ToggleBackupJobEditor(false)">Cancel</button>
+                        <button type="button" class="console-clear-btn btn-accent-action" onclick="TriggerSaveBackupJob()">💾 Save Job</button>
+                    </div>
                 </div>
             </div>
 
@@ -2321,6 +2401,7 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
                 <button type="button" class="console-clear-btn btn-accent-action" onclick="RequestDockerState()">Refresh</button>
             </div>
         </div>
+        <p>Start, stop, tail logs, or shell into Docker/Podman containers (native or running WSL), cross-link published host ports directly to Tasks &amp; Ports, reclaim disk space, and toggle local database/web dev Windows services.</p>
         <div class="tab-summary-strip" style="margin-bottom: 8px;">
             <span class="summary-chip chip-accent">Running: <strong id="sumDockerRunning">0</strong></span>
             <span class="summary-chip">Total Containers: <strong id="sumDockerTotal">0</strong></span>
@@ -2331,12 +2412,15 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
 
         <div class="organizer-scroll-area">
             <div class="cw-set-card" style="margin-bottom: 10px;">
-                <div class="cw-set-sec-title">📦 Containers (Click any published port to inspect in Tasks &amp; Ports)</div>
+                <div class="new-tab-section-head">
+                    <div class="cw-set-sec-title" style="border: none; padding: 0;">📦 Containers (Click any published port to inspect in Tasks &amp; Ports)</div>
+                    <input type="text" id="inpDockerSearch" class="tab-search-input" style="max-width: 240px; padding: 3px 8px; font-size: 10.5px;" placeholder="Filter containers, images, or services..." oninput="RenderDockerFilteredViews()">
+                </div>
                 <div id="dockerContainersGrid" class="dev-cards-grid"></div>
             </div>
 
             <div id="dockerLogsCard" class="cw-set-card" style="display: none; margin-bottom: 10px;">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div class="new-tab-section-head">
                     <div id="lblDockerLogsTitle" class="cw-set-sec-title" style="border: none; padding: 0;">📜 Container Logs</div>
                     <button type="button" class="console-clear-btn" onclick="document.getElementById('dockerLogsCard').style.display='none'">Close</button>
                 </div>
@@ -2362,10 +2446,13 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
         <div class="console-header-row">
             <h2 id="sshCertsTitle">🔐 SSH HOST LAUNCHER &amp; CERTIFICATE INSPECTOR</h2>
             <div style="display: flex; gap: 6px; flex-wrap: wrap;">
-                <button type="button" class="console-clear-btn" onclick="TriggerOpenSshConfigFile()" title="Open ~/.ssh/config directly in Notepad">📝 Open config</button>
-                <button type="button" class="console-clear-btn btn-accent-action" onclick="RequestSshCertsState()">Refresh</button>
+                <button type="button" class="console-clear-btn btn-accent-action" onclick="ToggleSshHostEditor(true)" title="Add or update a host block in ~/.ssh/config">➕ Add SSH Host</button>
+                <button type="button" class="console-clear-btn" onclick="TriggerOpenSshConfigFile()" title="Open ~/.ssh/config directly in Notepad">📝 ~/.ssh/config</button>
+                <button type="button" class="console-clear-btn" onclick="TriggerOpenCertMgr()" title="Launch Windows Certificate Manager (certmgr.msc)">📜 certmgr.msc</button>
+                <button type="button" class="console-clear-btn" onclick="RequestSshCertsState()">Refresh</button>
             </div>
         </div>
+        <p>Visually manage <code>~/.ssh/config</code> hosts with 1-click Windows Terminal launch &amp; TCP port reachability tests, generate/copy ed25519 SSH keys, and audit expiring Windows TLS &amp; code-signing certificates.</p>
         <div class="tab-summary-strip" style="margin-bottom: 8px;">
             <span class="summary-chip chip-accent">SSH Hosts: <strong id="sumSshHosts">0</strong></span>
             <span class="summary-chip">SSH Keys: <strong id="sumSshKeys">0</strong></span>
@@ -2381,8 +2468,11 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
 
         <!-- SUB-VIEW 1: SSH HOSTS -->
         <div id="sshPaneHosts" class="dev-subpane active">
-            <div class="cw-set-card" style="margin-bottom: 10px;">
-                <div class="cw-set-sec-title">➕ Add / Update ~/.ssh/config Host</div>
+            <div id="sshHostEditorCard" class="cw-set-card" style="display: none; margin-bottom: 10px;">
+                <div class="new-tab-section-head">
+                    <div id="lblSshHostEditorTitle" class="cw-set-sec-title" style="border: none; padding: 0;">➕ Add ~/.ssh/config Host</div>
+                    <button type="button" class="console-clear-btn" onclick="ToggleSshHostEditor(false)">✕ Close</button>
+                </div>
                 <div class="new-tab-form-grid">
                     <div class="cw-dir-row"><label for="inpSshAlias">Alias</label><input type="text" id="inpSshAlias" class="prof-input" placeholder="e.g. prod-web"></div>
                     <div class="cw-dir-row"><label for="inpSshHostName">HostName / IP</label><input type="text" id="inpSshHostName" class="prof-input" placeholder="192.168.1.50 or server.local"></div>
@@ -2390,8 +2480,14 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
                     <div class="cw-dir-row"><label for="inpSshPort">Port</label><input type="text" id="inpSshPort" class="prof-input" value="22"></div>
                     <div class="cw-dir-row"><label for="inpSshIdentity">IdentityFile (optional)</label><input type="text" id="inpSshIdentity" class="prof-input" placeholder="~/.ssh/id_ed25519"></div>
                     <div class="cw-dir-row"><label for="inpSshProxyJump">ProxyJump (optional)</label><input type="text" id="inpSshProxyJump" class="prof-input" placeholder="bastion"></div>
-                    <div class="cw-dir-row" style="justify-content: flex-end;"><button type="button" class="console-clear-btn btn-accent-action" onclick="TriggerSaveSshHost()">💾 Save Host</button></div>
+                    <div class="cw-dir-row" style="justify-content: flex-end; flex-direction: row; align-items: flex-end; gap: 6px;">
+                        <button type="button" class="console-clear-btn" onclick="ToggleSshHostEditor(false)">Cancel</button>
+                        <button type="button" class="console-clear-btn btn-accent-action" onclick="TriggerSaveSshHost()">💾 Save Host</button>
+                    </div>
                 </div>
+            </div>
+            <div class="tab-filter-toolbar" style="margin-bottom: 8px;">
+                <input type="text" id="inpSshHostSearch" class="tab-search-input" placeholder="Filter SSH hosts by alias, hostname, or username..." oninput="RenderSshHostsGrid()">
             </div>
             <div id="sshHostsGrid" class="dev-cards-grid"></div>
         </div>
@@ -2411,6 +2507,14 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
 
         <!-- SUB-VIEW 3: CERTIFICATES -->
         <div id="sshPaneCerts" class="dev-subpane">
+            <div class="tab-filter-toolbar" style="margin-bottom: 8px;">
+                <div class="tab-filter-pills" id="sshCertFilterPills" style="margin: 0;">
+                    <button type="button" class="filter-pill active" data-cfilter="all" onclick="SetSshCertFilter('all')">All Certs</button>
+                    <button type="button" class="filter-pill" data-cfilter="warn" onclick="SetSshCertFilter('warn')">⚠️ Expired / ≤30d</button>
+                    <button type="button" class="filter-pill" data-cfilter="valid" onclick="SetSshCertFilter('valid')">✓ Valid</button>
+                </div>
+                <input type="text" id="inpSshCertSearch" class="tab-search-input" style="max-width: 260px;" placeholder="Filter by subject, issuer, thumbprint..." oninput="RenderSshCertsList()">
+            </div>
             <div id="sshCertsList" class="new-tab-stack"></div>
         </div>
     </section>
@@ -2420,15 +2524,18 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
         <div class="console-header-row">
             <h2 id="homelabTitle">🌐 MULTI-PC / HOMELAB MONITOR</h2>
             <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center;">
+                <button type="button" class="console-clear-btn btn-accent-action" onclick="ToggleHomelabNodeEditor(true)" title="Add a remote Linux, Windows, or HTTP/NAS target">➕ Add Node</button>
+                <button type="button" class="console-clear-btn" onclick="TriggerImportSshToHomelab()" title="Import saved hosts from ~/.ssh/config into Homelab Monitor">📥 Import SSH</button>
                 <select id="selHomelabAutoRefresh" class="tab-sort-select" onchange="OnHomelabAutoRefreshChange()" title="Optional auto-poll cadence active only while viewing Homelab Monitor">
                     <option value="0" selected>Auto-Poll: Off</option>
                     <option value="15">Every 15s</option>
                     <option value="30">Every 30s</option>
                     <option value="60">Every 60s</option>
                 </select>
-                <button type="button" class="console-clear-btn btn-accent-action" onclick="TriggerPollHomelabAll()">🔄 Poll All Nodes</button>
+                <button type="button" class="console-clear-btn" onclick="TriggerPollHomelabAll()">🔄 Poll All</button>
             </div>
         </div>
+        <p>Monitor secondary desktops, Linux servers, Proxmox hosts, routers, and NAS devices from one dashboard via zero-agent SSH, WinRM, or HTTP/Ping probes with 1-click SSH, RDP, and Web UI launchers.</p>
         <div class="tab-summary-strip" style="margin-bottom: 8px;">
             <span class="summary-chip chip-accent">Online: <strong id="sumHomelabOnline">0</strong></span>
             <span class="summary-chip">Total Nodes: <strong id="sumHomelabTotal">0</strong></span>
@@ -2436,8 +2543,12 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
         <div id="homelabStatus" class="sharing-status" style="margin-bottom: 8px;" role="status">Add remote Linux/NAS (SSH), Windows (WinRM), or Proxmox/Router (HTTP/Ping) targets to monitor from one screen.</div>
 
         <div class="organizer-scroll-area">
-            <div class="cw-set-card" style="margin-bottom: 10px;">
-                <div class="cw-set-sec-title">➕ Add Remote PC / Server / NAS Target</div>
+            <div id="homelabNodeEditorCard" class="cw-set-card" style="display: none; margin-bottom: 10px;">
+                <div class="new-tab-section-head">
+                    <div id="lblHomelabEditorTitle" class="cw-set-sec-title" style="border: none; padding: 0;">➕ Add Remote PC / Server / NAS Target</div>
+                    <button type="button" class="console-clear-btn" onclick="ToggleHomelabNodeEditor(false)">✕ Close</button>
+                </div>
+                <input type="hidden" id="inpLabId">
                 <div class="new-tab-form-grid">
                     <div class="cw-dir-row"><label for="inpLabName">Display Name</label><input type="text" id="inpLabName" class="prof-input" placeholder="e.g. Proxmox-01 or TrueNAS"></div>
                     <div class="cw-dir-row"><label for="selLabMode">Probe Method</label>
@@ -2451,7 +2562,10 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
                     <div class="cw-dir-row"><label for="inpLabPort">Port</label><input type="number" id="inpLabPort" class="prof-input" value="22"></div>
                     <div class="cw-dir-row"><label for="inpLabUser">Username (SSH/WinRM)</label><input type="text" id="inpLabUser" class="prof-input" placeholder="root or admin"></div>
                     <div class="cw-dir-row"><label for="inpLabWebUrl">Web UI URL (optional)</label><input type="text" id="inpLabWebUrl" class="prof-input" placeholder="https://192.168.1.100:8006"></div>
-                    <div class="cw-dir-row" style="justify-content: flex-end;"><button type="button" class="console-clear-btn btn-accent-action" onclick="TriggerSaveHomelabNode()">💾 Add &amp; Poll Node</button></div>
+                    <div class="cw-dir-row" style="justify-content: flex-end; flex-direction: row; align-items: flex-end; gap: 6px;">
+                        <button type="button" class="console-clear-btn" onclick="ToggleHomelabNodeEditor(false)">Cancel</button>
+                        <button type="button" class="console-clear-btn btn-accent-action" onclick="TriggerSaveHomelabNode()">💾 Save &amp; Poll</button>
+                    </div>
                 </div>
             </div>
 
@@ -2771,6 +2885,49 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
                     <button type="button" class="console-clear-btn wsl-btn-danger" onclick="ResetThemeToDefaults()" title="Reset all colors &amp; wallpaper to CoreWatch Classic">↺ Reset</button>
                 </div>
                 <span id="lblThemeSaveState" class="cw-theme-save-state">Live Preview</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- =========================================================================
+    FLOATING DRAGGABLE CUSTOM DISK PARTITIONER WINDOW (PAUSES LIVE TELEMETRY)
+    ========================================================================= -->
+    <div id="diskPartitionerPopup" class="cw-diskpart-popup" role="dialog" aria-label="Disk Partitioner" style="display: none;">
+        <div id="diskPartHeader" class="cw-theme-popup-header" title="Drag anywhere to reposition over the dashboard">
+            <div class="cw-theme-popup-title">
+                <span class="cw-drag-grip">⋮⋮</span>
+                <span>💿 DISK PARTITIONER</span>
+                <span id="lblDiskPartPauseBadge" class="dp-telemetry-pill">⏸ Telemetry Paused</span>
+            </div>
+            <div class="cw-theme-popup-winbtns">
+                <button type="button" class="cw-theme-icon-btn" onclick="RequestDiskPartitionerState(true)" title="Rescan storage bus &amp; refresh disks">🔄</button>
+                <button type="button" id="btnDiskPartCollapse" class="cw-theme-icon-btn" onclick="ToggleDiskPartitionerCollapse()" title="Collapse / Expand floating window">▾</button>
+                <button type="button" class="cw-theme-icon-btn" onclick="CloseDiskPartitioner()" title="Close Disk Partitioner &amp; Resume Telemetry (Esc)">✕</button>
+            </div>
+        </div>
+
+        <div id="diskPartContent" class="dp-popup-content">
+            <div id="diskPartStatus" class="sharing-status dp-status-bar" role="status">Telemetry paused — loading physical disks and partition layout...</div>
+
+            <div class="dp-scroll-body">
+                <div id="diskPartDisksList" class="dp-disks-list">
+                    <div class="driver-text-node">Scanning connected physical disks...</div>
+                </div>
+
+                <div id="diskPartInspector" class="dp-inspector-card">
+                    <div class="driver-text-node">Click any physical disk header, unallocated space block, or partition segment above to configure it.</div>
+                </div>
+            </div>
+
+            <div class="cw-theme-footer dp-footer">
+                <div class="cw-theme-footer-btns">
+                    <button type="button" class="console-clear-btn" onclick="RequestDiskPartitionerState(true)" title="Run Update-HostStorageCache and reload all disks">🔄 Rescan Bus</button>
+                    <button type="button" class="console-clear-btn" onclick="TriggerDiskPartOpenDiskMgmt()" title="Open native Windows Disk Management (diskmgmt.msc)">🪟 diskmgmt.msc</button>
+                </div>
+                <div class="cw-theme-footer-btns">
+                    <span id="lblDiskPartStamp" class="cw-theme-save-state">Ready</span>
+                    <button type="button" class="console-clear-btn btn-accent-action" onclick="CloseDiskPartitioner()" title="Close Disk Partitioner and immediately restart live telemetry">▶ Close &amp; Resume Telemetry</button>
+                </div>
             </div>
         </div>
     </div>

@@ -342,8 +342,9 @@ $global:SharedData = [hashtable]::Synchronized(@{
     ForceRefresh   = $false
     ActiveView     = "dashboard"
     SideDockOpen   = $false
-    IsMinimized    = $false
-    IsRunning      = $true
+    IsMinimized     = $false
+    TelemetryPaused = $false
+    IsRunning       = $true
     PollingProfile = [string]$Global:AppSettings.telemetry.pollingProfile
     FastCadenceMs  = [int]$initCadence.fastMs
     FullDashMs     = [int]$initCadence.fullDashMs
@@ -375,8 +376,8 @@ $RunspaceScript = {
     $lastGcTrim     = [datetime]::Now
 
     while ($SharedData.IsRunning) {
-        # When minimized, pause polling completely and wake immediately when restored
-        if ($SharedData.IsMinimized -and -not $SharedData.ForceRefresh) {
+        # Pause polling completely while TelemetryPaused (e.g. Disk Partitioner open) or minimized
+        if ($SharedData.TelemetryPaused -or ($SharedData.IsMinimized -and -not $SharedData.ForceRefresh)) {
             [System.Threading.Thread]::Sleep(250)
             continue
         }
@@ -785,11 +786,13 @@ function Restore-CoreWatchMainWindow {
     }
     $MainForm.Activate()
     $global:SharedData.IsMinimized = $false
-    $global:SharedData.ForceRefresh = $true
-    if ($null -ne $global:TelemetryLoopTimer -and -not $global:TelemetryLoopTimer.Enabled) {
-        $global:TelemetryLoopTimer.Start()
+    if (-not $global:SharedData.TelemetryPaused) {
+        $global:SharedData.ForceRefresh = $true
+        if ($null -ne $global:TelemetryLoopTimer -and -not $global:TelemetryLoopTimer.Enabled) {
+            $global:TelemetryLoopTimer.Start()
+        }
+        & $global:FlushTelemetryToUi
     }
-    & $global:FlushTelemetryToUi
 }
 
 $global:ActiveTabTasks = New-Object System.Collections.ArrayList
@@ -1600,7 +1603,7 @@ $HandleUiMessageEvent = {
                     }
 
                     if ($Payload.command -in @(
-                        'SNAP_LOAD', 'SNAP_CREATE', 'SNAP_DIFF', 'SNAP_DELETE', 'SNAP_OPEN_RESTORE_UI'
+                        'SNAP_LOAD', 'SNAP_CREATE', 'SNAP_DIFF', 'SNAP_DELETE', 'SNAP_OPEN_RESTORE_UI', 'SNAP_EXPORT_DIFF'
                     )) {
                         Start-AsyncTabTask -FallbackType "SNAPSHOTS_NOTICE" -Arguments @($Global:NodeWatchRoot, $RawMessage) -ScriptBlock {
                             param($RootPath, $RawJson)
@@ -1612,7 +1615,7 @@ $HandleUiMessageEvent = {
                     }
 
                     if ($Payload.command -in @(
-                        'BATTERY_LOAD', 'BATTERY_OPEN_REPORT', 'BATTERY_OPEN_SLEEPSTUDY'
+                        'BATTERY_LOAD', 'BATTERY_OPEN_REPORT', 'BATTERY_OPEN_SLEEPSTUDY', 'BATTERY_OPEN_BT_SETTINGS', 'BATTERY_OPEN_POWER_SETTINGS'
                     )) {
                         Start-AsyncTabTask -FallbackType "BATTERY_NOTICE" -Arguments @($Global:NodeWatchRoot, $RawMessage) -ScriptBlock {
                             param($RootPath, $RawJson)
@@ -1624,7 +1627,7 @@ $HandleUiMessageEvent = {
                     }
 
                     if ($Payload.command -in @(
-                        'BACKUP_LOAD', 'BACKUP_SAVE_JOB', 'BACKUP_DELETE_JOB', 'BACKUP_DRY_RUN', 'BACKUP_RUN_JOB'
+                        'BACKUP_LOAD', 'BACKUP_SAVE_JOB', 'BACKUP_DELETE_JOB', 'BACKUP_DRY_RUN', 'BACKUP_RUN_JOB', 'BACKUP_OPEN_FOLDER'
                     )) {
                         Start-AsyncTabTask -FallbackType "BACKUP_NOTICE" -Arguments @($Global:NodeWatchRoot, $RawMessage) -ScriptBlock {
                             param($RootPath, $RawJson)
@@ -1637,7 +1640,7 @@ $HandleUiMessageEvent = {
 
                     if ($Payload.command -in @(
                         'DOCKER_LOAD', 'DOCKER_CONTAINER_ACTION', 'DOCKER_CONTAINER_LOGS',
-                        'DOCKER_CONTAINER_SHELL', 'DOCKER_PRUNE', 'DOCKER_SERVICE_TOGGLE'
+                        'DOCKER_CONTAINER_SHELL', 'DOCKER_PRUNE', 'DOCKER_REMOVE_IMAGE', 'DOCKER_SERVICE_TOGGLE'
                     )) {
                         Start-AsyncTabTask -FallbackType "DOCKER_NOTICE" -Arguments @($Global:NodeWatchRoot, $RawMessage) -ScriptBlock {
                             param($RootPath, $RawJson)
@@ -1649,7 +1652,8 @@ $HandleUiMessageEvent = {
                     }
 
                     if ($Payload.command -in @(
-                        'SSH_LOAD', 'SSH_LAUNCH_HOST', 'SSH_SAVE_HOST', 'SSH_DELETE_HOST', 'SSH_GEN_KEY', 'SSH_OPEN_CONFIG'
+                        'SSH_LOAD', 'SSH_LAUNCH_HOST', 'SSH_SAVE_HOST', 'SSH_DELETE_HOST',
+                        'SSH_GEN_KEY', 'SSH_OPEN_CONFIG', 'SSH_TEST_HOST', 'SSH_OPEN_CERTMGR'
                     )) {
                         Start-AsyncTabTask -FallbackType "SSH_CERTS_NOTICE" -Arguments @($Global:NodeWatchRoot, $RawMessage) -ScriptBlock {
                             param($RootPath, $RawJson)
@@ -1661,13 +1665,53 @@ $HandleUiMessageEvent = {
                     }
 
                     if ($Payload.command -in @(
-                        'HOMELAB_LOAD', 'HOMELAB_POLL_ALL', 'HOMELAB_SAVE_NODE',
-                        'HOMELAB_DELETE_NODE', 'HOMELAB_LAUNCH_SSH', 'HOMELAB_LAUNCH_RDP'
+                        'HOMELAB_LOAD', 'HOMELAB_POLL_ALL', 'HOMELAB_POLL_ONE', 'HOMELAB_IMPORT_SSH_HOSTS',
+                        'HOMELAB_SAVE_NODE', 'HOMELAB_DELETE_NODE', 'HOMELAB_LAUNCH_SSH', 'HOMELAB_LAUNCH_RDP'
                     )) {
                         Start-AsyncTabTask -FallbackType "HOMELAB_NOTICE" -Arguments @($Global:NodeWatchRoot, $RawMessage) -ScriptBlock {
                             param($RootPath, $RawJson)
                             . (Join-Path $RootPath "modules\tabs\HomelabManager.ps1")
                             $data = Invoke-HomelabAction -RawJson $RawJson -RootPath $RootPath
+                            return ($data | ConvertTo-Json -Compress -Depth 8)
+                        }
+                        return
+                    }
+
+                    if ($Payload.command -eq "SET_TELEMETRY_PAUSED") {
+                        $wantPaused = [bool]($Payload.paused ?? $false)
+                        $reason = ([string]($Payload.reason ?? "")).Trim()
+                        $global:SharedData.TelemetryPaused = $wantPaused
+                        if ($wantPaused) {
+                            if ($null -ne $global:TelemetryLoopTimer -and $global:TelemetryLoopTimer.Enabled) {
+                                $global:TelemetryLoopTimer.Stop()
+                            }
+                        } else {
+                            $global:SharedData.ForceRefresh = $true
+                            if (-not $global:SharedData.IsMinimized) {
+                                if ($null -ne $global:TelemetryLoopTimer -and -not $global:TelemetryLoopTimer.Enabled) {
+                                    $global:TelemetryLoopTimer.Start()
+                                }
+                                & $global:FlushTelemetryToUi
+                            }
+                        }
+                        Send-CoreWatchMessageToUi -PayloadObj @{
+                            type   = "TELEMETRY_PAUSE_STATE"
+                            paused = $wantPaused
+                            reason = $reason
+                        }
+                        return
+                    }
+
+                    if ($Payload.command -in @(
+                        'DISKPART_LOAD', 'DISKPART_OPEN_DISKMGMT', 'DISKPART_SET_ONLINE',
+                        'DISKPART_INIT_DISK', 'DISKPART_CREATE_PART', 'DISKPART_FORMAT_PART',
+                        'DISKPART_RESIZE_PART', 'DISKPART_SET_LETTER', 'DISKPART_SET_LABEL',
+                        'DISKPART_DELETE_PART', 'DISKPART_CLEAR_DISK'
+                    )) {
+                        Start-AsyncTabTask -FallbackType "DISKPART_NOTICE" -Arguments @($Global:NodeWatchRoot, $RawMessage) -ScriptBlock {
+                            param($RootPath, $RawJson)
+                            . (Join-Path $RootPath "modules\core\DiskPartitionerManager.ps1")
+                            $data = Invoke-DiskPartitionerAction -RawJson $RawJson -RootPath $RootPath
                             return ($data | ConvertTo-Json -Compress -Depth 8)
                         }
                         return
@@ -2149,11 +2193,13 @@ function Sync-CoreWatchVisibilityState {
             } catch {}
             if ("CoreWatch.Win32" -as [type]) { [CoreWatch.Win32]::TrimWorkingSet() }
         } else {
-            $global:SharedData.ForceRefresh = $true
-            if ($null -ne $global:TelemetryLoopTimer -and -not $global:TelemetryLoopTimer.Enabled) {
-                $global:TelemetryLoopTimer.Start()
+            if (-not $global:SharedData.TelemetryPaused) {
+                $global:SharedData.ForceRefresh = $true
+                if ($null -ne $global:TelemetryLoopTimer -and -not $global:TelemetryLoopTimer.Enabled) {
+                    $global:TelemetryLoopTimer.Start()
+                }
+                & $global:FlushTelemetryToUi
             }
-            & $global:FlushTelemetryToUi
         }
     }
 }

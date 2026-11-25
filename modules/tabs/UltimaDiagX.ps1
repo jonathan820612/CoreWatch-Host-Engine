@@ -193,7 +193,7 @@ function Resolve-HexOrWin32Code {
     }
 }
 
-function Extract-TranslatedCodesFromMessage {
+function Get-TranslatedCodesFromMessage {
     param([string]$Message)
     $found = New-Object System.Collections.Generic.List[PSCustomObject]
     if (-not $Message) { return $found.ToArray() }
@@ -212,7 +212,7 @@ function Extract-TranslatedCodesFromMessage {
     return $found.ToArray()
 }
 
-function Classify-EventSubsystem {
+function Resolve-EventSubsystem {
     param(
         [string]$Channel,
         [string]$Provider,
@@ -239,7 +239,7 @@ function Classify-EventSubsystem {
     return "System General"
 }
 
-function Parse-ExternalLogSources {
+function ConvertFrom-ExternalLogSources {
     param(
         [string[]]$Paths,
         [datetime]$SinceTime
@@ -279,7 +279,7 @@ function Parse-ExternalLogSources {
                         $sev = switch ($ev.Level) { 1 { "Critical" } 2 { "Error" } 3 { "Warning" } default { "Info" } }
                         $msg = if ($ev.Message) { ($ev.Message -replace '\s+', ' ').Trim() } else { "Event $($ev.Id) from $($ev.ProviderName)" }
                         if ($msg.Length -gt 450) { $msg = $msg.Substring(0, 447) + "..." }
-                        $codes = @(Extract-TranslatedCodesFromMessage -Message $msg)
+                        $codes = @(Get-TranslatedCodesFromMessage -Message $msg)
                         $entries.Add([PSCustomObject]@{
                             timestamp      = $ev.TimeCreated.ToString("yyyy-MM-dd HH:mm:ss")
                             epochMs        = [long]([DateTimeOffset]$ev.TimeCreated).ToUnixTimeMilliseconds()
@@ -327,7 +327,7 @@ function Parse-ExternalLogSources {
                     }
 
                     $cleanMsg = if ($trim.Length -gt 450) { $trim.Substring(0, 447) + "..." } else { $trim }
-                    $codes = @(Extract-TranslatedCodesFromMessage -Message $cleanMsg)
+                    $codes = @(Get-TranslatedCodesFromMessage -Message $cleanMsg)
                     $transText = if ($codes.Count -gt 0) { "$($codes[0].code) ($($codes[0].name)): $($codes[0].explanation)" } else { "" }
                     $fixText   = if ($codes.Count -gt 0) { $codes[0].fix } else { "" }
 
@@ -418,7 +418,7 @@ function Get-CrashDumpsAndReliability {
     }
 }
 
-function Discover-CommonSystemAndAppLogs {
+function Find-CommonSystemAndAppLogs {
     $candidates = @(
         @{ label = "Windows CBS Servicing Log";       path = "$env:SystemRoot\Logs\CBS\CBS.log" },
         @{ label = "Windows DISM Log";                path = "$env:SystemRoot\Logs\DISM\dism.log" },
@@ -499,8 +499,8 @@ function Get-UltimaDiagXReport {
                     $msg   = if ($ev.Message) { ($ev.Message -replace '\r?\n+', ' ' -replace '\s{2,}', ' ').Trim() } else { "Event ID $idInt from $prov" }
                     if ($msg.Length -gt 480) { $msg = $msg.Substring(0, 477) + "..." }
 
-                    $subsystem = Classify-EventSubsystem -Channel $ch.Name -Provider $prov -EventId $idInt -Message $msg
-                    $extractedCodes = @(Extract-TranslatedCodesFromMessage -Message $msg)
+                    $subsystem = Resolve-EventSubsystem -Channel $ch.Name -Provider $prov -EventId $idInt -Message $msg
+                    $extractedCodes = @(Get-TranslatedCodesFromMessage -Message $msg)
 
                     $transText = ""
                     $fixText   = ""
@@ -545,7 +545,7 @@ function Get-UltimaDiagXReport {
         }
 
         # Merge External Program Logs
-        $extRes = Parse-ExternalLogSources -Paths $ExternalLogs -SinceTime $since
+        $extRes = ConvertFrom-ExternalLogSources -Paths $ExternalLogs -SinceTime $since
         foreach ($e in $extRes.entries) {
             $allEvents.Add($e)
         }
@@ -821,13 +821,13 @@ function Get-UltimaDiagXReport {
     }
 }
 
-function Escape-MdCell {
+function Format-MdCell {
     param([string]$Text)
     if ($null -eq $Text) { return "" }
     return (($Text -replace '\r?\n+', ' ') -replace '\|', '\|').Trim()
 }
 
-function Collect-CoreWatchSnapshotForExport {
+function Get-CoreWatchSnapshotForExport {
     param([string]$RootPath)
 
     $snap = @{
@@ -949,7 +949,7 @@ function Export-UltimaDiagXMarkdown {
     $report = Get-UltimaDiagXReport -HoursBack $hours -IncludeWarnings $includeWarn -ExternalLogs $extLogs
     if ($report.error) { throw $report.error }
 
-    $snap = Collect-CoreWatchSnapshotForExport -RootPath $RootPath
+    $snap = Get-CoreWatchSnapshotForExport -RootPath $RootPath
 
     $desktop = [Environment]::GetFolderPath("Desktop")
     if (-not $desktop -or -not (Test-Path -LiteralPath $desktop)) { $desktop = $env:USERPROFILE }
@@ -997,7 +997,7 @@ function Export-UltimaDiagXMarkdown {
                 $null = $sb.AppendLine("| Display | Resolution | Refresh | Connection | Scale | Orientation | HDR | Night Light | Color Profile |")
                 $null = $sb.AppendLine("|---|---|---|---|---|---|---|---|---|")
                 foreach ($m in $monitors) {
-                    $null = $sb.AppendLine("| $(Escape-MdCell $m.Label) | $(Escape-MdCell $m.Resolution) | $(Escape-MdCell $m.RefreshRate) | $(Escape-MdCell $m.ConnectionType) | $(Escape-MdCell $m.Scale) | $(Escape-MdCell $m.Orientation) | $(Escape-MdCell $m.HdrStatus) | $(Escape-MdCell $m.NightLight) | $(Escape-MdCell $m.ColorProfile) |")
+                    $null = $sb.AppendLine("| $(Format-MdCell $m.Label) | $(Format-MdCell $m.Resolution) | $(Format-MdCell $m.RefreshRate) | $(Format-MdCell $m.ConnectionType) | $(Format-MdCell $m.Scale) | $(Format-MdCell $m.Orientation) | $(Format-MdCell $m.HdrStatus) | $(Format-MdCell $m.NightLight) | $(Format-MdCell $m.ColorProfile) |")
                 }
             }
         }
@@ -1031,7 +1031,7 @@ function Export-UltimaDiagXMarkdown {
         $null = $sb.AppendLine("|---|---|---|---|---|---|")
         foreach ($d in $snap.Storage) {
             $pct = if ($d.StorageTotalGB -gt 0) { [math]::Round(($d.StorageUsedGB / $d.StorageTotalGB) * 100, 1) } else { 0 }
-            $null = $sb.AppendLine("| $(Escape-MdCell $d.MainDriveLetter) | $(Escape-MdCell $d.VolumeLabel) | $(Escape-MdCell $d.DriveType) | $($d.StorageUsedGB) / $($d.StorageTotalGB) GB | $($d.StorageFreeGB) GB | $pct% |")
+            $null = $sb.AppendLine("| $(Format-MdCell $d.MainDriveLetter) | $(Format-MdCell $d.VolumeLabel) | $(Format-MdCell $d.DriveType) | $($d.StorageUsedGB) / $($d.StorageTotalGB) GB | $($d.StorageFreeGB) GB | $pct% |")
         }
     }
     if ($snap.PhysicalDisks.Count -gt 0) {
@@ -1040,7 +1040,7 @@ function Export-UltimaDiagXMarkdown {
         $null = $sb.AppendLine("| Model | Media | Bus | Size (GB) | Health | Operational Status |")
         $null = $sb.AppendLine("|---|---|---|---|---|---|")
         foreach ($pd in $snap.PhysicalDisks) {
-            $null = $sb.AppendLine("| $(Escape-MdCell $pd.FriendlyName) | $(Escape-MdCell $pd.MediaType) | $(Escape-MdCell $pd.BusType) | $($pd.SizeGB) GB | $(Escape-MdCell $pd.HealthStatus) | $(Escape-MdCell ($pd.OperationalStatus -join ', ')) |")
+            $null = $sb.AppendLine("| $(Format-MdCell $pd.FriendlyName) | $(Format-MdCell $pd.MediaType) | $(Format-MdCell $pd.BusType) | $($pd.SizeGB) GB | $(Format-MdCell $pd.HealthStatus) | $(Format-MdCell ($pd.OperationalStatus -join ', ')) |")
         }
     }
     $null = $sb.AppendLine("")
@@ -1060,7 +1060,7 @@ function Export-UltimaDiagXMarkdown {
         $null = $sb.AppendLine("| Alias | Status | Link Speed | IPv4 | Gateway | DNS Servers | MAC | Assignment |")
         $null = $sb.AppendLine("|---|---|---|---|---|---|---|---|")
         foreach ($ad in $snap.Adapters) {
-            $null = $sb.AppendLine("| $(Escape-MdCell $ad.Alias) | $(Escape-MdCell $ad.Status) | $(Escape-MdCell $ad.LinkSpeed) | $(Escape-MdCell $ad.IPAddress) | $(Escape-MdCell $ad.Gateway) | $(Escape-MdCell $ad.DnsServers) | $(Escape-MdCell $ad.MacAddress) | $(Escape-MdCell $ad.Profile) |")
+            $null = $sb.AppendLine("| $(Format-MdCell $ad.Alias) | $(Format-MdCell $ad.Status) | $(Format-MdCell $ad.LinkSpeed) | $(Format-MdCell $ad.IPAddress) | $(Format-MdCell $ad.Gateway) | $(Format-MdCell $ad.DnsServers) | $(Format-MdCell $ad.MacAddress) | $(Format-MdCell $ad.Profile) |")
         }
     }
     $null = $sb.AppendLine("")
@@ -1077,7 +1077,7 @@ function Export-UltimaDiagXMarkdown {
             $null = $sb.AppendLine("| Device | Category | Status | Problem | Driver Version | INF | Hardware ID |")
             $null = $sb.AppendLine("|---|---|---|---|---|---|---|")
             foreach ($d in $problemDevs) {
-                $null = $sb.AppendLine("| $(Escape-MdCell $d.name) | $(Escape-MdCell $d.categoryLabel) | $(Escape-MdCell $d.status) | $(Escape-MdCell $d.problemText) | $(Escape-MdCell $d.driverVersion) | $(Escape-MdCell $d.infName) | $(Escape-MdCell $d.hardwareId) |")
+                $null = $sb.AppendLine("| $(Format-MdCell $d.name) | $(Format-MdCell $d.categoryLabel) | $(Format-MdCell $d.status) | $(Format-MdCell $d.problemText) | $(Format-MdCell $d.driverVersion) | $(Format-MdCell $d.infName) | $(Format-MdCell $d.hardwareId) |")
             }
         }
         $keyDrivers = @($snap.Devices.devices | Where-Object { $_.isThirdParty -or $_.pnpClass -in @("Display", "Net", "SCSIAdapter") } | Select-Object -First 20)
@@ -1088,7 +1088,7 @@ function Export-UltimaDiagXMarkdown {
             $null = $sb.AppendLine("|---|---|---|---|---|---|")
             foreach ($d in $keyDrivers) {
                 $dtStr = if ($d.driverAgeText) { "$($d.driverDate) ($($d.driverAgeText))" } else { $d.driverDate }
-                $null = $sb.AppendLine("| $(Escape-MdCell $d.name) | $(Escape-MdCell $d.categoryLabel) | $(Escape-MdCell $d.driverProvider) | $(Escape-MdCell $d.driverVersion) | $(Escape-MdCell $dtStr) | $(Escape-MdCell $d.infName) |")
+                $null = $sb.AppendLine("| $(Format-MdCell $d.name) | $(Format-MdCell $d.categoryLabel) | $(Format-MdCell $d.driverProvider) | $(Format-MdCell $d.driverVersion) | $(Format-MdCell $dtStr) | $(Format-MdCell $d.infName) |")
             }
         }
     }
@@ -1107,7 +1107,7 @@ function Export-UltimaDiagXMarkdown {
             $null = $sb.AppendLine("| Name | Publisher | Scope | Target Exists | Command |")
             $null = $sb.AppendLine("|---|---|---|---|---|")
             foreach ($sa in ($enabledSt | Select-Object -First 25)) {
-                $null = $sb.AppendLine("| $(Escape-MdCell $sa.Name) | $(Escape-MdCell $sa.Publisher) | $(Escape-MdCell $sa.Scope) | $(if ($sa.FileExists) { 'Yes' } else { 'Missing' }) | $(Escape-MdCell $sa.Command) |")
+                $null = $sb.AppendLine("| $(Format-MdCell $sa.Name) | $(Format-MdCell $sa.Publisher) | $(Format-MdCell $sa.Scope) | $(if ($sa.FileExists) { 'Yes' } else { 'Missing' }) | $(Format-MdCell $sa.Command) |")
             }
         }
     }
@@ -1123,7 +1123,7 @@ function Export-UltimaDiagXMarkdown {
             $null = $sb.AppendLine("|---|---|---|---|---|---|")
             foreach ($ua in $userApps) {
                 $loc = if ($ua.isJunction -and $ua.junctionTarget) { "$($ua.installLocation) -> $($ua.junctionTarget)" } else { $ua.installLocation }
-                $null = $sb.AppendLine("| $(Escape-MdCell $ua.name) | $(Escape-MdCell $ua.version) | $(Escape-MdCell $ua.publisher) | $(Escape-MdCell $ua.installDate) | $(if ($null -ne $ua.sizeMB) { $ua.sizeMB } else { '-' }) | $(Escape-MdCell $loc) |")
+                $null = $sb.AppendLine("| $(Format-MdCell $ua.name) | $(Format-MdCell $ua.version) | $(Format-MdCell $ua.publisher) | $(Format-MdCell $ua.installDate) | $(if ($null -ne $ua.sizeMB) { $ua.sizeMB } else { '-' }) | $(Format-MdCell $loc) |")
             }
         }
     }
@@ -1136,7 +1136,7 @@ function Export-UltimaDiagXMarkdown {
             $null = $sb.AppendLine("|---|---|---|---|")
             foreach ($sh in $customShares) {
                 $perms = if ($sh.access) { (@($sh.access | ForEach-Object { "$($_.account):$($_.right)" }) -join ', ') } else { "Unavailable" }
-                $null = $sb.AppendLine("| $(Escape-MdCell $sh.name) | $(Escape-MdCell $sh.path) | $(Escape-MdCell $sh.networkPath) | $(Escape-MdCell $perms) |")
+                $null = $sb.AppendLine("| $(Format-MdCell $sh.name) | $(Format-MdCell $sh.path) | $(Format-MdCell $sh.networkPath) | $(Format-MdCell $perms) |")
             }
         } else {
             $null = $sb.AppendLine("- None (only default Windows administrative shares active).")
@@ -1148,7 +1148,7 @@ function Export-UltimaDiagXMarkdown {
         $null = $sb.AppendLine("| Process | PID | Memory (MB) | CPU Time (s) |")
         $null = $sb.AppendLine("|---|---|---|---|")
         foreach ($pr in $snap.TopProcesses) {
-            $null = $sb.AppendLine("| $(Escape-MdCell $pr.Name) | $($pr.Id) | $($pr.MemoryMB) MB | $($pr.CpuSec) s |")
+            $null = $sb.AppendLine("| $(Format-MdCell $pr.Name) | $($pr.Id) | $($pr.MemoryMB) MB | $($pr.CpuSec) s |")
         }
     }
     $null = $sb.AppendLine("")
@@ -1158,7 +1158,7 @@ function Export-UltimaDiagXMarkdown {
     $null = $sb.AppendLine("| Subsystem | Status | Critical | Errors | Warnings |")
     $null = $sb.AppendLine("|---|---|---|---|---|")
     foreach ($sub in $report.subsystems) {
-        $null = $sb.AppendLine("| $(Escape-MdCell $sub.name) | **$($sub.status)** | $($sub.critical) | $($sub.errors) | $($sub.warnings) |")
+        $null = $sb.AppendLine("| $(Format-MdCell $sub.name) | **$($sub.status)** | $($sub.critical) | $($sub.errors) | $($sub.warnings) |")
     }
     $null = $sb.AppendLine("")
 
@@ -1244,7 +1244,7 @@ function Invoke-UltimaDiagXAction {
             }
         }
         elseif ($cmd -eq "DISCOVER_APP_LOGS") {
-            return (Discover-CommonSystemAndAppLogs)
+            return (Find-CommonSystemAndAppLogs)
         }
         elseif ($cmd -eq "EXPORT_DIAG_REPORT") {
             return (Export-UltimaDiagXMarkdown -Payload $Payload -RootPath $RootPath)

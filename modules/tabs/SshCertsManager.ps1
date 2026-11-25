@@ -216,6 +216,29 @@ function Invoke-SshCertsAction {
                 Start-Process "notepad.exe" -ArgumentList "`"$cfgPath`""
                 return @{ type = "SSH_CERTS_NOTICE"; ok = $true; message = "Opened $cfgPath in Notepad." }
             }
+            "SSH_TEST_HOST" {
+                $hn = ([string]($payload["hostName"] ?? "")).Trim()
+                $pt = [int]($payload["port"] ?? 22)
+                if (-not $hn) { throw "HostName is required to test TCP connectivity." }
+                $sw = [System.Diagnostics.Stopwatch]::StartNew()
+                $tcp = New-Object System.Net.Sockets.TcpClient
+                try {
+                    $iar = $tcp.BeginConnect($hn, $pt, $null, $null)
+                    $okConn = $iar.AsyncWaitHandle.WaitOne(2500, $false)
+                    if ($okConn -and $tcp.Connected) {
+                        $tcp.EndConnect($iar)
+                        $sw.Stop()
+                        return @{ type = "SSH_CERTS_NOTICE"; ok = $true; message = "TCP $hn`:$pt reachable in $([int]$sw.ElapsedMilliseconds) ms." }
+                    }
+                    throw "Timed out connecting to ${hn}:${pt} after 2.5s."
+                } finally {
+                    $tcp.Close()
+                }
+            }
+            "SSH_OPEN_CERTMGR" {
+                Start-Process "certmgr.msc"
+                return @{ type = "SSH_CERTS_NOTICE"; ok = $true; message = "Opened Windows Certificate Manager (certmgr.msc)." }
+            }
             default { throw "Unknown SSH & Certs command: $cmd" }
         }
     } catch {

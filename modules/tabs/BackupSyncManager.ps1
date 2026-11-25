@@ -87,12 +87,19 @@ function Format-RobocopyExitMeaning {
 function Get-BackupSyncState {
     param([string]$Notice = "", [bool]$NoticeError = $false)
     $store = Get-BackupJobsStore
+    $jobs = @($store.jobs)
+    $hist = @($store.history)
+    $schedCnt = (@($jobs | Where-Object { $_["schedule"] -and $_["schedule"] -ne "manual" })).Count
+    $lastRunTxt = if ($hist.Count -gt 0) { "$($hist[0]['jobName']) · $($hist[0]['timestamp'])" } else { "Never run" }
     return [ordered]@{
-        type        = "BACKUP_SYNC_STATE"
-        jobs        = @($store.jobs)
-        history     = @($store.history)
-        notice      = $Notice
-        noticeError = $NoticeError
+        type           = "BACKUP_SYNC_STATE"
+        jobs           = $jobs
+        history        = $hist
+        scheduledCount = $schedCnt
+        totalRuns      = $hist.Count
+        lastRunSummary = $lastRunTxt
+        notice         = $Notice
+        noticeError    = $NoticeError
     }
 }
 
@@ -240,6 +247,13 @@ function Invoke-BackupSyncAction {
                     jobs       = @($store.jobs)
                     history    = @($store.history)
                 }
+            }
+            "BACKUP_OPEN_FOLDER" {
+                $targetPath = ([string]($payload["path"] ?? "")).Trim()
+                if (-not $targetPath) { throw "Folder path is required." }
+                if (-not (Test-Path -LiteralPath $targetPath)) { throw "Folder does not exist yet: $targetPath" }
+                Start-Process "explorer.exe" -ArgumentList "`"$targetPath`""
+                return @{ type = "BACKUP_NOTICE"; ok = $true; message = "Opened folder in Explorer: $targetPath" }
             }
             default { throw "Unknown Backup Sync command: $cmd" }
         }

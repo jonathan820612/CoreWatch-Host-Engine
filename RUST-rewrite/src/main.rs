@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod dashboard_actions;
+mod dashboard_runtimes;
 mod details;
 mod devices;
 mod display_control;
@@ -8,8 +9,10 @@ mod fast;
 mod native;
 mod network;
 mod network_test;
+mod night_light;
 mod preferences;
 mod sensors;
+mod system_controls;
 
 use preferences::PollingProfile;
 use serde::Serialize;
@@ -307,15 +310,114 @@ async fn cpu_sensor_status(
 }
 
 #[tauri::command]
+async fn set_discovery_sharing(
+    state: State<'_, Arc<Dashboard>>,
+    group: devices::FirewallGroup,
+    enabled: bool,
+) -> Result<(), String> {
+    let result =
+        tauri::async_runtime::spawn_blocking(move || devices::set_firewall_group(group, enabled))
+            .await
+            .map_err(|e| e.to_string())?;
+    state.wake();
+    result
+}
+
+#[tauri::command]
 async fn external_ipv4() -> Result<Option<std::net::Ipv4Addr>, String> {
     tauri::async_runtime::spawn_blocking(network_test::external_ipv4)
         .await
         .map_err(|e| e.to_string())?
 }
 
+#[derive(serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum DashboardChange {
+    SystemToggle {
+        setting: system_controls::Setting,
+        enabled: bool,
+    },
+    NetworkProfile {
+        index: u32,
+        private: bool,
+    },
+    DisplayScale {
+        id: String,
+        percent: u32,
+    },
+    NightLight {
+        enabled: bool,
+    },
+    NightWarmth {
+        percent: u32,
+    },
+    Restart,
+    SelectJava {
+        home: std::path::PathBuf,
+    },
+    InstallJava {
+        major: u8,
+    },
+    UpdatePowershell {
+        version: String,
+    },
+}
+
 #[tauri::command]
-fn open_windows_settings(page: dashboard_actions::SettingsPage) -> Result<(), String> {
-    dashboard_actions::open_settings(page)
+async fn apply_dashboard_change(
+    state: State<'_, Arc<Dashboard>>,
+    change: DashboardChange,
+) -> Result<Option<String>, String> {
+    if state.smoke_test {
+        return Err("Dashboard smoke tests cannot apply system changes.".into());
+    }
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        match change {
+            DashboardChange::SystemToggle { setting, enabled } => {
+                system_controls::set(setting, enabled)
+            }
+            DashboardChange::NetworkProfile { index, private } => {
+                system_controls::set_network_profile(index, private)
+            }
+            DashboardChange::DisplayScale { id, percent } => {
+                native::set_display_scale(&id, percent)
+            }
+            DashboardChange::NightLight { enabled } => night_light::set_enabled(enabled),
+            DashboardChange::NightWarmth { percent } => night_light::set_warmth(percent),
+            DashboardChange::Restart => system_controls::restart(),
+            DashboardChange::SelectJava { home } => dashboard_runtimes::select_java(home),
+            DashboardChange::InstallJava { major } => dashboard_runtimes::install_java(major),
+            DashboardChange::UpdatePowershell { version } => {
+                return dashboard_runtimes::update_powershell(version).map(Some);
+            }
+        }
+        .map(|()| None)
+    })
+    .await
+    .map_err(|error| error.to_string())?;
+    state.wake();
+    result
+}
+
+#[tauri::command]
+async fn display_scale_options(id: String) -> Result<native::DisplayScale, String> {
+    tauri::async_runtime::spawn_blocking(move || native::display_scale_options(&id))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn java_runtimes() -> Result<Vec<dashboard_runtimes::JavaRuntime>, String> {
+    tauri::async_runtime::spawn_blocking(dashboard_runtimes::java_runtimes)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn powershell_update() -> Result<dashboard_runtimes::PowerShellUpdate, String> {
+    tauri::async_runtime::spawn_blocking(dashboard_runtimes::powershell_update)
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -443,7 +545,7 @@ fn finish_dashboard_smoke(
             app.exit(1);
         } else {
             println!(
-                "WebView2 verified dashboard layout, appearance, wallpaper, telemetry preferences, and Network views."
+                "WebView2 verified dashboard layout, appearance, telemetry preferences, network controls, and Network views."
             );
             app.exit(0);
         }
@@ -565,9 +667,13 @@ fn main() {
             check_dns,
             set_dashboard_dns,
             refresh_dashboard_arp,
+            set_discovery_sharing,
             cpu_sensor_status,
             external_ipv4,
-            open_windows_settings,
+            apply_dashboard_change,
+            display_scale_options,
+            java_runtimes,
+            powershell_update,
             identify_displays,
             display_modes,
             preview_display,

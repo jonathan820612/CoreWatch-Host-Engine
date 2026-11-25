@@ -6,6 +6,10 @@ body { overflow: hidden; }
 .modular-tabs { justify-content: flex-start; }
 #status { font-size: 0.7rem; color: var(--cw-text-muted); white-space: nowrap; }
 .window-control { min-width: 24px; padding-inline: 5px; }
+.rust-version { color: var(--cw-text-muted); font-size: 0.72rem; letter-spacing: 0; white-space: nowrap; margin-left: 0.35em; }
+.night-warmth { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; margin-top: 5px; color: var(--cw-text-muted); }
+.night-warmth input { min-width: 0; width: 100%; margin: 0; accent-color: var(--cw-accent); }
+.night-warmth:has(input:disabled) { opacity: 0.55; }
 .dashboard-grid { min-height: 0; min-width: 0; grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .dashboard-grid .data-field, .dashboard-grid .data-field-split { line-height: 1.22; margin-bottom: 2px; }
 .dashboard-grid .network-matrix-grid { row-gap: 6px !important; }
