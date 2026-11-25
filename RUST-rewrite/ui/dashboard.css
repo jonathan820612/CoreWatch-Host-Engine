@@ -1,0 +1,118 @@
+[hidden] { display: none !important; }
+body { overflow: hidden; }
+.app-header-deck { position: relative; padding: 4px 8px; margin-bottom: 7px; }
+.header-drag-space { order: 3; flex: 1 1 auto; min-width: 0; align-self: stretch; }
+.header-right-group { order: 4; flex: 0 1 auto; }
+.modular-tabs { justify-content: flex-start; }
+#status { font-size: 0.7rem; color: var(--cw-text-muted); white-space: nowrap; }
+.window-control { min-width: 24px; padding-inline: 5px; }
+.dashboard-grid { min-height: 0; min-width: 0; grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.dashboard-grid .data-field, .dashboard-grid .data-field-split { line-height: 1.22; margin-bottom: 2px; }
+.dashboard-grid .network-matrix-grid { row-gap: 6px !important; }
+.dashboard-grid .net-node { min-width: 0; }
+.dashboard-grid .net-node strong, .dashboard-grid .net-node button,
+.dashboard-grid .data-field-split strong, .dashboard-grid .video-truncate {
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dashboard-grid .net-node button { max-width: 100%; }
+.dashboard-grid .metric-metadata span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.dashboard-grid .metric-metadata span:last-child { flex-shrink: 0; }
+.dashboard-grid .wide-sub-console h2 { text-align: left; }
+.dashboard-grid .adapter-status-row { align-items: center; }
+.dashboard-grid .console-box { min-height: 100px; max-height: 220px; white-space: pre-wrap; user-select: text; }
+[data-unavailable="true"] { opacity: 0.75; }
+.dashboard-card .value-action, .storage-interactive-row-header {
+    padding: 0; border: none; background: none; font: inherit; color: var(--cw-text-primary);
+    font-weight: bold; text-align: left; cursor: pointer; min-width: 0;
+}
+.value-action.clickable-value:hover, .storage-interactive-row-header:hover .drive-title { color: var(--cw-accent-soft); }
+.value-action.clickable-value { border-bottom: 1px dotted var(--cw-text-muted); }
+.display-setting {
+    border: 1px solid var(--cw-border-strong); background: var(--cw-bg-inset); color: var(--cw-accent-soft);
+    font-size: 10px; padding: 0 4px; cursor: pointer;
+}
+.display-setting::after { content: " ▾"; }
+.dashboard-grid .dashboard-dns-node #lblDnsServers {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-align: left;
+}
+.dashboard-diagnostic-facts {
+    display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+    gap: 7px 14px; margin: 0 0 5px; align-items: baseline;
+}
+.dashboard-diagnostic-facts dt { color: var(--cw-text-muted); }
+.dashboard-diagnostic-facts dd { margin: 0; overflow-wrap: anywhere; user-select: text; }
+.cpu-sensor-button { cursor: pointer; font-family: inherit; }
+.cpu-sensor-button:hover { filter: brightness(1.2); }
+.storage-tight-row .metric-metadata { gap: 5px; }
+.storage-data-numeric-text { white-space: nowrap; }
+.dashboard-dialog {
+    color: var(--cw-text-primary); background: var(--cw-bg-surface); border: 1px solid var(--cw-border-strong);
+    max-width: min(460px, 90vw); padding: 16px; font-size: 12px;
+}
+.dashboard-dialog::backdrop { background: #10131bbf; }
+.dashboard-dialog form { display: grid; gap: 8px; }
+.dashboard-dialog h2, .dashboard-dialog p { margin: 0; }
+.dashboard-dialog label { display: grid; gap: 5px; }
+.dashboard-dialog .network-actions { justify-content: flex-end; }
+#viewNetworkManagerPanel:not([hidden]) { display: flex; }
+#netSubAdapters { display: flex; overflow: auto; }
+#netSubAdapters .sharing-list { align-content: start; grid-template-columns: minmax(0, 1fr); }
+#adapterInterfaceContainer .network-adapter-card {
+    background: var(--cw-bg-inset);
+    border-color: var(--cw-border-strong);
+    padding: 12px 14px;
+}
+.network-adapter-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.network-adapter-head h3 { margin: 0; color: var(--cw-accent-soft); overflow-wrap: anywhere; }
+.network-adapter-facts {
+    display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+    align-items: baseline; margin: 12px 0; gap: 7px 14px; font-size: 12px;
+}
+.network-adapter-facts dt { color: var(--cw-text-muted); }
+.network-adapter-facts dd {
+    margin: 0; text-align: right; font-weight: 600; color: var(--cw-text-primary);
+    overflow-wrap: anywhere; user-select: text;
+}
+.network-adapter-config {
+    border-top: 1px solid var(--cw-border-strong);
+    padding-top: 8px;
+}
+.network-adapter-config h4 { margin: 0 0 6px; font-size: 12px; }
+.network-actions, .network-edit-form { display: flex; align-items: end; flex-wrap: wrap; gap: 6px; }
+.network-edit-form + .network-edit-form, .network-adapter-card > .network-actions { margin-top: 8px; }
+.network-field { flex: 1 1 110px; min-width: 75px; display: grid; gap: 3px; color: var(--cw-text-muted); font-size: 10px; }
+.network-field:has(input[type=number]) { flex: 0 0 65px; }
+.network-field input { width: 100%; min-width: 0; box-sizing: border-box; }
+.dns-edit-form .network-field { flex-basis: 140px; }
+.network-command-output {
+    margin: 0; padding: 6px; color: var(--cw-text-secondary); font: 11px/1.45 Consolas, monospace;
+    overflow: auto; user-select: text;
+}
+#netWifiTelemetryBox { display: block; }
+#netSubWifiRoutes .diagx-two-col-row > section, #netSubWifiRoutes .diagx-two-col-row > div { min-width: 0; }
+#netDiagVisualArea { overflow: auto; }
+.identify-display {
+    margin: 0; height: 100vh; display: grid; place-items: center; background: #10131b;
+    border: 2px solid #63b3ed; box-sizing: border-box; color: #e2e8f0;
+    font: 700 68px Consolas, monospace;
+}
+
+@media (max-width: 1379px) {
+    .header-drag-space { order: 2; }
+    .header-right-group { order: 3; }
+    .modular-tabs { order: 4; flex-basis: 100%; padding-top: 4px; }
+}
+@media (max-width: 800px) { #status { display: none; } }
+@media (max-width: 760px) {
+    .dashboard-grid { grid-template-columns: minmax(0, 1fr); }
+    .dashboard-grid > .dashboard-card { grid-column: 1 / -1 !important; }
+    .speed-metrics-panel { flex-wrap: wrap; gap: 6px 12px; }
+    .speed-execute-action-btn { flex-shrink: 0; }
+}
+@media (max-width: 520px) {
+    .dashboard-grid .net-node { gap: 4px !important; font-size: 10px; }
+    .dashboard-grid .net-node.multi-driver-row { gap: 6px 12px !important; }
+    .net-diag-toolbar, .net-diag-mini-box { flex-wrap: wrap; }
+}

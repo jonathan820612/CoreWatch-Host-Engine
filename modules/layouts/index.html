@@ -8,6 +8,12 @@
 </head>
 <body>
     <!-- =========================================================================
+    CUSTOM WALLPAPER & FADE LAYERS (Live Theme Studio)
+    ========================================================================= -->
+    <div id="cwWallpaperLayer" aria-hidden="true"></div>
+    <div id="cwWallpaperFade" aria-hidden="true"></div>
+
+    <!-- =========================================================================
     PRELOADING SPLASH OVERLAY
     ========================================================================= -->
     <div id="appSplashOverlayView" role="status" aria-live="polite">
@@ -29,7 +35,8 @@ APP HEADER NAVIGATION DECK
             <div class="icon-square-frame">
                 <img src="../../Images/Icon.png" class="header-corner-brand" alt="CoreWatch Logo">
             </div>
-            <button type="button" class="tab-btn nav-cmdk-btn" onclick="OpenCommandPalette()" title="Quick Command Palette (Ctrl+K)">⌘ Ctrl+K</button>
+            <span class="header-brand-title" title="CoreWatch Host Engine">COREWATCH</span>
+            <button type="button" class="tab-btn nav-cmdk-btn" onclick="OpenCommandPalette()" title="Quick Command Palette (Ctrl+K)">⌘ <span class="nav-btn-label">Ctrl+K</span></button>
         </div>
         
         <div class="modular-tabs">
@@ -37,9 +44,9 @@ APP HEADER NAVIGATION DECK
             <button id="tabNetManager" class="tab-btn" onclick="SwitchAppLayoutView('netmanager')" title="Network Adapters, Active Diagnostics, Wi-Fi & Routing">📡 Network</button>
             <button id="tabTasksPorts" class="tab-btn" onclick="SwitchAppLayoutView('tasksports')" title="Live Processes, Windows Services & Open TCP/UDP Ports">🧭 Tasks &amp; Ports</button>
             <button id="tabUltimaDiagX" class="tab-btn" onclick="SwitchAppLayoutView('diagx')" title="UltimaDiagX - System Diagnostics & Crash Analysis">🩺 UltimaDiagX</button>
-            <!-- Grouped Dev & Work Dropdown (GitHub Manager, Jira Manager, WSL) -->
+            <!-- Grouped Dev & Work Dropdown (GitHub, Jira, WSL, Docker, SSH/Certs, Homelab) -->
             <div class="nav-dropdown" id="navDevDropdown">
-                <button type="button" id="tabDevMenu" class="tab-btn nav-dropdown-trigger" onclick="ToggleDevWorkMenu(event)" aria-haspopup="true" aria-expanded="false" title="Developer &amp; Work Tools (GitHub, Jira, WSL)">
+                <button type="button" id="tabDevMenu" class="tab-btn nav-dropdown-trigger" onclick="ToggleDevWorkMenu(event)" aria-haspopup="true" aria-expanded="false" title="Developer &amp; Infrastructure Tools (GitHub, Jira, WSL, Docker, SSH/Certs, Homelab)">
                     <span id="lblDevMenuText">💻 Dev &amp; Work</span> <span class="nav-caret">▾</span>
                 </button>
                 <div class="nav-dropdown-menu" id="navDevMenu" role="menu">
@@ -55,21 +62,61 @@ APP HEADER NAVIGATION DECK
                         <span class="nav-mi-icon">🐧</span>
                         <span class="nav-mi-body"><strong>WSL Manager</strong><small>Linux distros, online catalog, VHDX compaction &amp; .wslconfig</small></span>
                     </button>
+                    <button type="button" id="tabDockerServices" class="nav-menu-item" role="menuitem" onclick="SelectDevWorkMenuView('docker')">
+                        <span class="nav-mi-icon">🐳</span>
+                        <span class="nav-mi-body"><strong>Docker &amp; Dev Services</strong><small>Containers, live logs, prune, port links &amp; local dev services</small></span>
+                    </button>
+                    <button type="button" id="tabSshCerts" class="nav-menu-item" role="menuitem" onclick="SelectDevWorkMenuView('sshcerts')">
+                        <span class="nav-mi-icon">🔐</span>
+                        <span class="nav-mi-body"><strong>SSH &amp; Certificates</strong><small>Visual ~/.ssh/config launcher, SSH keys &amp; expiring TLS/code certs</small></span>
+                    </button>
+                    <button type="button" id="tabHomelab" class="nav-menu-item" role="menuitem" onclick="SelectDevWorkMenuView('homelab')">
+                        <span class="nav-mi-icon">🌐</span>
+                        <span class="nav-mi-body"><strong>Multi-PC / Homelab</strong><small>Monitor remote servers, desktops &amp; NAS via SSH, WinRM, or HTTP</small></span>
+                    </button>
+                </div>
+            </div>
+            <!-- Grouped Ops & Guard Dropdown (Smart Alerts, Updates, Snapshots, Backup Sync, Battery, Security) -->
+            <div class="nav-dropdown" id="navOpsDropdown">
+                <button type="button" id="tabOpsMenu" class="tab-btn nav-dropdown-trigger" onclick="ToggleOpsGuardMenu(event)" aria-haspopup="true" aria-expanded="false" title="Protection, Updates, Backups, Power &amp; Security Tools">
+                    <span id="lblOpsMenuText">🛡️ Ops &amp; Guard</span> <span class="nav-caret">▾</span>
+                </button>
+                <div class="nav-dropdown-menu" id="navOpsMenu" role="menu">
+                    <button type="button" id="tabSmartAlerts" class="nav-menu-item" role="menuitem" onclick="SelectOpsGuardMenuView('alerts')">
+                        <span class="nav-mi-icon">🔔</span>
+                        <span class="nav-mi-body"><strong>Smart Alerts &amp; Watchdog</strong><small>Thermal, storage, network &amp; service rules with Windows toast alerts</small></span>
+                    </button>
+                    <button type="button" id="tabUpdateCenter" class="nav-menu-item" role="menuitem" onclick="SelectOpsGuardMenuView('updates')">
+                        <span class="nav-mi-icon">🔄</span>
+                        <span class="nav-mi-body"><strong>Unified Update Center</strong><small>WinGet, Windows Updates, PowerShell &amp; CoreWatch with pin/ignore list</small></span>
+                    </button>
+                    <button type="button" id="tabSnapshots" class="nav-menu-item" role="menuitem" onclick="SelectOpsGuardMenuView('snapshots')">
+                        <span class="nav-mi-icon">📸</span>
+                        <span class="nav-mi-body"><strong>System Snapshots &amp; Diff</strong><small>Restore Points + Before/After diff of apps, startup, services &amp; drivers</small></span>
+                    </button>
+                    <button type="button" id="tabBackupSync" class="nav-menu-item" role="menuitem" onclick="SelectOpsGuardMenuView('backupsync')">
+                        <span class="nav-mi-icon">💾</span>
+                        <span class="nav-mi-body"><strong>Backup &amp; Folder Sync</strong><small>Scheduled robocopy incremental/mirror sync to USB or NAS with dry-run</small></span>
+                    </button>
+                    <button type="button" id="tabBatteryPeripherals" class="nav-menu-item" role="menuitem" onclick="SelectOpsGuardMenuView('battery')">
+                        <span class="nav-mi-icon">🔋</span>
+                        <span class="nav-mi-body"><strong>Battery &amp; Peripherals</strong><small>Laptop battery health/cycles, SleepStudy &amp; Bluetooth device batteries</small></span>
+                    </button>
+                    <button type="button" id="tabSecurityRepair" class="nav-menu-item" role="menuitem" onclick="SelectOpsGuardMenuView('security')">
+                        <span class="nav-mi-icon">🛡️</span>
+                        <span class="nav-mi-body"><strong>Security &amp; Repair</strong><small>BitLocker, TPM, RDP, DISM/SFC &amp; 1-click IT Support ZIP</small></span>
+                    </button>
                 </div>
             </div>
             <!-- Scalable Grouped System Tools Dropdown (keeps top bar uncluttered as tabs grow) -->
             <div class="nav-dropdown" id="navSystemDropdown">
-                <button type="button" id="tabSystemMenu" class="tab-btn nav-dropdown-trigger" onclick="ToggleSystemToolsMenu(event)" aria-haspopup="true" aria-expanded="false" title="System & Administration Tools">
+                <button type="button" id="tabSystemMenu" class="tab-btn nav-dropdown-trigger" onclick="ToggleSystemToolsMenu(event)" aria-haspopup="true" aria-expanded="false" title="System &amp; Administration Tools">
                     <span id="lblSystemMenuText">🧰 System</span> <span class="nav-caret">▾</span>
                 </button>
                 <div class="nav-dropdown-menu" id="navSystemMenu" role="menu">
                     <button type="button" id="tabProfiles" class="nav-menu-item" role="menuitem" onclick="SelectSystemMenuView('profiles')">
                         <span class="nav-mi-icon">⚡</span>
                         <span class="nav-mi-body"><strong>System Profiles &amp; Modes</strong><small>Work, Gaming, Streaming, Night &amp; custom presets (DnD, Power, Display)</small></span>
-                    </button>
-                    <button type="button" id="tabSecurityRepair" class="nav-menu-item" role="menuitem" onclick="SelectSystemMenuView('security')">
-                        <span class="nav-mi-icon">🛡️</span>
-                        <span class="nav-mi-body"><strong>Security &amp; Repair</strong><small>BitLocker, TPM, RDP, DISM/SFC &amp; Support ZIP</small></span>
                     </button>
                     <button type="button" id="tabStartup" class="nav-menu-item" role="menuitem" onclick="SelectSystemMenuView('startup')">
                         <span class="nav-mi-icon">🚀</span>
@@ -110,12 +157,14 @@ APP HEADER NAVIGATION DECK
                 </button>
                 <div class="nav-dropdown-menu nav-mode-menu" id="navModePillMenu" role="menu"></div>
             </div>
+            <button type="button" id="btnHeaderAlertsBell" class="tab-btn nav-alert-btn" onclick="SwitchAppLayoutView('alerts')" title="Smart Alerts &amp; Watchdog Rules — Click to view rules and alert history">🔔<span id="lblHeaderAlertsCount" class="nav-alert-count" style="display: none;">0</span></button>
             <button type="button" id="btnSideDockToggle" class="tab-btn nav-dock-btn" onclick="ToggleSideTelemetryDock()" style="display: none;" title="Open Side Pop-Out Telemetry Dock (Docked live frames)">◫ <span id="lblSideDockCount">0</span></button>
-            <button type="button" id="btnCustomizeLayout" class="tab-btn nav-util-btn" onclick="ToggleLayoutCustomizer()" title="Customize Dashboard Frames, Side Dock, Order, Width & Window Settings">✏️ Layout</button>
+            <button type="button" id="btnCustomizeLayout" class="tab-btn nav-util-btn" onclick="ToggleLayoutCustomizer()" title="Customize Dashboard Frames, Side Dock, Order, Width &amp; Window Settings">✏️<span class="nav-btn-label"> Layout</span></button>
+            <button type="button" id="btnOpenThemeStudio" class="tab-btn nav-theme-btn" onclick="ToggleThemeStudio()" title="Theme &amp; Appearance Studio (Live Custom Colors &amp; Local Background Image)">🎨</button>
             <button type="button" id="btnLockWindow" class="tab-btn nav-lock-btn" onclick="CycleWindowLockMode()" title="Window Unlocked — Click to lock position">🔓</button>
             <button type="button" id="btnPinOnTop" class="tab-btn nav-pin-btn" onclick="ToggleWindowAlwaysOnTop()" title="Toggle Always on Top (Pin Window)">📌</button>
             <button type="button" id="btnOpenSettings" class="tab-btn nav-settings-btn" onclick="ToggleSettingsModal()" title="Application Settings, Directories, Performance &amp; Modules">⚙️</button>
-            <button class="exit-system-btn" onclick="window.chrome.webview.postMessage('Exit-App')" title="Terminate CoreWatch Engine">⏻ EXIT</button>
+            <button class="exit-system-btn" onclick="window.chrome.webview.postMessage('Exit-App')" title="Terminate CoreWatch Engine">⏻<span class="nav-btn-label"> EXIT</span></button>
         </div>
     </div>
 <!-- =========================================================================
@@ -164,7 +213,7 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
                     </div>
                 </div>
                 <!-- [DIAGNOSTIC ADDITION] GPU VRAM Allocation Sub-Bar -->
-                <div class="vram-sub-row" data-metric-key="hw-vram">
+                <div class="vram-sub-row" data-metric-key="hw-vram" title="Dedicated GPU video memory currently allocated across running apps and games">
                     <div class="vram-sub-meta">
                         <span>🎞️ VRAM Allocation</span>
                         <span id="lblGpuVram">-- / -- GB</span>
@@ -176,7 +225,7 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
             </div>
 
             <!-- RAM Memory Allocation Row Group -->
-            <div class="metric-row" data-metric-key="hw-ram" style="margin-top: 10px;">
+            <div class="metric-row" data-metric-key="hw-ram" style="margin-top: 10px;" title="Physical system RAM in use vs. total installed memory">
                 <div class="metric-metadata">
                     <span>📟 RAM Memory Allocation</span>
                     <span id="lblRamUsage">0.00 / 0.00 GB</span>
@@ -184,7 +233,7 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
                 <div class="track-bg">
                     <div id="barRamUsage" class="track-fill"></div>
                 </div>
-                <div class="metric-cache-matrix-row" style="margin-top: 6px;">
+                <div class="metric-cache-matrix-row" style="margin-top: 6px;" title="On-die CPU L1, L2, and L3 hardware cache capacity">
                     <span class="cache-title-label">Cache Matrix:</span>
                     <div id="cpuCacheContainer" class="cache-badge-deck" style="gap: 4px;">
                         <span class="cache-tag">L1: N/A</span>
@@ -195,7 +244,7 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
             </div>
 
             <!-- Pagefile Commitment Row Group -->
-            <div class="metric-row" data-metric-key="hw-pagefile" style="margin-top: 8px; margin-bottom: 4px;">
+            <div class="metric-row" data-metric-key="hw-pagefile" style="margin-top: 8px; margin-bottom: 4px;" title="Windows virtual memory pagefile (pagefile.sys) usage on disk when RAM pressure rises">
                 <div class="metric-metadata">
                     <span>💾 Pagefile Commitment</span>
                     <span id="lblPagefileUsage">0.00 / 0.00 GB</span>
@@ -226,8 +275,8 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
             </div>
             <div class="metric-group" data-metric-key="id-runtime">
                 <div class="data-field"><span>🎮</span> DirectX: <strong id="lblDirectX">Loading...</strong></div>
-                <div class="data-field"><span>🔲</span> Virtualization: <strong id="lblVirtualization">Loading...</strong> <span class="id-inline-sep">·</span> Secure Boot: <strong id="lblSecureBoot">--</strong></div>
-                <div class="data-field"><span>❯_</span> Powershell: <strong id="lblPsVersion">Loading...</strong></div>
+                <div class="data-field" title="Hardware CPU virtualization (VT-x / AMD-V, required for WSL 2 &amp; Hyper-V) and UEFI Secure Boot status"><span>🔲</span> Virtualization: <strong id="lblVirtualization">Loading...</strong> <span class="id-inline-sep">·</span> Secure Boot: <strong id="lblSecureBoot">--</strong></div>
+                <div class="data-field" title="Running PowerShell version &amp; install channel (MSI in C:\Program Files\PowerShell\7 vs. MSIX in WindowsApps with restricted folder permissions)"><span>❯_</span> Powershell: <strong id="lblPsVersion">Loading...</strong></div>
             </div>
             <div class="data-field java-field-row" data-metric-key="id-java">
                 <span>☕</span> Java:
@@ -238,10 +287,10 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
                     <div id="javaVersionMenu" class="java-dropdown-menu" role="menu"></div>
                 </div>
             </div>
-            <div class="data-field" data-metric-key="id-telemetry"><span>📡</span> Telemetry: <strong id="lblTelemetry">Loading...</strong></div>
+            <div class="data-field" data-metric-key="id-telemetry" title="Windows Connected User Experiences &amp; Telemetry service (DiagTrack) — click pill to toggle On/Off"><span>📡</span> Telemetry: <strong id="lblTelemetry">Loading...</strong></div>
             <!-- [DIAGNOSTIC ADDITION] Elevation Context, Pending Reboot & Last Unexpected Shutdown/BSOD -->
             <div class="identity-diag-group" data-metric-key="id-stability">
-                <div class="data-field"><span>🛡️</span> Privilege: <span id="lblElevation" class="diag-pill diag-neutral">Checking...</span></div>
+                <div class="data-field" title="Current Windows privilege token — Admin is required for hardware sensors, firewall/Defender toggles, and driver/service actions"><span>🛡️</span> Privilege: <span id="lblElevation" class="diag-pill diag-neutral">Checking...</span></div>
                 <div class="data-field"><span>🔄</span> Pending Reboot: <span id="lblPendingReboot" class="diag-pill diag-ok" title="No pending reboot registry flags detected">No</span></div>
                 <div class="data-field"><span>💥</span> Last Crash/BSOD: <strong id="lblLastCrash" class="diag-crash-val" title="Kernel-Power (41) / BugCheck (1001)">None Recorded</strong></div>
             </div>
@@ -313,15 +362,15 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
                 <div class="net-node"><span>📶</span> WLAN SSID: <strong id="lblWlanSsid">Disconnected</strong></div>
                 <div class="net-node"><span>🌍</span> Ext IPv4: <strong id="lblExtIPv4" class="clickable-value" onclick="CopyDashboardValue('lblExtIPv4', 'External IPv4')" title="Click to copy External IPv4">Resolving...</strong></div>
                 <div class="net-node"><span>🚀</span> Link Capacity: <strong id="lblLinkCap">0 Mbps</strong></div>
-                <div class="net-node"><span>🧱</span> Firewall: <strong id="lblFirewall">Unknown</strong></div>
-                <div class="net-node"><span>👁️</span> Realtime Protection: <strong id="lblRealtime">Unknown</strong></div>
-                <div class="net-node"><span>📣</span> Discovery: <strong id="lblDiscovery">Off</strong></div>
-                <div class="net-node"><span>📂</span> Sharing: <strong id="lblSharing">Off</strong></div>
+                <div class="net-node" title="Windows Defender Firewall status across Domain, Private &amp; Public profiles — click to toggle"><span>🧱</span> Firewall: <strong id="lblFirewall">Unknown</strong></div>
+                <div class="net-node" title="Microsoft Defender Real-Time malware scanning (requires Tamper Protection Off in Windows Security to disable)"><span>👁️</span> Realtime Protection: <strong id="lblRealtime">Unknown</strong></div>
+                <div class="net-node" title="Network Discovery firewall rules (SSDP/LLMNR) allowing this PC to see and be seen on the local network"><span>📣</span> Discovery: <strong id="lblDiscovery">Off</strong></div>
+                <div class="net-node" title="Windows File &amp; Printer Sharing (SMB TCP 445) firewall rules for shared folders"><span>📂</span> Sharing: <strong id="lblSharing">Off</strong></div>
                 <!-- [DEFENDER TAMPER-GATED CONTROLS] T. Protection + Dependent Defender Protections -->
-                <div class="net-node" data-metric-key="net-defender"><span>🛡️</span> T. Protection: <strong id="lblTamperProtection">Unknown</strong></div>
-                <div class="net-node" data-metric-key="net-defender"><span>🧠</span> Behavior Mon: <strong id="lblBehaviorMonitor">Unknown</strong></div>
-                <div class="net-node" data-metric-key="net-defender"><span>☁️</span> Cloud Protect: <strong id="lblCloudProtection">Unknown</strong></div>
-                <div class="net-node" data-metric-key="net-defender"><span>📥</span> IOAV Scan: <strong id="lblIoavProtection">Unknown</strong></div>
+                <div class="net-node" data-metric-key="net-defender" title="Windows Security Tamper Protection — blocks external apps from changing Defender settings; click to open Windows Security"><span>🛡️</span> T. Protection: <strong id="lblTamperProtection">Unknown</strong></div>
+                <div class="net-node" data-metric-key="net-defender" title="Defender heuristic Behavior Monitoring — watches running apps for suspicious activity (requires Tamper Protection Off to toggle)"><span>🧠</span> Behavior Mon: <strong id="lblBehaviorMonitor">Unknown</strong></div>
+                <div class="net-node" data-metric-key="net-defender" title="Defender Cloud-Delivered Protection (MAPS) — real-time cloud malware lookup (requires Tamper Protection Off to toggle)"><span>☁️</span> Cloud Protect: <strong id="lblCloudProtection">Unknown</strong></div>
+                <div class="net-node" data-metric-key="net-defender" title="Defender IOAV Scan — automatically scans downloaded files and email attachments (requires Tamper Protection Off to toggle)"><span>📥</span> IOAV Scan: <strong id="lblIoavProtection">Unknown</strong></div>
                 <!-- [DIAGNOSTIC ADDITION] Active DNS Servers (Click to Switch), DNS Resolution Check (Click to Flush/Probe) & Gateway ARP Status (Click to Refresh) -->
                 <div class="net-node net-node-span2" data-metric-key="net-dnsarp"><span>🔎</span> DNS Servers: <strong id="lblDnsServers" class="clickable-value" onclick="TriggerQuickDnsMenu()" title="Click to quick-switch DNS presets (Auto, Cloudflare, Google, Quad9, Custom)">Resolving...</strong></div>
                 <div class="net-node" data-metric-key="net-dnsarp"><span>🌐</span> DNS Check: <span id="lblDnsStatus" class="diag-pill diag-neutral clickable-pill" onclick="TriggerFlushAndTestDns()" title="Click to flush Windows DNS cache and run a fresh resolution probe">Checking...</span></div>
@@ -338,16 +387,16 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
                 </div>
             </div>
             <!-- Speedtest Mesh Panel -->
-            <div class="speedtest-wrapper-deck" data-metric-key="net-speedtest">
+            <div class="speedtest-wrapper-deck" data-metric-key="net-speedtest" title="Live internet path quality (ICMP ping latency, jitter, packet loss) and HTTPS throughput test">
                 <div class="speed-metrics-panel">
-                    <div class="speed-data-node">Latency: <strong id="lblNetLatency">--</strong> ms</div>
+                    <div class="speed-data-node" title="Round-trip ping time to test endpoint (lower is faster)">Latency: <strong id="lblNetLatency">--</strong> ms</div>
                     <!-- [DIAGNOSTIC ADDITION] Jitter & Packet Loss Readouts -->
-                    <div class="speed-data-node">Jitter: <strong id="lblNetJitter">--</strong> ms</div>
-                    <div class="speed-data-node">Loss: <strong id="lblNetLoss">--</strong> %</div>
-                    <div class="speed-data-node">Download: <strong id="lblNetDownload">--</strong> Mbps</div>
-                    <div class="speed-data-node">Upload: <strong id="lblNetUpload">--</strong> Mbps</div>
+                    <div class="speed-data-node" title="Ping latency variance between probes (lower means smoother gaming/calls)">Jitter: <strong id="lblNetJitter">--</strong> ms</div>
+                    <div class="speed-data-node" title="Percentage of dropped ICMP probes (0% is ideal)">Loss: <strong id="lblNetLoss">--</strong> %</div>
+                    <div class="speed-data-node" title="Measured downstream transfer rate">Download: <strong id="lblNetDownload">--</strong> Mbps</div>
+                    <div class="speed-data-node" title="Measured upstream transfer rate">Upload: <strong id="lblNetUpload">--</strong> Mbps</div>
                 </div>
-                <button class="speed-execute-action-btn" onclick="TriggerNetworkSpeedAnalysis()">Test Mesh</button>
+                <button class="speed-execute-action-btn" onclick="TriggerNetworkSpeedAnalysis()" title="Run live latency, jitter, packet loss, and download/upload throughput test">Test Mesh</button>
             </div>
 
             <!-- Bandwidth Pipeline Activity -->
@@ -355,8 +404,8 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
                 <div class="activity-metadata">
                     <span>📊 Transmit/Receive Data Mesh Pipeline Activity</span>
                     <div class="activity-values">
-                        <span class="rx-numeric-text">📥 <span id="lblNetRx">0.00 KB/s</span></span>
-                        <span class="tx-numeric-text">📤 <span id="lblNetTx">0.00 KB/s</span></span>
+                        <span class="rx-numeric-text" title="Live inbound Receive (Download) throughput across active network interface">📥 <span id="lblNetRx">0.00 KB/s</span></span>
+                        <span class="tx-numeric-text" title="Live outbound Transmit (Upload) throughput across active network interface">📤 <span id="lblNetTx">0.00 KB/s</span></span>
                     </div>
                 </div>
                 <div class="activity-track-chassis">
@@ -374,7 +423,7 @@ VIEW 1: DEFAULT SYSTEM OVERVIEW DASHBOARD GRID
                 <h2>📑 LOG PROFILE CONSOLE</h2>
                 <div style="display: flex; gap: 5px;">
                     <button class="console-clear-btn" onclick="CopyConsoleLogView()" title="Copy live console log to clipboard">Copy Logs</button>
-                    <button class="console-clear-btn" onclick="ClearConsoleLogView()">Flush Logs</button>
+                    <button class="console-clear-btn" onclick="ClearConsoleLogView()" title="Clear all entries from the live console window">Flush Logs</button>
                 </div>
             </div>
             <div id="console-box" class="console-box">[CoreWatch Host Engine Interface Active: Polling live CIM loops...]</div>
@@ -387,8 +436,8 @@ VIEW 2: NETWORK MANAGER + ACTIVE NETWORK TROUBLESHOOTING TOOLKIT
         <div class="console-header-row">
             <h2 id="netManagerTitle">📡 NETWORK MANAGER &amp; DIAGNOSTICS</h2>
             <div style="display: flex; gap: 6px; flex-wrap: wrap;">
-                <button type="button" class="console-clear-btn" onclick="FlushDnsCache()">Flush DNS Cache</button>
-                <button type="button" class="console-clear-btn btn-accent-action" onclick="RefreshActiveNetworkSubView()">Refresh</button>
+                <button type="button" class="console-clear-btn" onclick="FlushDnsCache()" title="Clear Windows DNS resolver cache (ipconfig /flushdns)">Flush DNS Cache</button>
+                <button type="button" class="console-clear-btn btn-accent-action" onclick="RefreshActiveNetworkSubView()" title="Reload live adapter, Wi-Fi, routing, and ARP data">Refresh</button>
             </div>
         </div>
         <p>Configure network adapters and run live IT path diagnostics: ICMP Ping with latency sparkline, Traceroute, multi-port TCP reachability, DNS record lookups, Wi-Fi radio RSSI/channel analysis, and IPv4 routing/ARP tables.</p>
@@ -425,18 +474,18 @@ VIEW 2: NETWORK MANAGER + ACTIVE NETWORK TROUBLESHOOTING TOOLKIT
                 </div>
                 <div class="net-diag-toolbar">
                     <input type="text" id="netDiagTargetInput" class="tab-search-input" value="1.1.1.1" placeholder="Target hostname or IP (e.g. 1.1.1.1, google.com, 192.168.1.1)...">
-                    <button type="button" class="console-clear-btn btn-accent-action" onclick="RunNetDiagPing()">Ping (6x)</button>
-                    <button type="button" class="console-clear-btn" onclick="RunNetDiagTraceroute()">Traceroute</button>
+                    <button type="button" class="console-clear-btn btn-accent-action" onclick="RunNetDiagPing()" title="Send 6 ICMP echo probes to measure latency min/avg/max and packet loss">Ping (6x)</button>
+                    <button type="button" class="console-clear-btn" onclick="RunNetDiagTraceroute()" title="Trace each router hop along the network path to the target host">Traceroute</button>
                 </div>
 
                 <!-- Port Reachability & DNS Record Row -->
                 <div class="net-diag-secondary-grid">
-                    <div class="net-diag-mini-box">
+                    <div class="net-diag-mini-box" title="Test whether one or more comma-separated TCP ports are reachable on the target host">
                         <span class="net-diag-mini-label">TCP Port Test:</span>
                         <input type="text" id="netDiagPortsInput" class="tab-search-input" value="80,443,3389,22" placeholder="Ports (e.g. 443 or 22,80,443,3389)">
-                        <button type="button" class="console-clear-btn" onclick="RunNetDiagPortTest()">Test Ports</button>
+                        <button type="button" class="console-clear-btn" onclick="RunNetDiagPortTest()" title="Attempt TCP handshakes against each listed port">Test Ports</button>
                     </div>
-                    <div class="net-diag-mini-box">
+                    <div class="net-diag-mini-box" title="Query specific DNS record types (A, AAAA, MX, TXT, NS, CNAME, SOA, PTR) against default or custom DNS server">
                         <span class="net-diag-mini-label">DNS Lookup:</span>
                         <select id="selNetDiagDnsType" class="tab-sort-select" aria-label="DNS record type">
                             <option value="A" selected>A</option>
@@ -448,8 +497,8 @@ VIEW 2: NETWORK MANAGER + ACTIVE NETWORK TROUBLESHOOTING TOOLKIT
                             <option value="SOA">SOA</option>
                             <option value="PTR">PTR</option>
                         </select>
-                        <input type="text" id="netDiagDnsServer" class="tab-search-input" style="max-width: 115px;" placeholder="DNS (opt)">
-                        <button type="button" class="console-clear-btn" onclick="RunNetDiagDnsLookup()">Lookup</button>
+                        <input type="text" id="netDiagDnsServer" class="tab-search-input" style="max-width: 115px;" placeholder="DNS (opt)" title="Optional custom DNS resolver IP (e.g. 1.1.1.1 or 8.8.8.8)">
+                        <button type="button" class="console-clear-btn" onclick="RunNetDiagDnsLookup()" title="Run DNS record query">Lookup</button>
                     </div>
                 </div>
             </div>
@@ -1642,14 +1691,14 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
                 <div class="cw-dir-row">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <label for="inpGhRelBody">Release Notes (Markdown)</label>
-                        <button type="button" class="console-clear-btn" onclick="TriggerGenerateGitHubReleaseNotes()">✨ Auto-Generate Notes</button>
+                        <button type="button" class="console-clear-btn" onclick="TriggerGenerateGitHubReleaseNotes()" title="Ask GitHub API to auto-generate changelog notes from commits &amp; PRs since the previous tag">✨ Auto-Generate Notes</button>
                     </div>
                     <textarea id="inpGhRelBody" class="prof-input" rows="5" placeholder="Describe changes, fixes, and highlights..."></textarea>
                 </div>
                 <div class="gh-clone-opts-row">
-                    <label class="org-checkbox-label"><input type="checkbox" id="chkGhRelDraft"> <span>Save as Draft</span></label>
-                    <label class="org-checkbox-label"><input type="checkbox" id="chkGhRelPre"> <span>Mark as Pre-release</span></label>
-                    <button type="button" class="console-clear-btn" onclick="BrowseGitHubReleaseAssets()">📎 Attach Asset(s)</button>
+                    <label class="org-checkbox-label" title="Keep release unpublished until you review and publish it on GitHub"><input type="checkbox" id="chkGhRelDraft"> <span>Save as Draft</span></label>
+                    <label class="org-checkbox-label" title="Flag this release as a beta / preview / non-production build on GitHub"><input type="checkbox" id="chkGhRelPre"> <span>Mark as Pre-release</span></label>
+                    <button type="button" class="console-clear-btn" onclick="BrowseGitHubReleaseAssets()" title="Attach local installers, ZIPs, or checksums to upload with this release">📎 Attach Asset(s)</button>
                     <span id="lblGhRelAttachedAssets" class="cw-settings-sub">No files attached</span>
                     <button type="button" class="console-clear-btn btn-accent-action" style="margin-left: auto;" onclick="TriggerCreateGitHubRelease()">🚀 Publish Release</button>
                 </div>
@@ -1667,9 +1716,9 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
             <h2 id="jiraManagerTitle">📋 JIRA MANAGER</h2>
             <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center;">
                 <span id="lblJiraUserBadge" class="summary-chip">Account: <strong>Not Signed In</strong></span>
-                <button type="button" class="console-clear-btn" onclick="ToggleJiraAuthPanel()">🔑 Connection</button>
-                <button type="button" id="btnJiraNewIssue" class="console-clear-btn btn-accent-action" onclick="OpenJiraCreateIssueModal()" disabled>➕ New Issue</button>
-                <button type="button" class="console-clear-btn" onclick="RequestJiraManagerState()">Refresh</button>
+                <button type="button" class="console-clear-btn" onclick="ToggleJiraAuthPanel()" title="Configure Jira Cloud or Server/Data Center URL and encrypted API token">🔑 Connection</button>
+                <button type="button" id="btnJiraNewIssue" class="console-clear-btn btn-accent-action" onclick="OpenJiraCreateIssueModal()" title="Create a new Task, Bug, or Story directly in Jira" disabled>➕ New Issue</button>
+                <button type="button" class="console-clear-btn" onclick="RequestJiraManagerState()" title="Re-sync issues and projects from Jira">Refresh</button>
             </div>
         </div>
 
@@ -1713,11 +1762,11 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
 
         <div class="tab-filter-toolbar" style="margin-bottom: 6px;">
             <div class="tab-filter-pills" id="jiraPresetPills" style="margin: 0;">
-                <button type="button" class="filter-pill active" data-preset="assigned" onclick="SetJiraPreset('assigned')">👤 Assigned to Me</button>
-                <button type="button" class="filter-pill" data-preset="open" onclick="SetJiraPreset('open')">🔥 Open / Active</button>
-                <button type="button" class="filter-pill" data-preset="reported" onclick="SetJiraPreset('reported')">👀 Reported</button>
-                <button type="button" class="filter-pill" data-preset="recent" onclick="SetJiraPreset('recent')">🕒 Recent 14d</button>
-                <button type="button" class="filter-pill" data-preset="custom" onclick="SetJiraPreset('custom')">🔎 JQL</button>
+                <button type="button" class="filter-pill active" data-preset="assigned" onclick="SetJiraPreset('assigned')" title="Show Jira issues currently assigned to your signed-in account">👤 Assigned to Me</button>
+                <button type="button" class="filter-pill" data-preset="open" onclick="SetJiraPreset('open')" title="Show unresolved issues across your accessible Jira projects">🔥 Open / Active</button>
+                <button type="button" class="filter-pill" data-preset="reported" onclick="SetJiraPreset('reported')" title="Show issues originally created/reported by you">👀 Reported</button>
+                <button type="button" class="filter-pill" data-preset="recent" onclick="SetJiraPreset('recent')" title="Show issues updated within the last 14 days">🕒 Recent 14d</button>
+                <button type="button" class="filter-pill" data-preset="custom" onclick="SetJiraPreset('custom')" title="Write any custom Jira Query Language (JQL) filter expression">🔎 JQL</button>
             </div>
             <select id="selJiraProjectFilter" class="tab-sort-select" onchange="RequestJiraManagerState()">
                 <option value="">All Projects</option>
@@ -1882,7 +1931,7 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
                                 <option value="ultimate">Ultimate Performance</option>
                             </select>
                         </div>
-                        <div class="cw-dir-row">
+                        <div class="cw-dir-row" title="Switches Windows Do Not Disturb / Focus Assist via native WNF Quiet Hours API (no reboot needed)">
                             <label for="selProfDnd">🔕 Windows Do Not Disturb (DnD)</label>
                             <select id="selProfDnd" class="prof-select">
                                 <option value="unchanged">— Leave Unchanged —</option>
@@ -1891,7 +1940,7 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
                                 <option value="alarms">On — Alarms Only (Silent)</option>
                             </select>
                         </div>
-                        <div class="cw-dir-row">
+                        <div class="cw-dir-row" title="Uses Win32 SetThreadExecutionState while CoreWatch is running to prevent screen dimming and idle sleep">
                             <label for="selProfKeepAwake">☀️ Keep Screen Awake</label>
                             <select id="selProfKeepAwake" class="prof-select">
                                 <option value="unchanged">— Leave Unchanged —</option>
@@ -1899,7 +1948,7 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
                                 <option value="off">Off (Restore Normal Sleep Timers)</option>
                             </select>
                         </div>
-                        <div class="cw-dir-row">
+                        <div class="cw-dir-row" title="Controls Windows Night Light blue-light reduction and optional warmth color temperature">
                             <label for="selProfNightLight">🌙 Windows Night Light</label>
                             <select id="selProfNightLight" class="prof-select" onchange="SyncProfileEditorNightLightRow()">
                                 <option value="unchanged">— Leave Unchanged —</option>
@@ -1909,7 +1958,7 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
                         </div>
                     </div>
                     <div id="profNightLightStrengthRow" class="prof-nl-row" style="display: none;">
-                        <label style="display: inline-flex; align-items: center; gap: 6px; font-size: 10.5px; color: #cbd5e0;">
+                        <label style="display: inline-flex; align-items: center; gap: 6px; font-size: 10.5px; color: var(--cw-text-secondary);">
                             <input type="checkbox" id="chkProfNlStrength" onchange="SyncProfileEditorNightLightRow()">
                             Set Warmth Strength:
                         </label>
@@ -2012,6 +2061,403 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
             </div>
         </div>
     </aside>
+
+    <!-- =========================================================================
+    NEW WAVE 1-4 TABS: SMART ALERTS, UPDATE CENTER, SNAPSHOTS, BATTERY,
+    BACKUP SYNC, DOCKER & SERVICES, SSH & CERTS, MULTI-PC HOMELAB
+    ========================================================================= -->
+
+    <!-- TAB: SMART ALERTS & WATCHDOG RULES -->
+    <section id="viewSmartAlertsPanel" class="tab-view-panel sharing-panel" style="display: none;" aria-labelledby="smartAlertsTitle">
+        <div class="console-header-row">
+            <h2 id="smartAlertsTitle">🔔 SMART ALERTS &amp; WATCHDOG RULES</h2>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                <button type="button" id="btnAlertsMuteToggle" class="console-clear-btn" onclick="TriggerToggleAlertsMute()" title="Temporarily silence all watchdog notifications">🔇 Mute</button>
+                <button type="button" class="console-clear-btn" onclick="TriggerTestAlertToast()" title="Fire a sample native Windows toast notification right now">🧪 Test Toast</button>
+                <button type="button" class="console-clear-btn" onclick="TriggerAckAllAlerts()" title="Mark all alert history items as acknowledged">✓ Ack All</button>
+                <button type="button" class="console-clear-btn wsl-btn-danger" onclick="TriggerResetDefaultAlerts()" title="Restore the 6 factory starter watchdog rules">↺ Reset Defaults</button>
+                <button type="button" class="console-clear-btn btn-accent-action" onclick="RequestSmartAlertsState()">Refresh</button>
+            </div>
+        </div>
+        <div class="tab-summary-strip" style="margin-bottom: 8px;">
+            <span class="summary-chip chip-accent">Active Rules: <strong id="sumAlertsEnabled">0</strong></span>
+            <span class="summary-chip">Unacknowledged: <strong id="sumAlertsUnacked">0</strong></span>
+            <span class="summary-chip">Watchdog: <strong id="sumAlertsState">Active</strong></span>
+        </div>
+        <div id="alertsStatus" class="sharing-status" style="margin-bottom: 8px;" role="status">Watchdog rules evaluate automatically against live telemetry.</div>
+
+        <div class="organizer-scroll-area">
+            <div class="cw-set-card" style="margin-bottom: 10px;">
+                <div class="cw-set-sec-title">➕ Add / Edit Watchdog Rule</div>
+                <div class="new-tab-form-grid">
+                    <div class="cw-dir-row"><label for="inpAlertName">Rule Name</label><input type="text" id="inpAlertName" class="prof-input" placeholder="e.g. CPU Thermal Spike"></div>
+                    <div class="cw-dir-row"><label for="selAlertMetric">Metric</label>
+                        <select id="selAlertMetric" class="prof-select">
+                            <option value="cpu_temp">CPU Temp (°C)</option>
+                            <option value="gpu_temp">GPU Temp (°C)</option>
+                            <option value="cpu_load">CPU Load (%)</option>
+                            <option value="ram_pct">RAM Usage (%)</option>
+                            <option value="drive_free_pct">Drive Free Space (%)</option>
+                            <option value="internet_status">Internet Drop / Recovery</option>
+                            <option value="service_stopped">Windows Service Stopped</option>
+                        </select>
+                    </div>
+                    <div class="cw-dir-row"><label for="inpAlertThreshold">Threshold</label><input type="number" id="inpAlertThreshold" class="prof-input" value="85"></div>
+                    <div class="cw-dir-row"><label for="inpAlertDuration">Sustained (sec)</label><input type="number" id="inpAlertDuration" class="prof-input" value="30" title="How many seconds the condition must hold before firing"></div>
+                    <div class="cw-dir-row"><label for="inpAlertCooldown">Cooldown (min)</label><input type="number" id="inpAlertCooldown" class="prof-input" value="5" title="Minimum minutes between repeated alerts for this rule"></div>
+                    <div class="cw-dir-row"><label for="selAlertAction">Action</label>
+                        <select id="selAlertAction" class="prof-select">
+                            <option value="toast">Windows Toast Notification</option>
+                            <option value="toast_chime">Toast + Sound Chime</option>
+                            <option value="log_only">Log Only (Silent)</option>
+                            <option value="restart_service">Toast + Auto-Restart Service</option>
+                        </select>
+                    </div>
+                    <div class="cw-dir-row"><label for="inpAlertTarget">Target (Drive / Service list)</label><input type="text" id="inpAlertTarget" class="prof-input" placeholder="ANY or C: or Dhcp,Dnscache"></div>
+                    <div class="cw-dir-row" style="justify-content: flex-end;"><button type="button" class="console-clear-btn btn-accent-action" onclick="TriggerSaveAlertRule()">💾 Save Rule</button></div>
+                </div>
+            </div>
+
+            <div class="new-tab-two-col">
+                <div class="cw-set-card">
+                    <div class="cw-set-sec-title">📋 Configured Watchdog Rules</div>
+                    <div id="alertsRulesList" class="new-tab-stack"></div>
+                </div>
+                <div class="cw-set-card">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div class="cw-set-sec-title" style="border: none; padding: 0;">🕒 Alert Trigger History</div>
+                        <button type="button" class="console-clear-btn" onclick="TriggerClearAlertHistory()">Clear</button>
+                    </div>
+                    <div id="alertsHistoryList" class="new-tab-stack"></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- TAB: UNIFIED UPDATE CENTER -->
+    <section id="viewUpdateCenterPanel" class="tab-view-panel sharing-panel" style="display: none;" aria-labelledby="updateCenterTitle">
+        <div class="console-header-row">
+            <h2 id="updateCenterTitle">🔄 UNIFIED UPDATE CENTER</h2>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                <button type="button" class="console-clear-btn" onclick="SwitchAppLayoutView('appstore')" title="Jump to App Installer &amp; Launcher">⬇️ App Installer</button>
+                <button type="button" class="console-clear-btn" onclick="TriggerOpenWindowsUpdateSettings()" title="Open Windows Update settings">🪟 Windows Update</button>
+                <button type="button" class="console-clear-btn" onclick="RequestUpdateCenterState(true)" title="Run online Windows Update check + WinGet + PowerShell + CoreWatch">🌐 Deep Online Scan</button>
+                <button type="button" class="console-clear-btn btn-accent-action" onclick="RequestUpdateCenterState(false)">🔄 Scan All</button>
+            </div>
+        </div>
+        <div class="tab-summary-strip" style="margin-bottom: 8px;">
+            <span class="summary-chip chip-accent">WinGet Pending: <strong id="sumUpdWinget">0</strong></span>
+            <span class="summary-chip">Pinned/Ignored: <strong id="sumUpdPinned">0</strong></span>
+            <span class="summary-chip">Windows Updates: <strong id="sumUpdWin">0</strong></span>
+            <span class="summary-chip">PowerShell: <strong id="sumUpdPs">--</strong></span>
+            <span class="summary-chip">CoreWatch: <strong id="sumUpdCw">--</strong></span>
+        </div>
+        <div id="updateCenterStatus" class="sharing-status" style="margin-bottom: 8px;" role="status">Click "Scan All" to inspect WinGet packages, pending Windows Updates, PowerShell, and CoreWatch.</div>
+
+        <div class="organizer-scroll-area">
+            <div class="cw-set-card" style="margin-bottom: 10px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
+                    <div class="cw-set-sec-title" style="border: none; padding: 0;">📦 WinGet Application Upgrades</div>
+                    <div style="display: flex; gap: 6px;">
+                        <button type="button" class="console-clear-btn" onclick="ToggleSelectAllUpdates(true)">Select Active</button>
+                        <button type="button" class="console-clear-btn btn-accent-action" onclick="TriggerUpgradeSelectedWinGet()" title="Upgrade only the checked, unpinned packages in a terminal">⬆️ Upgrade Selected</button>
+                    </div>
+                </div>
+                <div id="updWinGetList" class="new-tab-stack"></div>
+            </div>
+
+            <div class="new-tab-two-col">
+                <div class="cw-set-card">
+                    <div class="cw-set-sec-title">🪟 Pending Windows Updates</div>
+                    <div id="updWindowsList" class="new-tab-stack"></div>
+                </div>
+                <div class="cw-set-card">
+                    <div class="cw-set-sec-title">⚙️ CoreWatch &amp; PowerShell Runtime</div>
+                    <div id="updRuntimeCard" class="new-tab-stack"></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- TAB: SYSTEM SNAPSHOTS & "WHAT CHANGED?" DIFF -->
+    <section id="viewSnapshotsPanel" class="tab-view-panel sharing-panel" style="display: none;" aria-labelledby="snapshotsTitle">
+        <div class="console-header-row">
+            <h2 id="snapshotsTitle">📸 SYSTEM SNAPSHOTS &amp; "WHAT CHANGED?" DIFF</h2>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                <button type="button" class="console-clear-btn" onclick="SwitchAppLayoutView('diagx')" title="Cross-reference crashes and event logs in UltimaDiagX">🩺 UltimaDiagX</button>
+                <button type="button" class="console-clear-btn" onclick="TriggerOpenWindowsRestoreUi()" title="Launch Windows System Restore wizard (rstrui.exe)">↩ System Restore</button>
+                <button type="button" class="console-clear-btn btn-accent-action" onclick="RequestSnapshotsState()">Refresh</button>
+            </div>
+        </div>
+        <div id="snapshotsStatus" class="sharing-status" style="margin-bottom: 8px;" role="status">Capture a baseline snapshot of apps, startup, services, drivers, hosts, and network config to diff Before vs. After.</div>
+
+        <div class="organizer-scroll-area">
+            <div class="cw-set-card" style="margin-bottom: 10px;">
+                <div class="cw-set-sec-title">📸 Capture New System Snapshot</div>
+                <div class="dev-auth-row" style="flex-wrap: wrap;">
+                    <input type="text" id="inpSnapName" class="prof-input" style="max-width: 240px;" placeholder="Label (e.g. Before GPU Driver Update)">
+                    <input type="text" id="inpSnapNotes" class="prof-input" placeholder="Optional notes...">
+                    <label class="org-checkbox-label" title="Also creates a native Windows System Restore Point (requires Administrator)"><input type="checkbox" id="chkSnapRestorePoint"> <span>+ Windows Restore Point</span></label>
+                    <button type="button" class="console-clear-btn btn-accent-action" onclick="TriggerCreateSnapshot()">📸 Capture Snapshot</button>
+                </div>
+            </div>
+
+            <div class="cw-set-card" style="margin-bottom: 10px;">
+                <div class="cw-set-sec-title">🔍 Compare Before vs. After ("What Changed?")</div>
+                <div class="dev-auth-row" style="flex-wrap: wrap;">
+                    <select id="selSnapBefore" class="prof-select" style="flex: 1 1 200px;" aria-label="Before Snapshot"></select>
+                    <span class="cw-settings-sub">vs.</span>
+                    <select id="selSnapAfter" class="prof-select" style="flex: 1 1 200px;" aria-label="After Snapshot">
+                        <option value="LIVE">⚡ Live Current PC State</option>
+                    </select>
+                    <button type="button" class="console-clear-btn btn-accent-action" onclick="TriggerCompareSnapshots()">🔍 Run Diff</button>
+                </div>
+                <div id="snapDiffOutput" class="new-tab-stack" style="margin-top: 8px;"></div>
+            </div>
+
+            <div class="cw-set-card">
+                <div class="cw-set-sec-title">🗂️ Saved Snapshots</div>
+                <div id="snapshotsList" class="dev-cards-grid"></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- TAB: BATTERY HEALTH & WIRELESS PERIPHERAL POWER -->
+    <section id="viewBatteryPanel" class="tab-view-panel sharing-panel" style="display: none;" aria-labelledby="batteryTitle">
+        <div class="console-header-row">
+            <h2 id="batteryTitle">🔋 BATTERY HEALTH &amp; WIRELESS PERIPHERALS</h2>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                <button type="button" class="console-clear-btn" onclick="TriggerOpenBatteryReport()" title="Generate &amp; open official Windows powercfg /batteryreport HTML">📄 Battery Report</button>
+                <button type="button" class="console-clear-btn" onclick="TriggerOpenSleepStudy()" title="Generate &amp; open Windows Modern Standby powercfg /sleepstudy report">🌙 SleepStudy</button>
+                <button type="button" class="console-clear-btn btn-accent-action" onclick="RequestBatteryState()">🔄 Refresh</button>
+            </div>
+        </div>
+        <div class="tab-summary-strip" style="margin-bottom: 8px;">
+            <span class="summary-chip chip-accent">Power Plan: <strong id="sumBatPowerPlan">--</strong></span>
+            <span class="summary-chip">Internal Batteries: <strong id="sumBatInternal">0</strong></span>
+            <span class="summary-chip">Bluetooth Devices: <strong id="sumBatPeripherals">0</strong></span>
+            <span class="summary-chip">Low Battery (≤20%): <strong id="sumBatLow">0</strong></span>
+        </div>
+        <div id="batteryStatus" class="sharing-status" style="margin-bottom: 8px;" role="status">Inspecting internal battery health and wireless Bluetooth peripheral charge levels...</div>
+
+        <div class="organizer-scroll-area">
+            <div class="cw-set-card" style="margin-bottom: 10px;">
+                <div class="cw-set-sec-title">💻 Internal System Battery Health</div>
+                <div id="batteryInternalGrid" class="dev-cards-grid"></div>
+            </div>
+            <div class="cw-set-card">
+                <div class="cw-set-sec-title">🎧 Wireless Bluetooth Peripherals (Mice, Keyboards, Headsets, Controllers)</div>
+                <div id="batteryPeripheralsGrid" class="dev-cards-grid"></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- TAB: BACKUP & FOLDER SYNC MANAGER -->
+    <section id="viewBackupSyncPanel" class="tab-view-panel sharing-panel" style="display: none;" aria-labelledby="backupSyncTitle">
+        <div class="console-header-row">
+            <h2 id="backupSyncTitle">💾 BACKUP &amp; FOLDER SYNC MANAGER (ROBOCOPY)</h2>
+            <div style="display: flex; gap: 6px;">
+                <button type="button" class="console-clear-btn btn-accent-action" onclick="RequestBackupSyncState()">Refresh</button>
+            </div>
+        </div>
+        <div id="backupSyncStatus" class="sharing-status" style="margin-bottom: 8px;" role="status">Create incremental or mirror robocopy backup jobs to USB drives or NAS shares with dry-run preview.</div>
+
+        <div class="organizer-scroll-area">
+            <div class="cw-set-card" style="margin-bottom: 10px;">
+                <div class="cw-set-sec-title">➕ Create / Edit Sync Job</div>
+                <div class="new-tab-form-grid">
+                    <div class="cw-dir-row"><label for="inpBkpName">Job Name</label><input type="text" id="inpBkpName" class="prof-input" placeholder="e.g. GitHub Projects to NAS"></div>
+                    <div class="cw-dir-row"><label for="selBkpMode">Sync Mode</label>
+                        <select id="selBkpMode" class="prof-select" title="Incremental copies only newer files; Mirror makes destination an exact copy (deletes extra destination files)">
+                            <option value="incremental">Incremental Copy (/E /XO — Safe)</option>
+                            <option value="mirror">Exact Mirror (/MIR — Deletes Extras)</option>
+                        </select>
+                    </div>
+                    <div class="cw-dir-row"><label for="selBkpSchedule">Auto-Schedule</label>
+                        <select id="selBkpSchedule" class="prof-select" title="Optional Windows Task Scheduler job running at 2:00 AM">
+                            <option value="manual">Manual Only</option>
+                            <option value="daily">Daily (02:00 AM)</option>
+                            <option value="weekly">Weekly (02:00 AM)</option>
+                        </select>
+                    </div>
+                    <div class="cw-dir-row"><label for="inpBkpSource">Source Folder</label>
+                        <div class="cw-dir-input-wrap"><input type="text" id="inpBkpSource" class="prof-input" placeholder="D:\GitHub"><button type="button" class="console-clear-btn" onclick="BrowseBackupFolder('backup_source')">Browse...</button></div>
+                    </div>
+                    <div class="cw-dir-row"><label for="inpBkpDest">Destination Folder (USB / Local / NAS)</label>
+                        <div class="cw-dir-input-wrap"><input type="text" id="inpBkpDest" class="prof-input" placeholder="E:\Backups or \\NAS\Backups"><button type="button" class="console-clear-btn" onclick="BrowseBackupFolder('backup_dest')">Browse...</button></div>
+                    </div>
+                    <div class="cw-dir-row"><label for="inpBkpExDirs">Exclude Folders (comma-separated)</label><input type="text" id="inpBkpExDirs" class="prof-input" value="node_modules,.git,target,bin,obj,$RECYCLE.BIN,System Volume Information"></div>
+                    <div class="cw-dir-row"><label for="inpBkpExFiles">Exclude Files</label><input type="text" id="inpBkpExFiles" class="prof-input" value="*.tmp,Thumbs.db,desktop.ini"></div>
+                    <div class="cw-dir-row" style="justify-content: flex-end;"><button type="button" class="console-clear-btn btn-accent-action" onclick="TriggerSaveBackupJob()">💾 Save Job</button></div>
+                </div>
+            </div>
+
+            <div class="cw-set-card" style="margin-bottom: 10px;">
+                <div class="cw-set-sec-title">📁 Saved Backup Jobs</div>
+                <div id="backupJobsGrid" class="dev-cards-grid"></div>
+            </div>
+
+            <div class="new-tab-two-col">
+                <div class="cw-set-card">
+                    <div class="cw-set-sec-title">📜 Live Dry-Run / Sync Output</div>
+                    <pre id="backupRunOutputBox" class="gh-release-body" style="max-height: 220px;">Run a Dry-Run Preview or Sync on any job above to inspect robocopy output.</pre>
+                </div>
+                <div class="cw-set-card">
+                    <div class="cw-set-sec-title">🕒 Backup Run History</div>
+                    <div id="backupHistoryList" class="new-tab-stack"></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- TAB: DOCKER / CONTAINERS & LOCAL DEV SERVICES -->
+    <section id="viewDockerPanel" class="tab-view-panel sharing-panel" style="display: none;" aria-labelledby="dockerTitle">
+        <div class="console-header-row">
+            <h2 id="dockerTitle">🐳 DOCKER / CONTAINERS &amp; LOCAL DEV SERVICES</h2>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                <span id="lblDockerEngineBadge" class="summary-chip">Engine: <strong>Detecting...</strong></span>
+                <button type="button" class="console-clear-btn" onclick="SwitchAppLayoutView('wsl')" title="Jump to WSL Manager">🐧 WSL Manager</button>
+                <button type="button" class="console-clear-btn wsl-btn-danger" onclick="TriggerDockerPrune()" title="Remove stopped containers, unused networks, and dangling images">🧹 Prune Unused</button>
+                <button type="button" class="console-clear-btn btn-accent-action" onclick="RequestDockerState()">Refresh</button>
+            </div>
+        </div>
+        <div class="tab-summary-strip" style="margin-bottom: 8px;">
+            <span class="summary-chip chip-accent">Running: <strong id="sumDockerRunning">0</strong></span>
+            <span class="summary-chip">Total Containers: <strong id="sumDockerTotal">0</strong></span>
+            <span class="summary-chip">Images: <strong id="sumDockerImages">0</strong></span>
+            <span class="summary-chip">Local Dev Services: <strong id="sumDockerDevSvcs">0</strong></span>
+        </div>
+        <div id="dockerStatus" class="sharing-status" style="margin-bottom: 8px;" role="status">Detecting Docker / Podman container engine and local dev services...</div>
+
+        <div class="organizer-scroll-area">
+            <div class="cw-set-card" style="margin-bottom: 10px;">
+                <div class="cw-set-sec-title">📦 Containers (Click any published port to inspect in Tasks &amp; Ports)</div>
+                <div id="dockerContainersGrid" class="dev-cards-grid"></div>
+            </div>
+
+            <div id="dockerLogsCard" class="cw-set-card" style="display: none; margin-bottom: 10px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div id="lblDockerLogsTitle" class="cw-set-sec-title" style="border: none; padding: 0;">📜 Container Logs</div>
+                    <button type="button" class="console-clear-btn" onclick="document.getElementById('dockerLogsCard').style.display='none'">Close</button>
+                </div>
+                <pre id="dockerLogsPre" class="gh-release-body" style="max-height: 240px;"></pre>
+            </div>
+
+            <div class="new-tab-two-col">
+                <div class="cw-set-card">
+                    <div class="cw-set-sec-title">💽 Images &amp; Disk Footprint</div>
+                    <div id="dockerDiskStrip" class="tab-summary-strip" style="margin-bottom: 6px;"></div>
+                    <div id="dockerImagesList" class="new-tab-stack"></div>
+                </div>
+                <div class="cw-set-card">
+                    <div class="cw-set-sec-title">🛠️ Local Dev Services (Postgres, MySQL, Redis, Mongo, IIS, Docker)</div>
+                    <div id="dockerDevServicesList" class="new-tab-stack"></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- TAB: SSH HOST LAUNCHER & CERTIFICATE INSPECTOR -->
+    <section id="viewSshCertsPanel" class="tab-view-panel sharing-panel" style="display: none;" aria-labelledby="sshCertsTitle">
+        <div class="console-header-row">
+            <h2 id="sshCertsTitle">🔐 SSH HOST LAUNCHER &amp; CERTIFICATE INSPECTOR</h2>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                <button type="button" class="console-clear-btn" onclick="TriggerOpenSshConfigFile()" title="Open ~/.ssh/config directly in Notepad">📝 Open config</button>
+                <button type="button" class="console-clear-btn btn-accent-action" onclick="RequestSshCertsState()">Refresh</button>
+            </div>
+        </div>
+        <div class="tab-summary-strip" style="margin-bottom: 8px;">
+            <span class="summary-chip chip-accent">SSH Hosts: <strong id="sumSshHosts">0</strong></span>
+            <span class="summary-chip">SSH Keys: <strong id="sumSshKeys">0</strong></span>
+            <span class="summary-chip">Certificates: <strong id="sumSshCerts">0</strong></span>
+            <span class="summary-chip">Expired / ≤30d: <strong id="sumSshExpiring">0</strong></span>
+        </div>
+        <div class="tab-filter-pills" id="sshSubViewPills" style="margin-bottom: 8px;">
+            <button type="button" class="filter-pill active" data-sub="hosts" onclick="SetSshSubView('hosts')">🖥️ SSH Hosts</button>
+            <button type="button" class="filter-pill" data-sub="keys" onclick="SetSshSubView('keys')">🔑 SSH Keys</button>
+            <button type="button" class="filter-pill" data-sub="certs" onclick="SetSshSubView('certs')">📜 Windows Certificates</button>
+        </div>
+        <div id="sshCertsStatus" class="sharing-status" style="margin-bottom: 8px;" role="status">Loading ~/.ssh/config hosts, SSH keys, and Windows TLS/code-signing certificates...</div>
+
+        <!-- SUB-VIEW 1: SSH HOSTS -->
+        <div id="sshPaneHosts" class="dev-subpane active">
+            <div class="cw-set-card" style="margin-bottom: 10px;">
+                <div class="cw-set-sec-title">➕ Add / Update ~/.ssh/config Host</div>
+                <div class="new-tab-form-grid">
+                    <div class="cw-dir-row"><label for="inpSshAlias">Alias</label><input type="text" id="inpSshAlias" class="prof-input" placeholder="e.g. prod-web"></div>
+                    <div class="cw-dir-row"><label for="inpSshHostName">HostName / IP</label><input type="text" id="inpSshHostName" class="prof-input" placeholder="192.168.1.50 or server.local"></div>
+                    <div class="cw-dir-row"><label for="inpSshUser">User</label><input type="text" id="inpSshUser" class="prof-input" placeholder="ubuntu or root"></div>
+                    <div class="cw-dir-row"><label for="inpSshPort">Port</label><input type="text" id="inpSshPort" class="prof-input" value="22"></div>
+                    <div class="cw-dir-row"><label for="inpSshIdentity">IdentityFile (optional)</label><input type="text" id="inpSshIdentity" class="prof-input" placeholder="~/.ssh/id_ed25519"></div>
+                    <div class="cw-dir-row"><label for="inpSshProxyJump">ProxyJump (optional)</label><input type="text" id="inpSshProxyJump" class="prof-input" placeholder="bastion"></div>
+                    <div class="cw-dir-row" style="justify-content: flex-end;"><button type="button" class="console-clear-btn btn-accent-action" onclick="TriggerSaveSshHost()">💾 Save Host</button></div>
+                </div>
+            </div>
+            <div id="sshHostsGrid" class="dev-cards-grid"></div>
+        </div>
+
+        <!-- SUB-VIEW 2: SSH KEYS -->
+        <div id="sshPaneKeys" class="dev-subpane">
+            <div class="cw-set-card" style="margin-bottom: 10px;">
+                <div class="cw-set-sec-title">🔑 Generate New ed25519 SSH Keypair</div>
+                <div class="dev-auth-row" style="flex-wrap: wrap;">
+                    <input type="text" id="inpSshNewKeyName" class="prof-input" style="max-width: 220px;" placeholder="Key name (e.g. id_ed25519_work)">
+                    <input type="text" id="inpSshNewKeyComment" class="prof-input" placeholder="Comment (e.g. email@domain.com)">
+                    <button type="button" class="console-clear-btn btn-accent-action" onclick="TriggerGenerateSshKey()">✨ Generate Key</button>
+                </div>
+            </div>
+            <div id="sshKeysGrid" class="dev-cards-grid"></div>
+        </div>
+
+        <!-- SUB-VIEW 3: CERTIFICATES -->
+        <div id="sshPaneCerts" class="dev-subpane">
+            <div id="sshCertsList" class="new-tab-stack"></div>
+        </div>
+    </section>
+
+    <!-- TAB: MULTI-PC / HOMELAB MONITOR -->
+    <section id="viewHomelabPanel" class="tab-view-panel sharing-panel" style="display: none;" aria-labelledby="homelabTitle">
+        <div class="console-header-row">
+            <h2 id="homelabTitle">🌐 MULTI-PC / HOMELAB MONITOR</h2>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center;">
+                <select id="selHomelabAutoRefresh" class="tab-sort-select" onchange="OnHomelabAutoRefreshChange()" title="Optional auto-poll cadence active only while viewing Homelab Monitor">
+                    <option value="0" selected>Auto-Poll: Off</option>
+                    <option value="15">Every 15s</option>
+                    <option value="30">Every 30s</option>
+                    <option value="60">Every 60s</option>
+                </select>
+                <button type="button" class="console-clear-btn btn-accent-action" onclick="TriggerPollHomelabAll()">🔄 Poll All Nodes</button>
+            </div>
+        </div>
+        <div class="tab-summary-strip" style="margin-bottom: 8px;">
+            <span class="summary-chip chip-accent">Online: <strong id="sumHomelabOnline">0</strong></span>
+            <span class="summary-chip">Total Nodes: <strong id="sumHomelabTotal">0</strong></span>
+        </div>
+        <div id="homelabStatus" class="sharing-status" style="margin-bottom: 8px;" role="status">Add remote Linux/NAS (SSH), Windows (WinRM), or Proxmox/Router (HTTP/Ping) targets to monitor from one screen.</div>
+
+        <div class="organizer-scroll-area">
+            <div class="cw-set-card" style="margin-bottom: 10px;">
+                <div class="cw-set-sec-title">➕ Add Remote PC / Server / NAS Target</div>
+                <div class="new-tab-form-grid">
+                    <div class="cw-dir-row"><label for="inpLabName">Display Name</label><input type="text" id="inpLabName" class="prof-input" placeholder="e.g. Proxmox-01 or TrueNAS"></div>
+                    <div class="cw-dir-row"><label for="selLabMode">Probe Method</label>
+                        <select id="selLabMode" class="prof-select" title="SSH collects CPU/RAM/Disk via key auth; WinRM queries remote Windows PCs; HTTP/Ping checks web UIs &amp; latency">
+                            <option value="ssh">SSH (Linux / NAS / WSL)</option>
+                            <option value="winrm">WinRM (Windows PC / Server)</option>
+                            <option value="http">HTTP + Ping (Web UI / Router / NAS)</option>
+                        </select>
+                    </div>
+                    <div class="cw-dir-row"><label for="inpLabHost">Host / IP</label><input type="text" id="inpLabHost" class="prof-input" placeholder="192.168.1.100"></div>
+                    <div class="cw-dir-row"><label for="inpLabPort">Port</label><input type="number" id="inpLabPort" class="prof-input" value="22"></div>
+                    <div class="cw-dir-row"><label for="inpLabUser">Username (SSH/WinRM)</label><input type="text" id="inpLabUser" class="prof-input" placeholder="root or admin"></div>
+                    <div class="cw-dir-row"><label for="inpLabWebUrl">Web UI URL (optional)</label><input type="text" id="inpLabWebUrl" class="prof-input" placeholder="https://192.168.1.100:8006"></div>
+                    <div class="cw-dir-row" style="justify-content: flex-end;"><button type="button" class="console-clear-btn btn-accent-action" onclick="TriggerSaveHomelabNode()">💾 Add &amp; Poll Node</button></div>
+                </div>
+            </div>
+
+            <div id="homelabNodesGrid" class="dev-cards-grid"></div>
+        </div>
+    </section>
 
     <!-- =========================================================================
     APPLICATION SETTINGS MODAL (STARTUP, DIRECTORIES, TELEMETRY & MODULES)
@@ -2180,6 +2626,151 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
                     <button type="button" class="console-clear-btn" onclick="CloseSettingsModal()">Close</button>
                     <button type="button" class="console-clear-btn btn-accent-action" onclick="SaveCoreWatchSettingsFromModal()">💾 Save Settings</button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- =========================================================================
+    FLOATING DRAGGABLE THEME & APPEARANCE STUDIO POPUP (NON-BLOCKING LIVE PREVIEW)
+    ========================================================================= -->
+    <div id="themeStudioPopup" class="cw-theme-popup" role="dialog" aria-label="Theme and Appearance Studio" style="display: none;">
+        <div id="themeStudioHeader" class="cw-theme-popup-header" title="Drag anywhere to reposition while previewing live theme changes">
+            <div class="cw-theme-popup-title">
+                <span class="cw-drag-grip">⋮⋮</span>
+                <span>🎨 THEME STUDIO</span>
+            </div>
+            <div class="cw-theme-popup-winbtns">
+                <button type="button" id="btnThemeStudioCollapse" class="cw-theme-icon-btn" onclick="ToggleThemeStudioCollapse()" title="Collapse / Expand popup to inspect full screen">▾</button>
+                <button type="button" class="cw-theme-icon-btn" onclick="CloseThemeStudio()" title="Close Theme Studio (Esc)">✕</button>
+            </div>
+        </div>
+
+        <div id="themeStudioContent" class="cw-theme-popup-content">
+            <div class="cw-theme-subtabs" id="themeStudioSubtabs">
+                <button type="button" class="cw-theme-subtab active" data-pane="colors" onclick="SwitchThemeStudioPane('colors')">🎨 Presets &amp; Colors</button>
+                <button type="button" class="cw-theme-subtab" data-pane="background" onclick="SwitchThemeStudioPane('background')">🖼️ Background Image</button>
+            </div>
+
+            <div class="cw-theme-body">
+                <!-- PANE 1: PRESETS & CUSTOM COLORS -->
+                <div id="themePaneColors" class="cw-theme-pane active">
+                    <div class="cw-theme-locked-note">
+                        🔒 <strong>Protected Functional Colors:</strong> Status, health, thermal (cool/warm/hot), RX/TX traffic, warning, and critical alert colors stay locked to their coded meanings so telemetry &amp; diagnostics remain accurate.
+                    </div>
+
+                    <div class="cw-theme-section">
+                        <div class="cw-theme-sec-title">Quick Theme Presets</div>
+                        <div id="themePresetsGrid" class="cw-theme-presets-grid"></div>
+                    </div>
+
+                    <div class="cw-theme-section">
+                        <div class="cw-theme-sec-title">Surfaces &amp; Chrome</div>
+                        <div class="cw-color-grid">
+                            <label class="cw-color-row" title="Base window background canvas behind cards and wallpapers"><span>App Background</span><span class="cw-color-ctrl"><code id="hexBgApp">#1a202c</code><input type="color" id="clrBgApp" oninput="OnThemeColorInput('bgApp', this.value)"></span></label>
+                            <label class="cw-color-row" title="Top header bar, Dashboard cards, tab view panels, and modals"><span>Header &amp; Cards</span><span class="cw-color-ctrl"><code id="hexBgSurface">#212936</code><input type="color" id="clrBgSurface" oninput="OnThemeColorInput('bgSurface', this.value)"></span></label>
+                            <label class="cw-color-row" title="Inner sub-cards, tables, inputs, console output, and dropdown menus"><span>Nested Panels &amp; Inputs</span><span class="cw-color-ctrl"><code id="hexBgInset">#141923</code><input type="color" id="clrBgInset" oninput="OnThemeColorInput('bgInset', this.value)"></span></label>
+                            <label class="cw-color-row" title="Tab buttons, filter pills, secondary buttons, and progress bar tracks"><span>Buttons &amp; Controls</span><span class="cw-color-ctrl"><code id="hexBgControl">#2d3748</code><input type="color" id="clrBgControl" oninput="OnThemeColorInput('bgControl', this.value)"></span></label>
+                            <label class="cw-color-row" title="Subtle outlines and dividers around cards and sections"><span>Card Borders</span><span class="cw-color-ctrl"><code id="hexBorder">#323c4b</code><input type="color" id="clrBorder" oninput="OnThemeColorInput('border', this.value)"></span></label>
+                            <label class="cw-color-row" title="Higher-contrast borders on buttons, inputs, and interactive controls"><span>Control Borders</span><span class="cw-color-ctrl"><code id="hexBorderStrong">#4a5568</code><input type="color" id="clrBorderStrong" oninput="OnThemeColorInput('borderStrong', this.value)"></span></label>
+                        </div>
+                    </div>
+
+                    <div class="cw-theme-section">
+                        <div class="cw-theme-sec-title">Accents &amp; Interactive</div>
+                        <div class="cw-color-grid">
+                            <label class="cw-color-row" title="Active tabs, primary action buttons, and standard metric bars (text contrast adjusts automatically)"><span>Primary Accent</span><span class="cw-color-ctrl"><code id="hexAccent">#3182ce</code><input type="color" id="clrAccent" oninput="OnThemeColorInput('accent', this.value)"></span></label>
+                            <label class="cw-color-row" title="Section headings (H2), checkboxes, sliders, and active border highlights"><span>Headings &amp; Highlight</span><span class="cw-color-ctrl"><code id="hexAccentLight">#4299e1</code><input type="color" id="clrAccentLight" oninput="OnThemeColorInput('accentLight', this.value)"></span></label>
+                            <label class="cw-color-row" title="Status banners, Jira keys, hover outlines, and secondary accent labels"><span>Soft Accent &amp; Links</span><span class="cw-color-ctrl"><code id="hexAccentSoft">#63b3ed</code><input type="color" id="clrAccentSoft" oninput="OnThemeColorInput('accentSoft', this.value)"></span></label>
+                        </div>
+                    </div>
+
+                    <div class="cw-theme-section">
+                        <div class="cw-theme-sec-title">Typography</div>
+                        <div class="cw-color-grid">
+                            <label class="cw-color-row" title="Main values, headings, repo/process names, and typed input text"><span>Primary Text</span><span class="cw-color-ctrl"><code id="hexTextPrimary">#f7fafc</code><input type="color" id="clrTextPrimary" oninput="OnThemeColorInput('textPrimary', this.value)"></span></label>
+                            <label class="cw-color-row" title="Descriptions, table body text, release notes, and secondary button text"><span>Secondary Text</span><span class="cw-color-ctrl"><code id="hexTextSecondary">#cbd5e0</code><input type="color" id="clrTextSecondary" oninput="OnThemeColorInput('textSecondary', this.value)"></span></label>
+                            <label class="cw-color-row" title="Field captions, timestamps, paths, and helper hints"><span>Muted Labels</span><span class="cw-color-ctrl"><code id="hexTextMuted">#a0aec0</code><input type="color" id="clrTextMuted" oninput="OnThemeColorInput('textMuted', this.value)"></span></label>
+                        </div>
+                    </div>
+
+                    <div class="cw-theme-section">
+                        <div class="cw-theme-sec-title">Card Translucency &amp; Glass</div>
+                        <div class="cw-slider-row" title="Lower card opacity below 100% to let your custom background picture show through cards and panels">
+                            <div class="cw-slider-meta"><span>Card &amp; Panel Opacity</span><strong id="lblThemeSurfaceOpacity">100%</strong></div>
+                            <input type="range" id="rngThemeSurfaceOpacity" min="35" max="100" step="1" value="100" oninput="OnThemeSliderInput('surfaceOpacity', Number(this.value))">
+                        </div>
+                        <div class="cw-slider-row" title="Adds frosted-glass backdrop blur behind translucent cards to keep text crisp over busy wallpapers">
+                            <div class="cw-slider-meta"><span>Card Glass Blur</span><strong id="lblThemeCardBlur">0 px</strong></div>
+                            <input type="range" id="rngThemeCardBlur" min="0" max="16" step="1" value="0" oninput="OnThemeSliderInput('cardBlur', Number(this.value))">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- PANE 2: LOCAL BACKGROUND IMAGE, FIT, TRANSPARENCY & FADE -->
+                <div id="themePaneBackground" class="cw-theme-pane">
+                    <div class="cw-theme-section">
+                        <div class="cw-theme-sec-title">Local Host Background Picture</div>
+                        <div class="cw-bg-picker-row">
+                            <button type="button" class="console-clear-btn btn-accent-action" onclick="BrowseThemeBackgroundImage()" title="Pick any PNG, JPG, WebP, BMP, or GIF from this PC (cached safely in %LOCALAPPDATA%\CoreWatch)">🖼️ Choose Image...</button>
+                            <button type="button" id="btnClearThemeBg" class="console-clear-btn wsl-btn-danger" onclick="ClearThemeBackgroundImage()" title="Remove custom background picture and return to solid App Background color" disabled>🗑️ Clear</button>
+                        </div>
+                        <div id="lblThemeBgName" class="cw-theme-bg-name">No background image selected (using solid App Background color)</div>
+                    </div>
+
+                    <div class="cw-theme-section">
+                        <div class="cw-theme-sec-title">Sizing &amp; Alignment</div>
+                        <div class="cw-fit-pills" id="themeBgFitPills">
+                            <button type="button" class="filter-pill active" data-fit="cover" onclick="SetThemeBgFit('cover')" title="Fill entire window while keeping aspect ratio">Cover</button>
+                            <button type="button" class="filter-pill" data-fit="stretch" onclick="SetThemeBgFit('stretch')" title="Stretch image 100% × 100% to window edges">Stretch</button>
+                            <button type="button" class="filter-pill" data-fit="center" onclick="SetThemeBgFit('center')" title="Center image at original scale">Center</button>
+                            <button type="button" class="filter-pill" data-fit="contain" onclick="SetThemeBgFit('contain')" title="Fit entire image inside window without cropping">Contain</button>
+                            <button type="button" class="filter-pill" data-fit="tile" onclick="SetThemeBgFit('tile')" title="Tile image seamlessly">Tile</button>
+                        </div>
+                    </div>
+
+                    <div class="cw-theme-section">
+                        <div class="cw-theme-sec-title">Image Transparency &amp; Blur</div>
+                        <div class="cw-slider-row" title="Controls how visible vs. transparent the background picture appears over your App Background color">
+                            <div class="cw-slider-meta"><span>Wallpaper Opacity (Transparency)</span><strong id="lblThemeBgOpacity">45%</strong></div>
+                            <input type="range" id="rngThemeBgOpacity" min="0" max="100" step="1" value="45" oninput="OnThemeSliderInput('bgOpacity', Number(this.value))">
+                        </div>
+                        <div class="cw-slider-row" title="Softens detail in the background picture independently without blurring UI cards or text">
+                            <div class="cw-slider-meta"><span>Wallpaper Blur</span><strong id="lblThemeBgBlur">0 px</strong></div>
+                            <input type="range" id="rngThemeBgBlur" min="0" max="24" step="1" value="0" oninput="OnThemeSliderInput('bgBlur', Number(this.value))">
+                        </div>
+                        <div class="cw-slider-row" title="Adjusts Dashboard/tab card opacity so you can reveal more or less of your wallpaper behind panels">
+                            <div class="cw-slider-meta"><span>Card Opacity (Reveal Wallpaper)</span><strong id="lblThemeSurfaceOpacityMirror">100%</strong></div>
+                            <input type="range" id="rngThemeSurfaceOpacityMirror" min="35" max="100" step="1" value="100" oninput="OnThemeSliderInput('surfaceOpacity', Number(this.value))">
+                        </div>
+                    </div>
+
+                    <div class="cw-theme-section">
+                        <div class="cw-theme-sec-title">Fade &amp; Vignette Blending</div>
+                        <div class="cw-slider-row" style="margin-bottom: 8px;" title="Blends your background image into your App Background color using a uniform dim, soft vignette, or directional gradient">
+                            <label class="cw-slider-meta" for="selThemeBgFadeMode"><span>Fade Style</span></label>
+                            <select id="selThemeBgFadeMode" class="prof-select" onchange="OnThemeSelectInput('bgFadeMode', this.value)">
+                                <option value="none">None (Raw Image)</option>
+                                <option value="uniform">Uniform Color Dim / Wash</option>
+                                <option value="vignette" selected>Radial Vignette (Soft Edges)</option>
+                                <option value="top">Top → Bottom Fade</option>
+                                <option value="bottom">Bottom → Top Fade</option>
+                            </select>
+                        </div>
+                        <div class="cw-slider-row" title="Intensity of the fade/vignette tint blended over the wallpaper">
+                            <div class="cw-slider-meta"><span>Fade Strength</span><strong id="lblThemeBgFadeStrength">35%</strong></div>
+                            <input type="range" id="rngThemeBgFadeStrength" min="0" max="95" step="1" value="35" oninput="OnThemeSliderInput('bgFadeStrength', Number(this.value))">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="cw-theme-footer">
+                <div class="cw-theme-footer-btns">
+                    <button type="button" class="console-clear-btn" onclick="ExportThemePreset()" title="Export theme colors &amp; layout to JSON">📤 Export</button>
+                    <button type="button" class="console-clear-btn" onclick="ImportThemePreset()" title="Import theme preset JSON">📥 Import</button>
+                    <button type="button" class="console-clear-btn wsl-btn-danger" onclick="ResetThemeToDefaults()" title="Reset all colors &amp; wallpaper to CoreWatch Classic">↺ Reset</button>
+                </div>
+                <span id="lblThemeSaveState" class="cw-theme-save-state">Live Preview</span>
             </div>
         </div>
     </div>

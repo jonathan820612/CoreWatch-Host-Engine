@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>CoreWatch Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="dashboard.css">
+    <link rel="stylesheet" href="dashboard-preferences.css">
+    <script src="dashboard.js" defer></script>
+    <script src="network.js" defer></script>
+    <script src="dashboard-network.js" defer></script>
+    <script src="dashboard-layout.js" defer></script>
+    <script src="dashboard-theme.js" defer></script>
+    <script src="dashboard-preferences.js" defer></script>
+</head>
+<body>
+    <div id="cwWallpaperLayer" aria-hidden="true"></div>
+    <div id="cwWallpaperFade" aria-hidden="true"></div>
+    <header class="app-header-deck" data-tauri-drag-region>
+        <div class="header-left-group" data-tauri-drag-region>
+            <div class="icon-square-frame" data-tauri-drag-region><img src="icon.png" class="header-corner-brand" alt="CoreWatch" draggable="false" data-tauri-drag-region></div>
+            <span class="header-brand-title" aria-hidden="true" data-tauri-drag-region>COREWATCH</span>
+        </div>
+        <nav class="modular-tabs" aria-label="CoreWatch views">
+            <button id="tabDashboard" class="tab-btn active" type="button" aria-controls="viewDashboardGrid" aria-pressed="true">📟 Dashboard</button>
+            <button id="tabNetwork" class="tab-btn" type="button" aria-controls="viewNetworkManagerPanel" aria-pressed="false">📡 Network</button>
+        </nav>
+        <div class="header-drag-space" data-tauri-drag-region></div>
+        <div class="header-right-group">
+            <span id="status" role="status">Starting telemetry…</span>
+            <button id="layout-toggle" class="tab-btn nav-util-btn" type="button" aria-label="Dashboard layout" aria-controls="layout-panel" aria-expanded="false" title="Dashboard layout">✏️<span class="nav-btn-label"> Layout</span></button>
+            <button id="appearance-toggle" class="tab-btn" type="button" aria-label="Appearance" aria-controls="appearance-panel" aria-expanded="false" title="Appearance">🎨</button>
+            <button id="preferences-toggle" class="tab-btn nav-settings-btn" type="button" aria-label="Dashboard settings" aria-controls="preferences-panel" aria-expanded="false" title="Dashboard settings">⚙️</button>
+            <button id="refresh" class="tab-btn" type="button" aria-label="Refresh telemetry" title="Refresh telemetry">↻<span class="nav-btn-label"> Refresh</span></button>
+            <button id="pin" class="tab-btn nav-pin-btn" type="button" aria-label="Keep CoreWatch on top" aria-pressed="false" title="Keep CoreWatch on top">📌</button>
+            <button id="minimize" class="tab-btn window-control" type="button" aria-label="Minimize">−</button>
+            <button id="maximize" class="tab-btn window-control" type="button" aria-label="Maximize or restore">□</button>
+            <button id="exit" class="exit-system-btn" type="button" aria-label="Exit CoreWatch">⏻<span class="nav-btn-label"> EXIT</span></button>
+        </div>
+    </header>
+    <div id="viewDashboardGrid" class="dashboard-grid" style="display: grid;">
+        
+        <!-- HARDWARE METRICS CONTAINER -->
+        <div class="dashboard-card" data-card-id="hardware" data-card-title="⚡ Hardware Metrics">
+            <h2>⚡ HARDWARE METRICS</h2>
+            
+            <!-- CPU Row Group -->
+            <div class="metric-row" data-metric-key="hw-cpu">
+                <div class="metric-metadata">
+                    <span id="lblCpuModel">Processor Core</span>
+                    <span id="lblCpuLoad">—</span>
+                </div>
+                <div class="track-bg">
+                    <div id="barCpuLoad" class="track-fill"></div>
+                </div>
+                <div class="hardware-metric-footer-row" style="margin-top: 4px;">
+                    <div class="driver-tag tight-tag">Standard Driver</div>
+                    <div class="cache-badge-deck" style="gap: 4px;">
+                        <span class="hardware-stat-tag" id="badgeThrottleState" title="ACPI thermal-throttling report">Throttle: —</span>
+                        <span class="hardware-stat-tag text-speed" id="lblCpuClock">—</span>
+                        <button type="button" class="hardware-stat-tag therm-cool cpu-sensor-button" id="badgeCpuTemp" aria-label="CPU temperature and sensor status"><span id="lblCpuTemp">—</span> <span id="lblCpuTempUnit">°C</span></button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- GPU Row Group -->
+            <div class="metric-row" data-metric-key="hw-gpu" style="margin-top: 10px;">
+                <div class="metric-metadata">
+                    <span id="lblGpuModel">Display Adapter</span>
+                    <span id="lblGpuLoad">—</span>
+                </div>
+                <div class="track-bg">
+                    <div id="barGpuLoad" class="track-fill"></div>
+                </div>
+                <div class="hardware-metric-footer-row" style="margin-top: 4px;">
+                    <div class="driver-tag tight-tag" id="lblGpuDriver">Driver Version</div>
+                    <div class="cache-badge-deck" style="gap: 4px;">
+                        <span class="hardware-stat-tag text-power" id="lblGpuPower">—</span>
+                        <span class="hardware-stat-tag therm-cool" id="badgeGpuTemp"><span id="lblGpuTemp">—</span> <span id="lblGpuTempUnit">°C</span></span>
+                    </div>
+                </div>
+                <!-- [DIAGNOSTIC ADDITION] GPU VRAM Allocation Sub-Bar -->
+                <div class="vram-sub-row" data-metric-key="hw-vram">
+                    <div class="vram-sub-meta">
+                        <span>🎞️ VRAM Allocation</span>
+                        <span id="lblGpuVram">-- / -- GB</span>
+                    </div>
+                    <div class="track-bg track-bg-thin">
+                        <div id="barGpuVram" class="track-fill vram-fill"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- RAM Memory Allocation Row Group -->
+            <div class="metric-row" data-metric-key="hw-ram" style="margin-top: 10px;">
+                <div class="metric-metadata">
+                    <span>📟 RAM Memory Allocation</span>
+                    <span id="lblRamUsage">—</span>
+                </div>
+                <div class="track-bg">
+                    <div id="barRamUsage" class="track-fill"></div>
+                </div>
+                <div class="metric-cache-matrix-row" style="margin-top: 6px;">
+                    <span class="cache-title-label">Cache Matrix:</span>
+                    <div id="cpuCacheContainer" class="cache-badge-deck" style="gap: 4px;">
+                        <span class="cache-tag">L1: N/A</span>
+                        <span class="cache-tag">L2: N/A</span>
+                        <span class="cache-tag">L3: N/A</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pagefile Commitment Row Group -->
+            <div class="metric-row" data-metric-key="hw-pagefile" style="margin-top: 8px; margin-bottom: 4px;">
+                <div class="metric-metadata">
+                    <span title="Estimated pagefile commitment from Windows commit and RAM usage">💾 Pagefile Commitment</span>
+                    <span id="lblPagefileUsage">—</span>
+                </div>
+                <div class="track-bg">
+                    <div id="barPagefileUsage" class="track-fill"></div>
+                </div>
+            </div>
+
+            <!-- [DIAGNOSTIC ADDITION] Top active process -->
+            <div class="top-process-strip" id="topProcessStrip" data-metric-key="hw-topproc">
+                <span class="top-proc-label">🔥 Top Process:</span>
+                <strong id="lblTopProcess" class="top-proc-value">—</strong>
+            </div>
+        </div>
+
+        <!-- SYSTEM IDENTITY FRAME -->
+        <div class="dashboard-card" data-card-id="identity" data-card-title="👤 System Identity">
+            <h2>👤 SYSTEM IDENTITY</h2>
+            <div class="metric-group" data-metric-key="id-host">
+                <div class="data-field"><span>🖥️</span> Host: <strong id="lblHostName">—</strong></div>
+                <div class="data-field"><span>🌐</span> Domain/WG: <strong id="lblWorkgroup">—</strong></div>
+            </div>
+            <div class="metric-group" data-metric-key="id-os">
+                <div class="data-field"><span>🪟</span> <strong id="lblOsEdition">—</strong></div>
+                <div class="data-field"><span>📜</span> Build: <strong id="lblWinBuild">—</strong></div>
+                <div class="data-field"><span>📅</span> Update: <strong id="lblUpdateLevel">—</strong></div>
+            </div>
+            <div class="metric-group" data-metric-key="id-runtime">
+                <div class="data-field"><span>🎮</span> DirectX: <strong id="lblDirectX">—</strong></div>
+                <div class="data-field"><span>🔲</span> Virtualization: <strong id="lblVirtualization">—</strong> <span class="id-inline-sep">·</span> Secure Boot: <strong id="lblSecureBoot">--</strong></div>
+                <div class="data-field"><span>❯_</span> Engine: <strong id="lblPsVersion">—</strong></div>
+            </div>
+            <div class="data-field" data-metric-key="id-java"><span>☕</span> Java: <strong id="lblJavaVersion" class="hardware-stat-tag therm-cool">—</strong></div>
+            <div class="data-field" data-metric-key="id-telemetry"><span>📡</span> Telemetry: <strong id="lblTelemetry">—</strong></div>
+            <!-- [DIAGNOSTIC ADDITION] Elevation, pending reboot, and last unexpected shutdown -->
+            <div class="identity-diag-group" data-metric-key="id-stability">
+                <div class="data-field"><span>🛡️</span> Privilege: <button id="lblElevation" class="diag-pill diag-neutral clickable-pill" type="button" title="Restart CoreWatch as administrator">—</button></div>
+                <div class="data-field"><span>🔄</span> Pending Reboot: <span id="lblPendingReboot" class="diag-pill diag-ok" title="Windows Update, servicing and pending file rename flags">—</span></div>
+                <div class="data-field"><span>💥</span> Last Crash/BSOD: <strong id="lblLastCrash" class="diag-crash-val" title="Kernel-Power (41) / BugCheck (1001)">—</strong></div>
+            </div>
+        </div>
+
+        <!-- HARDWARE STORAGE LAYOUT ENGINE -->
+        <div class="dashboard-card" data-card-id="storage" data-card-title="💾 Storage">
+            <h2>💾 STORAGE</h2>
+            <div id="storageVolumeContainer" class="storage-dynamic-mesh-grid">
+                <div class="driver-text-node">Reading volumes…</div>
+            </div>
+        </div>
+
+        <!-- SYSTEM INFRASTRUCTURE NODE -->
+        <div class="dashboard-card" data-card-id="infra" data-card-title="🛠️ System Infrastructure">
+            <h2>🛠️ SYSTEM INFRASTRUCTURE</h2>
+            <div class="metric-group" data-metric-key="infra-board">
+                <div class="data-field-split"><span>📟 Motherboard:</span> <strong id="lblMotherboard">—</strong></div>
+                <div class="data-field-split"><span>🧬 BIOS Version:</span> <strong id="lblBiosVersion">—</strong></div>
+            </div>
+            <div class="metric-group" data-metric-key="infra-power">
+                <div class="data-field-split"><span>⚡ Power Plan:</span> <button id="lblPowerPlan" class="value-action clickable-value" type="button" title="Choose a Windows power plan">—</button></div>
+                <div class="data-field-split"><span>🕒 System Uptime:</span> <strong id="lblUptime">—</strong></div>
+            </div>
+            <div class="audio-sub-deck" data-metric-key="infra-audio">
+                <div class="data-field-split"><span>🔈 Audio Output:</span> <strong id="lblAudioOutput">—</strong></div>
+                <div class="data-field-split"><span>🎙️ Audio Input:</span> <strong id="lblAudioInput">—</strong></div>
+            </div>
+            <div class="video-sub-deck" data-metric-key="infra-display">
+                <div class="video-header-row">
+                    <span>🖥️ Display:</span>
+                    <div class="video-picker-group">
+                        <select id="selMonitorPicker" class="infra-monitor-select" aria-label="Select display monitor">
+                            <option value="">Detecting monitors...</option>
+                        </select>
+                        <button type="button" id="identify-displays" class="infra-identify-btn">Identify</button>
+                    </div>
+                </div>
+                <div class="video-metrics-grid">
+                    <div class="video-metric-item"><span>Resolution:</span> <strong id="lblMonResolution">--</strong></div>
+                    <div class="video-metric-item"><span>Refresh Rate:</span> <button id="lblMonRefresh" class="display-setting" type="button" title="Choose a driver-supported refresh rate">—</button></div>
+                    <div class="video-metric-item"><span>Connection:</span> <strong id="lblMonConnection">--</strong></div>
+                    <div class="video-metric-item"><span>Scale:</span> <button id="lblMonScale" class="display-setting" type="button" title="Open display settings">—</button></div>
+                    <div class="video-metric-item"><span>Orientation:</span> <button id="lblMonOrientation" class="display-setting" type="button" title="Choose display orientation">—</button></div>
+                    <div class="video-metric-item"><span>HDR / Color:</span> <button id="lblMonHdr" class="diag-pill diag-neutral clickable-pill" type="button" title="Change Windows Advanced Color">—</button></div>
+                    <div class="video-metric-item"><span>Night Light:</span> <button id="night-light-settings" class="diag-pill diag-neutral clickable-pill" type="button">Settings</button></div>
+                    <div class="video-metric-item"><span>Color Profile:</span> <strong id="lblMonColorProfile" class="video-truncate">--</strong></div>
+                </div>
+            </div>
+        </div>
+        <!-- NETWORK PROFILE SYSTEM -->
+        <div class="dashboard-card wide-sub-console" data-card-id="network" data-card-title="📡 Network Profile System">
+            <h2>📡 NETWORK PROFILE SYSTEM</h2>
+            <div class="network-matrix-grid">
+                <div class="net-node"><span>🏠</span> Int IPv4: <button id="lblIntIPv4" class="value-action clickable-value" type="button" title="Copy internal IPv4">—</button></div>
+                <div class="net-node"><span>🔏</span> Subnet Mask: <strong id="lblSubnetMask">—</strong></div>
+                <div class="net-node"><span>🚪</span> Gateway: <button id="lblGateway" class="value-action clickable-value" type="button" title="Copy gateway">—</button></div>
+                <div class="net-node"><span>⚙️</span> IP Assignment: <button id="lblNetAssignment" class="toggle-pill-btn state-purple" type="button" title="Open Adapters &amp; IP">—</button></div>
+                <div class="net-node"><span>🛡️</span> Profile Status: <strong id="lblNetworkStatus">—</strong></div>
+                <div class="net-node"><span>📶</span> WLAN SSID: <strong id="lblWlanSsid">—</strong></div>
+                <div class="net-node"><span>🌍</span> Ext IPv4: <button id="lblExtIPv4" class="value-action clickable-value" type="button" title="Look up or copy external IPv4">—</button></div>
+                <div class="net-node"><span>🚀</span> Link Capacity: <strong id="lblLinkCap">—</strong></div>
+                <div class="net-node"><span>🧱</span> Firewall: <button id="lblFirewall" class="diag-pill diag-neutral clickable-pill" type="button" title="Open Windows Firewall">—</button></div>
+                <div class="net-node"><span>👁️</span> Realtime Protection: <button id="lblRealtime" class="diag-pill diag-neutral clickable-pill" type="button" title="Open Windows Security">—</button></div>
+                <div class="net-node"><span>📣</span> Discovery: <button id="discovery-settings" class="diag-pill diag-neutral clickable-pill" type="button">Settings</button></div>
+                <div class="net-node"><span>📂</span> Sharing: <button id="lblSharing" class="diag-pill diag-neutral clickable-pill" type="button" title="Open Windows sharing settings">—</button></div>
+                <!-- [DEFENDER TAMPER-GATED CONTROLS] T. Protection + Dependent Defender Protections -->
+                <div class="net-node" data-metric-key="net-defender"><span>🛡️</span> T. Protection: <strong id="lblTamperProtection">Unknown</strong></div>
+                <div class="net-node" data-metric-key="net-defender"><span>🧠</span> Behavior Mon: <strong id="lblBehaviorMonitor">Unknown</strong></div>
+                <div class="net-node" data-metric-key="net-defender"><span>☁️</span> Cloud Protect: <strong id="lblCloudProtection">Unknown</strong></div>
+                <div class="net-node" data-metric-key="net-defender"><span>📥</span> IOAV Scan: <strong id="lblIoavProtection">Unknown</strong></div>
+                <!-- [DIAGNOSTIC ADDITION] DNS servers, DNS resolution check, and gateway ARP status -->
+                <div class="net-node net-node-span2 dashboard-dns-node" data-metric-key="net-dnsarp"><span>🔎</span> DNS Servers: <button id="lblDnsServers" class="value-action clickable-value" type="button" title="View or configure active adapter DNS">—</button></div>
+                <div class="net-node" data-metric-key="net-dnsarp"><span>🌐</span> DNS Check: <button id="lblDnsStatus" class="diag-pill diag-neutral clickable-pill" type="button" title="Flush the Windows DNS cache and run a live lookup">Test</button></div>
+                <div class="net-node" data-metric-key="net-dnsarp"><span>🔗</span> ARP GW: <button id="lblArpStatus" class="diag-pill diag-neutral clickable-pill" type="button" title="Resolve the active IPv4 gateway again">—</button></div>
+                <div class="net-node multi-driver-row" data-metric-key="net-drivers">
+                    <span class="driver-inline-group"><span>🌐</span> Ethernet: <strong id="lblEthernet">—</strong></span>
+                    <span class="driver-inline-group"><span>📶</span> Wi-Fi: <strong id="lblWifi">—</strong></span>
+                </div>
+                <div class="net-node multi-driver-row adapter-status-row" data-metric-key="net-drivers">
+                    <span>🔌</span> Adapter Status:
+                    <div id="adapterStatusContainer" class="adapter-status-deck">
+                        <span class="adapter-status-item">—</span>
+                    </div>
+                </div>
+            </div>
+            <div class="speedtest-wrapper-deck" data-metric-key="net-speedtest">
+                <div class="speed-metrics-panel">
+                    <div class="speed-data-node">Latency: <strong id="net-latency">—</strong> ms</div>
+                    <div class="speed-data-node">Jitter: <strong id="net-jitter">—</strong> ms</div>
+                    <div class="speed-data-node">Loss: <strong id="net-failures">—</strong> %</div>
+                    <div class="speed-data-node">Download: <strong id="net-download">—</strong> Mbps</div>
+                    <div class="speed-data-node">Upload: <strong id="net-upload">—</strong> Mbps</div>
+                </div>
+                <button id="test-network" type="button" class="speed-execute-action-btn"
+                    title="Run Cloudflare ICMP and HTTPS checks using roughly 5 MiB of data">Test Mesh</button>
+            </div>
+
+            <!-- Bandwidth Pipeline Activity -->
+            <div class="net-activity-container" data-metric-key="net-bandwidth">
+                <div class="activity-metadata">
+                    <span>📊 Transmit/Receive Data Mesh Pipeline Activity</span>
+                    <div class="activity-values">
+                        <span class="rx-numeric-text">📥 <span id="lblNetRx">0.00 KB/s</span></span>
+                        <span class="tx-numeric-text">📤 <span id="lblNetTx">0.00 KB/s</span></span>
+                    </div>
+                </div>
+                <div class="activity-track-chassis">
+                    <div class="track-bg-half download-static-bg"></div>
+                    <div class="track-bg-half upload-static-bg"></div>
+                    <div id="barNetRx" class="download-dynamic-fill"></div>
+                    <div id="barNetTx" class="upload-dynamic-fill"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- LOG CONSOLE NODE -->
+        <div class="dashboard-card wide-sub-console log-console-card" data-card-id="console" data-card-title="📑 Log Profile Console">
+            <div class="console-header-row">
+                <h2>📑 LOG PROFILE CONSOLE</h2>
+                <div style="display: flex; gap: 5px;">
+                    <button id="copy-logs" class="console-clear-btn">Copy Logs</button>
+                    <button id="clear-logs" class="console-clear-btn">Clear Logs</button>
+                </div>
+            </div>
+            <div id="console-box" class="console-box"></div>
+        </div>
+    </div>
+    <section id="viewNetworkManagerPanel" class="tab-view-panel sharing-panel" hidden aria-labelledby="netManagerTitle">
+        <div class="console-header-row">
+            <h2 id="netManagerTitle">📡 NETWORK MANAGER &amp; DIAGNOSTICS</h2>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                <button type="button" class="console-clear-btn" id="flush-dns">Flush DNS Cache</button>
+                <button type="button" class="console-clear-btn btn-accent-action" id="refresh-network">Refresh</button>
+            </div>
+        </div>
+        <p>Configure IP and DNS settings, run connectivity diagnostics, and inspect Wi-Fi, routes, and ARP.</p>
+
+        <!-- NETWORK SUB-VIEW NAVIGATION PILLS -->
+        <div class="tab-filter-pills" id="netSubViewPills" style="margin-bottom: 8px;">
+            <button type="button" class="filter-pill active" data-netview="adapters" >🔌 Adapters &amp; IP</button>
+            <button type="button" class="filter-pill" data-netview="diagnostics" >🧪 Active Diagnostics</button>
+            <button type="button" class="filter-pill" data-netview="wifiroutes" >📶 Wi-Fi &amp; Routing</button>
+        </div>
+
+        <div id="netManagerStatus" class="sharing-status" role="status">Evaluating connected network interfaces...</div>
+
+        <!-- SUB-VIEW A: ADAPTERS & IP CONFIGURATION -->
+        <div id="netSubAdapters" class="net-subview-pane" >
+            <div id="adapterInterfaceContainer" class="sharing-list">
+                <div class="driver-text-node">Reading physical interfaces…</div>
+            </div>
+        </div>
+
+        <!-- SUB-VIEW B: ACTIVE NETWORK DIAGNOSTICS TOOLKIT -->
+        <div id="netSubDiagnostics" class="organizer-scroll-area" hidden>
+            <!-- Unified Target & Quick Presets Bar -->
+            <div class="organizer-section">
+                <div class="organizer-section-header">
+                    <h3>🎯 Active Path &amp; Protocol Probe</h3>
+                    <div class="wsl-quick-pills" style="margin-top: 0;">
+                        <button type="button" class="diagx-code-btn" data-net-target="1.1.1.1">1.1.1.1</button>
+                        <button type="button" class="diagx-code-btn" data-net-target="8.8.8.8">8.8.8.8</button>
+                        <button type="button" class="diagx-code-btn" data-net-target="cloudflare.com">cloudflare.com</button>
+                        <button type="button" class="diagx-code-btn" data-net-target="github.com">github.com</button>
+                        <button type="button" class="diagx-code-btn" data-net-target="gateway">Gateway</button>
+                    </div>
+                </div>
+                <div class="net-diag-toolbar">
+                    <input type="text" id="netDiagTargetInput" class="tab-search-input" aria-label="Target host or IP" value="1.1.1.1" placeholder="Target hostname or IP (e.g. 1.1.1.1, google.com, 192.168.1.1)...">
+                    <button type="button" class="console-clear-btn btn-accent-action" data-diagnostic="ping">Ping (6x)</button>
+                    <button type="button" class="console-clear-btn" data-diagnostic="trace">Traceroute</button>
+                </div>
+
+                <!-- Port Reachability & DNS Record Row -->
+                <div class="net-diag-secondary-grid">
+                    <div class="net-diag-mini-box">
+                        <span class="net-diag-mini-label">TCP Port Test:</span>
+                        <input type="text" id="netDiagPortsInput" class="tab-search-input" value="443" inputmode="numeric" aria-label="TCP port">
+                        <button type="button" class="console-clear-btn" data-diagnostic="port">Test Port</button>
+                    </div>
+                    <div class="net-diag-mini-box">
+                        <span class="net-diag-mini-label">DNS Lookup:</span>
+                        <select id="selNetDiagDnsType" class="tab-sort-select" aria-label="DNS record type">
+                            <option value="A" selected>A</option>
+                            <option value="AAAA">AAAA</option>
+                            <option value="MX">MX</option>
+                            <option value="TXT">TXT</option>
+                            <option value="NS">NS</option>
+                            <option value="CNAME">CNAME</option>
+                            <option value="SOA">SOA</option>
+                            <option value="PTR">PTR</option>
+                        </select>
+                        <input type="text" id="netDiagDnsServer" class="tab-search-input" style="max-width: 115px;" aria-label="Optional DNS server IP address" placeholder="DNS (opt)">
+                        <button type="button" class="console-clear-btn" data-diagnostic="dns">Lookup</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Live Results Output Deck -->
+            <div class="organizer-section section-flex-fill">
+                <div class="organizer-section-header">
+                    <h3 id="lblNetDiagResultTitle">📊 Diagnostic Output</h3>
+                    <span id="lblNetDiagResultMeta" class="diagx-stamp-text">Ready</span>
+                </div>
+                <div id="netDiagVisualArea" class="flex-scroll-body">
+                    <div class="driver-text-node">Select a target above and click Ping, Traceroute, Test Port, or Lookup.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SUB-VIEW C: WI-FI RADIO TELEMETRY, ROUTING TABLE & ARP NEIGHBORS -->
+        <div id="netSubWifiRoutes" class="organizer-scroll-area" hidden>
+            <!-- Wi-Fi Radio Card -->
+            <div class="organizer-section">
+                <div class="organizer-section-header">
+                    <h3>📶 Wi-Fi Radio &amp; Signal Quality Telemetry</h3>
+                    <span id="lblNetWifiStamp" class="diagx-stamp-text">--</span>
+                </div>
+                <div id="netWifiTelemetryBox" class="net-wifi-grid">
+                    <div class="driver-text-node">Reading Windows Wi-Fi interfaces…</div>
+                </div>
+            </div>
+
+            <!-- Routing Table + ARP Table -->
+            <div class="diagx-two-col-row row-flex-fill">
+                <div class="organizer-section section-flex-fill">
+                    <div class="organizer-section-header">
+                        <h3>🗺️ IPv4 Routing Table</h3>
+                        <span id="lblNetRoutesCount" class="diagx-stamp-text">0 routes</span>
+                    </div>
+                    <div id="netRoutesContainer" class="tp-table-scroll">
+                        <div class="driver-text-node" style="padding: 8px;">Loading IPv4 routes...</div>
+                    </div>
+                </div>
+                <div class="organizer-section section-flex-fill">
+                    <div class="organizer-section-header">
+                        <h3>🔗 Active ARP Neighbors</h3>
+                        <span id="lblNetArpCount" class="diagx-stamp-text">0 entries</span>
+                    </div>
+                    <div id="netArpContainer" class="tp-table-scroll">
+                        <div class="driver-text-node" style="padding: 8px;">Loading ARP neighbors...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+    <dialog id="dashboard-dns-dialog" class="dashboard-dialog" aria-labelledby="dashboard-dns-title">
+        <form id="dashboard-dns-form">
+            <h2 id="dashboard-dns-title">🔎 DNS servers</h2>
+            <dl class="dashboard-diagnostic-facts">
+                <dt>Active adapter</dt><dd id="dashboard-dns-adapter">—</dd>
+                <dt>IPv4 servers</dt><dd id="dashboard-dns-ipv4">—</dd>
+                <dt>IPv6 servers</dt><dd id="dashboard-dns-ipv6">—</dd>
+            </dl>
+            <label>IPv4 configuration
+                <select id="dashboard-dns-preset" class="tab-sort-select">
+                    <option value="">Choose a setting…</option>
+                    <option value="automatic">Automatic</option>
+                    <option value="cloudflare">Cloudflare · 1.1.1.1, 1.0.0.1</option>
+                    <option value="google">Google · 8.8.8.8, 8.8.4.4</option>
+                    <option value="quad9">Quad9 · 9.9.9.9, 149.112.112.112</option>
+                    <option value="custom">Custom IPv4</option>
+                </select>
+            </label>
+            <label id="dashboard-dns-custom-field" hidden>Primary and optional secondary IPv4
+                <input id="dashboard-dns-custom" class="tab-search-input" placeholder="192.168.1.1, 1.1.1.1" maxlength="40">
+            </label>
+            <p id="dashboard-dns-message" class="dashboard-hint" role="status"></p>
+            <div class="network-actions">
+                <button id="dashboard-dns-close" type="button" class="console-clear-btn">Close</button>
+                <button id="dashboard-dns-apply" type="submit" class="console-clear-btn btn-accent-action" disabled>Apply IPv4 DNS</button>
+            </div>
+        </form>
+    </dialog>
+    <dialog id="cpu-sensor-dialog" class="dashboard-dialog" aria-labelledby="cpu-sensor-title">
+        <form method="dialog">
+            <h2 id="cpu-sensor-title">🌡️ CPU temperature sensor</h2>
+            <dl class="dashboard-diagnostic-facts">
+                <dt>Reading source</dt><dd id="cpu-sensor-source">—</dd>
+                <dt>LibreHardwareMonitor helper</dt><dd id="cpu-sensor-helper">—</dd>
+                <dt>PawnIO driver</dt><dd id="cpu-sensor-pawnio">—</dd>
+                <dt>CoreWatch session</dt><dd id="cpu-sensor-privilege">—</dd>
+            </dl>
+            <p id="cpu-sensor-message" class="dashboard-hint" role="status"></p>
+            <div class="network-actions">
+                <button id="cpu-sensor-elevate" type="button" class="console-clear-btn" hidden>Restart as administrator</button>
+                <button type="submit" class="console-clear-btn" autofocus>Close</button>
+            </div>
+        </form>
+    </dialog>
+    <dialog id="dashboard-dialog" class="dashboard-dialog">
+        <form method="dialog">
+            <h2 id="dialog-title"></h2>
+            <p id="dialog-message"></p>
+            <label id="dialog-field" hidden><span id="dialog-label"></span>
+                <input id="dialog-input" class="tab-search-input">
+            </label>
+            <label id="dialog-options" hidden><span>Available choices</span>
+                <select id="dialog-select" class="tab-sort-select"></select>
+            </label>
+            <div class="network-actions">
+                <button type="submit" class="console-clear-btn" value="cancel" autofocus>Cancel</button>
+                <button type="submit" class="console-clear-btn btn-accent-action" value="confirm">Apply</button>
+            </div>
+        </form>
+    </dialog>
+    <section id="layout-panel" class="dashboard-panel" popover="manual" aria-labelledby="layout-panel-title" role="dialog">
+        <header class="dashboard-panel-header">
+            <h2 id="layout-panel-title">✏️ Dashboard layout</h2>
+            <button type="button" class="console-clear-btn panel-dismiss" aria-label="Close layout">✕</button>
+        </header>
+        <div class="dashboard-panel-body">
+            <div id="layout-presets" class="panel-actions" aria-label="Layout presets"></div>
+            <p class="dashboard-hint">Drag a card by its grip or use the arrows to move it.</p>
+            <ol id="layout-cards" class="layout-card-list" aria-label="Card order and visibility"></ol>
+            <details class="dashboard-option-group">
+                <summary>Visible metrics</summary>
+                <div id="layout-metrics" class="layout-metric-list"></div>
+            </details>
+        </div>
+        <footer class="dashboard-panel-footer">
+            <span id="layout-save-status" class="dashboard-hint" role="status"></span>
+            <button id="reset-dashboard-layout" class="console-clear-btn" type="button">Reset layout</button>
+        </footer>
+    </section>
+    <section id="appearance-panel" class="dashboard-panel" popover="manual" aria-labelledby="appearance-panel-title" role="dialog">
+        <header class="dashboard-panel-header draggable-panel-header">
+            <h2 id="appearance-panel-title">🎨 Appearance</h2>
+            <button type="button" class="console-clear-btn panel-dismiss" aria-label="Close appearance">✕</button>
+        </header>
+        <div class="dashboard-panel-body">
+            <div id="appearance-presets" class="appearance-presets" aria-label="Appearance presets"></div>
+            <details class="dashboard-option-group">
+                <summary>Custom colors</summary>
+                <div id="appearance-colors" class="appearance-colors"></div>
+            </details>
+            <fieldset class="dashboard-option-group">
+                <legend>Local wallpaper</legend>
+                <div class="panel-actions">
+                    <button id="choose-wallpaper" type="button" class="console-clear-btn">Choose image…</button>
+                    <input id="wallpaper-file" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+                    <button id="remove-wallpaper" type="button" class="console-clear-btn" disabled>Remove</button>
+                </div>
+                <div id="appearance-wallpaper-effects" class="appearance-effects" hidden>
+                    <label>Fit <select id="wallpaper-fit" name="bgFit">
+                        <option value="cover">Cover</option><option value="contain">Contain</option>
+                        <option value="stretch">Stretch</option><option value="center">Center</option><option value="tile">Tile</option>
+                    </select></label>
+                    <label>Fade <select id="wallpaper-fade" name="bgFadeMode">
+                        <option value="none">None</option><option value="uniform">Uniform</option><option value="vignette">Vignette</option>
+                        <option value="top">Top</option><option value="bottom">Bottom</option>
+                    </select></label>
+                    <label>Opacity <input type="range" name="bgOpacity" min="0" max="100"> <output></output></label>
+                    <label>Blur <input type="range" name="bgBlur" min="0" max="24"> <output></output></label>
+                    <label>Fade strength <input type="range" name="bgFadeStrength" min="0" max="95"> <output></output></label>
+                </div>
+            </fieldset>
+            <fieldset class="dashboard-option-group appearance-effects">
+                <legend>Card surfaces</legend>
+                <label>Opacity <input type="range" name="surfaceOpacity" min="35" max="100"> <output></output></label>
+                <label>Backdrop blur <input type="range" name="cardBlur" min="0" max="16"> <output></output></label>
+            </fieldset>
+        </div>
+        <footer class="dashboard-panel-footer">
+            <span id="appearance-save-status" class="dashboard-hint" role="status"></span>
+            <div class="panel-actions">
+                <button id="revert-appearance" type="button" class="console-clear-btn">Revert preview</button>
+                <button id="save-appearance" type="button" class="console-clear-btn btn-accent-action">Apply</button>
+            </div>
+        </footer>
+    </section>
+    <section id="preferences-panel" class="dashboard-panel" popover="manual" aria-labelledby="preferences-panel-title" role="dialog">
+        <header class="dashboard-panel-header">
+            <h2 id="preferences-panel-title">⚙️ Dashboard settings</h2>
+            <button type="button" class="console-clear-btn panel-dismiss" aria-label="Close dashboard settings">✕</button>
+        </header>
+        <div class="dashboard-panel-body">
+            <fieldset class="dashboard-option-group preferences-fields">
+                <legend>Telemetry</legend>
+                <label>Polling profile
+                    <select id="dashboard-polling-profile">
+                        <option value="fast">Fast · 250 ms</option>
+                        <option value="balanced">Balanced · 500 ms</option>
+                        <option value="eco">Eco · 1 s</option>
+                    </select>
+                </label>
+                <label>Temperature unit
+                    <select id="dashboard-temperature-unit">
+                        <option value="C">Celsius (°C)</option>
+                        <option value="F">Fahrenheit (°F)</option>
+                    </select>
+                </label>
+            </fieldset>
+            <div class="dashboard-option-group">
+                <button id="import-dashboard-settings" type="button" class="console-clear-btn">Import from PowerShell version…</button>
+                <p class="dashboard-hint">Copy layout, colors, and telemetry preferences into CoreWatch Rust.</p>
+            </div>
+        </div>
+        <footer class="dashboard-panel-footer">
+            <span id="preferences-save-status" class="dashboard-hint" role="status"></span>
+        </footer>
+    </section>
+</body>
+</html>

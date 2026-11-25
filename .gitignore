@@ -2,6 +2,7 @@ AI.notes/
 bin/
 tools/
 dist/
+testBuild/
 build/CoreWatch.ico
 build/CoreWatch.manifest
 build/CoreWatch.iss

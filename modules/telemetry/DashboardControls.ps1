@@ -491,104 +491,118 @@ namespace CoreWatch {
                 $safeRelaunchScript = $relaunchScript.Replace("'", "''")
 
                 $psRunner = @"
-`$Host.UI.RawUI.WindowTitle = 'CoreWatch PowerShell 7 Updater (C:\Program Files\PowerShell\7)'
+`$Host.UI.RawUI.WindowTitle = 'CoreWatch PowerShell 7 Installer / Updater'
 Write-Host '============================================================' -ForegroundColor Cyan
-Write-Host '  CoreWatch PowerShell 7 Direct Updater' -ForegroundColor Cyan
-Write-Host '  Target: C:\Program Files\PowerShell\7 (Never WindowsApps)' -ForegroundColor DarkCyan
+Write-Host '  CoreWatch PowerShell 7 Smart Installer & Updater' -ForegroundColor Cyan
 Write-Host '============================================================' -ForegroundColor Cyan
 
 `$targetDir = 'C:\Program Files\PowerShell\7'
+`$msiExe    = Join-Path `$targetDir 'pwsh.exe'
+`$msixAlias = Join-Path `$env:LOCALAPPDATA 'Microsoft\WindowsApps\pwsh.exe'
+`$hasMsiInstall  = Test-Path -LiteralPath `$msiExe -PathType Leaf
+`$hasMsixInstall = (-not `$hasMsiInstall) -and (Test-Path -LiteralPath `$msixAlias -PathType Leaf)
 `$updatedOk = `$false
 
 try {
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     `$arch = if (`$env:PROCESSOR_ARCHITECTURE -match 'ARM64') { 'arm64' } elseif ([Environment]::Is64BitOperatingSystem) { 'x64' } else { 'x86' }
-    Write-Host "`nFetching latest stable PowerShell 7 release metadata (win-`$arch)..." -ForegroundColor Green
 
-    `$rel = Invoke-RestMethod -Uri 'https://api.github.com/repos/PowerShell/PowerShell/releases/latest' -Headers @{'User-Agent'='CoreWatch'} -TimeoutSec 20 -ErrorAction Stop
-    `$tag = [string]`$rel.tag_name
-    `$msiAsset = `$rel.assets | Where-Object { `$_.name -match "^PowerShell-.*-win-`$arch\.msi`$" } | Select-Object -First 1
-    `$zipAsset = `$rel.assets | Where-Object { `$_.name -match "^PowerShell-.*-win-`$arch\.zip`$" } | Select-Object -First 1
+    if (`$hasMsiInstall) {
+        Write-Host "`nDetected existing MSI install in `$targetDir (full folder access)." -ForegroundColor Cyan
+        Write-Host "Querying official PowerShell 7 stable releases (win-`$arch MSI channel)..." -ForegroundColor Green
 
-    if (`$msiAsset) {
-        Write-Host "Found official .MSI installer for `$tag: `$(`$msiAsset.name) (`$([math]::Round(`$msiAsset.size / 1MB, 1)) MB)" -ForegroundColor Green
-        `$msiPath = Join-Path `$env:TEMP `$msiAsset.name
-        Write-Host 'Downloading MSI...' -ForegroundColor Cyan
-        Invoke-WebRequest -Uri `$msiAsset.browser_download_url -OutFile `$msiPath -UseBasicParsing -ErrorAction Stop
-        Write-Host "Running msiexec into `$targetDir..." -ForegroundColor Green
-        `$proc = Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i', "`"`$msiPath`"", '/qb', 'ADD_PATH=1', 'REGISTER_MANIFEST=1', 'USE_MU=1', 'ENABLE_MU=1') -Wait -PassThru
-        Remove-Item -LiteralPath `$msiPath -Force -ErrorAction SilentlyContinue
-        if (`$proc.ExitCode -eq 0 -or `$proc.ExitCode -eq 3010) {
-            `$updatedOk = `$true
-        } else {
-            Write-Host "msiexec exited with code `$(`$proc.ExitCode)." -ForegroundColor Yellow
+        `$rels = @(Invoke-RestMethod -Uri 'https://api.github.com/repos/PowerShell/PowerShell/releases?per_page=30' -Headers @{'User-Agent'='CoreWatch'} -TimeoutSec 20 -ErrorAction Stop)
+        `$msiCandidates = New-Object System.Collections.Generic.List[object]
+        `$zipCandidates = New-Object System.Collections.Generic.List[object]
+
+        foreach (`$r in `$rels) {
+            if (`$r.prerelease -or `$r.draft) { continue }
+            if ([string]`$r.tag_name -notmatch '^v(\d+\.\d+\.\d+)$') { continue }
+            `$vObj = [version]`$Matches[1]
+            `$mA = `$r.assets | Where-Object { `$_.name -match "^PowerShell-.*-win-`$arch\.msi`$" } | Select-Object -First 1
+            `$zA = `$r.assets | Where-Object { `$_.name -match "^PowerShell-.*-win-`$arch\.zip`$" } | Select-Object -First 1
+            if (`$mA) { `$msiCandidates.Add([PSCustomObject]@{ ver = `$vObj; tag = [string]`$r.tag_name; asset = `$mA }) }
+            if (`$zA) { `$zipCandidates.Add([PSCustomObject]@{ ver = `$vObj; tag = [string]`$r.tag_name; asset = `$zA }) }
         }
-    } elseif (`$zipAsset) {
-        Write-Host "NOTE: Release `$tag has NO .msi installer (Microsoft moved WinGet to WindowsApps MSIX)." -ForegroundColor Yellow
-        Write-Host "Downloading official ZIP instead: `$(`$zipAsset.name) (`$([math]::Round(`$zipAsset.size / 1MB, 1)) MB)..." -ForegroundColor Cyan
 
-        `$zipPath  = Join-Path `$env:TEMP `$zipAsset.name
-        `$stageDir = Join-Path `$env:TEMP ("CoreWatch-PsStage-" + [guid]::NewGuid().ToString('N').Substring(0,8))
-        Invoke-WebRequest -Uri `$zipAsset.browser_download_url -OutFile `$zipPath -UseBasicParsing -ErrorAction Stop
+        `$bestMsi = `$msiCandidates | Sort-Object ver -Descending | Select-Object -First 1
+        `$bestZip = `$zipCandidates | Sort-Object ver -Descending | Select-Object -First 1
 
-        Write-Host 'Extracting official ZIP to staging folder...' -ForegroundColor Cyan
-        `$null = New-Item -ItemType Directory -Path `$stageDir -Force
-        Expand-Archive -LiteralPath `$zipPath -DestinationPath `$stageDir -Force
-        Remove-Item -LiteralPath `$zipPath -Force -ErrorAction SilentlyContinue
-
-        # Stop running pwsh.exe instances from C:\Program Files\PowerShell\7 (including CoreWatch host) so files are unlocked!
-        `$lockingProcs = @(Get-Process -Name 'pwsh' -ErrorAction SilentlyContinue | Where-Object {
-            try { `$_.MainModule.FileName -like "`$targetDir\*" } catch { `$true }
-        })
-        if (`$lockingProcs.Count -gt 0) {
-            Write-Host "`nClosing `$(`$lockingProcs.Count) running pwsh.exe process(es) (including CoreWatch) to unlock `$targetDir..." -ForegroundColor Yellow
-            Start-Sleep -Seconds 2
-            foreach (`$lp in `$lockingProcs) {
-                try { Stop-Process -Id `$lp.Id -Force -ErrorAction SilentlyContinue } catch {}
+        if (`$bestMsi) {
+            `$tag = `$bestMsi.tag
+            `$msiAsset = `$bestMsi.asset
+            if (`$bestZip -and `$bestZip.ver -gt `$bestMsi.ver) {
+                Write-Host "NOTE: `$(`$bestZip.tag) has no official .msi installer (WinGet uses WindowsApps MSIX)." -ForegroundColor Yellow
+                Write-Host "Installing latest official .MSI release `$tag to keep `$targetDir unlocked & cleanly upgradable." -ForegroundColor Cyan
             }
-            Start-Sleep -Milliseconds 900
-        }
+            Write-Host "Found official .MSI installer for `$tag: `$(`$msiAsset.name) (`$([math]::Round(`$msiAsset.size / 1MB, 1)) MB)" -ForegroundColor Green
+            `$msiPath = Join-Path `$env:TEMP `$msiAsset.name
+            Write-Host 'Downloading MSI...' -ForegroundColor Cyan
+            Invoke-WebRequest -Uri `$msiAsset.browser_download_url -OutFile `$msiPath -UseBasicParsing -ErrorAction Stop
 
-        if (-not (Test-Path -LiteralPath `$targetDir)) { `$null = New-Item -ItemType Directory -Path `$targetDir -Force }
-        Write-Host "Deploying PowerShell `$tag into `$targetDir..." -ForegroundColor Green
-        & robocopy "`$stageDir" "`$targetDir" /E /IS /IT /R:4 /W:1 /NFL /NDL /NJH /NJS | Out-Null
-        `$rc = `$LASTEXITCODE
-        Remove-Item -LiteralPath `$stageDir -Recurse -Force -ErrorAction SilentlyContinue
-
-        if (`$rc -lt 8) {
-            # Ensure C:\Program Files\PowerShell\7 is placed ahead of WindowsApps in System PATH
-            `$envReg = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment'
-            `$rawPath = (Get-ItemProperty -Path `$envReg -Name Path -ErrorAction SilentlyContinue).Path
-            if (`$rawPath) {
-                `$kept = New-Object System.Collections.Generic.List[string]
-                `$kept.Add(`$targetDir)
-                foreach (`$seg in (`$rawPath -split ';')) {
-                    `$s = `$seg.Trim()
-                    if (-not `$s) { continue }
-                    if (`$s.TrimEnd('\').Equals(`$targetDir, [System.StringComparison]::OrdinalIgnoreCase)) { continue }
-                    `$kept.Add(`$s)
-                }
-                Set-ItemProperty -Path `$envReg -Name Path -Value (`$kept -join ';') -Type ExpandString -ErrorAction SilentlyContinue
+            `$lockingProcs = @(Get-Process -Name 'pwsh' -ErrorAction SilentlyContinue | Where-Object {
+                try { `$_.MainModule.FileName -like "`$targetDir\*" } catch { `$false }
+            })
+            if (`$lockingProcs.Count -gt 0) {
+                Write-Host "`nClosing `$(`$lockingProcs.Count) running pwsh.exe process(es) (including CoreWatch) for clean MSI upgrade..." -ForegroundColor Yellow
+                Start-Sleep -Seconds 2
+                foreach (`$lp in `$lockingProcs) { try { Stop-Process -Id `$lp.Id -Force -ErrorAction SilentlyContinue } catch {} }
+                Start-Sleep -Milliseconds 800
             }
-            `$updatedOk = `$true
-        } else {
-            Write-Host "Robocopy returned error code `$rc — some files in `$targetDir may still be locked." -ForegroundColor Red
+
+            Write-Host "Running msiexec into `$targetDir..." -ForegroundColor Green
+            `$proc = Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i', "`"`$msiPath`"", '/qb', 'ADD_PATH=1', 'REGISTER_MANIFEST=1', 'USE_MU=1', 'ENABLE_MU=1') -Wait -PassThru
+            Remove-Item -LiteralPath `$msiPath -Force -ErrorAction SilentlyContinue
+            if (`$proc.ExitCode -eq 0 -or `$proc.ExitCode -eq 3010) { `$updatedOk = `$true }
+            else { Write-Host "msiexec exited with code `$(`$proc.ExitCode)." -ForegroundColor Yellow }
         }
+    } elseif (`$hasMsixInstall) {
+        Write-Host "`nDetected existing MSIX / Microsoft Store PowerShell 7 in WindowsApps." -ForegroundColor Yellow
+        Write-Host "NOTE: MSIX installs live in C:\Program Files\WindowsApps where Windows restricts direct folder access/editing." -ForegroundColor DarkYellow
+        Write-Host "Upgrading via WinGet..." -ForegroundColor Green
+        & winget upgrade --id Microsoft.PowerShell -e --source winget --accept-package-agreements --accept-source-agreements
+        if (`$LASTEXITCODE -eq 0 -or `$LASTEXITCODE -eq -1978335189) { `$updatedOk = `$true }
     } else {
-        Write-Host "No win-`$arch .msi or .zip asset found in release `$tag." -ForegroundColor Red
+        # No PowerShell Core currently installed -> Install MSIX version via WinGet (with directory limitation notice)
+        Write-Host "`nNo existing PowerShell Core 7 installation detected." -ForegroundColor Cyan
+        Write-Host "Installing PowerShell 7 (MSIX) via WinGet..." -ForegroundColor Green
+        Write-Host "NOTE: The MSIX version installs into C:\Program Files\WindowsApps where Windows restricts direct directory browsing and manual edits." -ForegroundColor Yellow
+        if (Get-Command winget -ErrorAction SilentlyContinue) {
+            & winget install --id Microsoft.PowerShell -e --source winget --accept-package-agreements --accept-source-agreements
+            if (`$LASTEXITCODE -eq 0 -or `$LASTEXITCODE -eq -1978335189) { `$updatedOk = `$true }
+        }
+        if (-not `$updatedOk) {
+            Write-Host "WinGet unavailable or failed — falling back to latest official GitHub .MSI..." -ForegroundColor Yellow
+            `$rels = @(Invoke-RestMethod -Uri 'https://api.github.com/repos/PowerShell/PowerShell/releases?per_page=30' -Headers @{'User-Agent'='CoreWatch'} -TimeoutSec 20 -ErrorAction Stop)
+            `$bestMsi = `$null; `$bestVer = [version]'0.0.0'
+            foreach (`$r in `$rels) {
+                if (`$r.prerelease -or `$r.draft) { continue }
+                if ([string]`$r.tag_name -notmatch '^v(\d+\.\d+\.\d+)$') { continue }
+                `$v = [version]`$Matches[1]
+                `$a = `$r.assets | Where-Object { `$_.name -match "^PowerShell-.*-win-`$arch\.msi`$" } | Select-Object -First 1
+                if (`$a -and `$v -gt `$bestVer) { `$bestVer = `$v; `$bestMsi = `$a }
+            }
+            if (`$bestMsi) {
+                `$msiPath = Join-Path `$env:TEMP `$bestMsi.name
+                Invoke-WebRequest -Uri `$bestMsi.browser_download_url -OutFile `$msiPath -UseBasicParsing -ErrorAction Stop
+                `$proc = Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i', "`"`$msiPath`"", '/qb', 'ADD_PATH=1', 'REGISTER_MANIFEST=1') -Wait -PassThru
+                Remove-Item -LiteralPath `$msiPath -Force -ErrorAction SilentlyContinue
+                if (`$proc.ExitCode -eq 0 -or `$proc.ExitCode -eq 3010) { `$updatedOk = `$true }
+            }
+        }
     }
 
-    if (`$updatedOk -and (Test-Path -LiteralPath (Join-Path `$targetDir 'pwsh.exe'))) {
-        `$verifiedVer = (& (Join-Path `$targetDir 'pwsh.exe') -NoProfile -Command '`$PSVersionTable.PSVersion.ToString()' 2>`$null)
-        Write-Host "`nVERIFIED INSTALLED VERSION: PowerShell `$verifiedVer (`$targetDir\pwsh.exe)" -ForegroundColor Green
+    `$finalPwsh = if (Test-Path -LiteralPath `$msiExe) { `$msiExe } elseif (Test-Path -LiteralPath `$msixAlias) { `$msixAlias } else { (Get-Command pwsh -ErrorAction SilentlyContinue).Source }
+    if (`$updatedOk -and `$finalPwsh) {
+        `$verifiedVer = (& `$finalPwsh -NoProfile -Command '`$PSVersionTable.PSVersion.ToString()' 2>`$null)
+        Write-Host "`nVERIFIED INSTALLED VERSION: PowerShell `$verifiedVer (`$finalPwsh)" -ForegroundColor Green
 
-        # Relaunch CoreWatch automatically on the new PowerShell 7 runtime!
         if (Test-Path -LiteralPath '$safeRelaunchExe') {
             Write-Host 'Relaunching CoreWatch.exe...' -ForegroundColor Cyan
             Start-Process -FilePath '$safeRelaunchExe'
         } elseif (Test-Path -LiteralPath '$safeRelaunchScript') {
             Write-Host 'Relaunching CoreWatch on updated pwsh.exe...' -ForegroundColor Cyan
-            Start-Process -FilePath (Join-Path `$targetDir 'pwsh.exe') -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', '"$safeRelaunchScript"')
+            Start-Process -FilePath `$finalPwsh -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', '"$safeRelaunchScript"')
         }
     }
 } catch {

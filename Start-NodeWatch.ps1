@@ -326,6 +326,12 @@ if ($Global:ProfilesModuleAvailable) {
     try { . $ProfilesScriptPath } catch { $Global:ProfilesModuleAvailable = $false }
 }
 
+$AlertsScriptPath = Join-Path $Global:NodeWatchRoot "modules\tabs\SmartAlertsManager.ps1"
+$Global:AlertsModuleAvailable = Test-Path -LiteralPath $AlertsScriptPath -PathType Leaf
+if ($Global:AlertsModuleAvailable) {
+    try { . $AlertsScriptPath } catch { $Global:AlertsModuleAvailable = $false }
+}
+
 $initCadence = Get-CoreWatchTelemetryCadence -Profile $Global:AppSettings.telemetry.pollingProfile
 
 $global:SharedData = [hashtable]::Synchronized(@{
@@ -655,6 +661,16 @@ $global:FlushTelemetryToUi = {
             $global:LastSentFullVersion = $global:SharedData.FullVersion
             $Bytes = [System.Text.Encoding]::UTF8.GetBytes($global:SharedData.FullPayload)
             $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String($Bytes))
+            # Live Smart Alerts Watchdog evaluation on each full telemetry sweep
+            if ($Global:AlertsModuleAvailable) {
+                try {
+                    $parsedFull = $global:SharedData.FullPayload | ConvertFrom-Json
+                    $firedAlerts = @(Test-SmartAlertRulesAgainstTelemetry -TelemetryObj $parsedFull)
+                    if ($firedAlerts.Count -gt 0) {
+                        Send-CoreWatchMessageToUi -PayloadObj (Get-SmartAlertsState)
+                    }
+                } catch {}
+            }
         }
         if ($null -ne $global:SharedData.FastPayload -and $global:SharedData.FastVersion -ne $global:LastSentFastVersion) {
             $global:LastSentFastVersion = $global:SharedData.FastVersion
@@ -865,8 +881,23 @@ $HandleUiMessageEvent = {
                 $global:SharedData.ForceRefresh = $true
             }
             if (-not $global:TelemetryLoopTimer.Enabled) { $global:TelemetryLoopTimer.Start() }
-            # Push persisted UI layout & window state immediately on load
+            # Push persisted UI layout, theme & window state immediately on load
             try {
+                $savedTheme = $null
+                if ($Global:SavedUiSettings -is [hashtable] -and $Global:SavedUiSettings.ContainsKey("theme") -and $null -ne $Global:SavedUiSettings["theme"]) {
+                    $savedTheme = $Global:SavedUiSettings["theme"]
+                    if ($savedTheme -is [hashtable] -and $savedTheme["bgImageFile"]) {
+                        $bgDisk = Join-Path $AppDataRoot ([string]$savedTheme["bgImageFile"])
+                        if (Test-Path -LiteralPath $bgDisk -PathType Leaf) {
+                            $ts = (Get-Item -LiteralPath $bgDisk).LastWriteTimeUtc.Ticks
+                            $savedTheme["bgImageUrl"] = "https://corewatch-local.assets/$([Uri]::EscapeDataString([string]$savedTheme['bgImageFile']))?t=$ts"
+                        } else {
+                            $savedTheme["bgImageFile"] = ""
+                            $savedTheme["bgImageName"] = ""
+                            $savedTheme["bgImageUrl"]  = ""
+                        }
+                    }
+                }
                 $uiPayload = @{
                     type           = "UI_SETTINGS_STATE"
                     alwaysOnTop    = [bool]$MainForm.TopMost
@@ -874,6 +905,7 @@ $HandleUiMessageEvent = {
                     windowLockMode = [string]$Global:WindowLockMode
                     layout         = if ($Global:SavedUiSettings -is [hashtable] -and $Global:SavedUiSettings.ContainsKey("layout")) { $Global:SavedUiSettings["layout"] } else { $null }
                     diagxDismissed = if ($Global:SavedUiSettings -is [hashtable] -and $Global:SavedUiSettings.ContainsKey("diagxDismissed")) { $Global:SavedUiSettings["diagxDismissed"] } else { $null }
+                    theme          = $savedTheme
                 } | ConvertTo-Json -Compress -Depth 8
                 $global:WebViewControl.CoreWebView2.PostWebMessageAsString([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($uiPayload)))
             } catch {}
@@ -883,6 +915,9 @@ $HandleUiMessageEvent = {
             if ($Global:ProfilesModuleAvailable) {
                 Update-TrayProfilesSubmenu
                 Send-ProfilesStateToUi
+            }
+            if ($Global:AlertsModuleAvailable) {
+                try { Send-CoreWatchMessageToUi -PayloadObj (Get-SmartAlertsState) } catch {}
             }
             # Immediately push any already-sampled telemetry so startup is instant
             & $global:FlushTelemetryToUi
@@ -995,6 +1030,8 @@ $HandleUiMessageEvent = {
                 "dest"               { "Select destination root folder for organized files" }
                 "diagfolder"         { "Select external program log folder for UltimaDiagX" }
                 "wslinstalldir"      { "Select installation folder for WSL virtual disk (ext4.vhdx)" }
+                "backup_source"      { "Select Source folder to back up / sync" }
+                "backup_dest"        { "Select Destination folder (USB drive, local drive, or NAS share)" }
                 "diskmap"            { "Select folder or drive to map visually in Disk Map" }
                 "settings_projects"    { "Select default Git / Projects root folder" }
                 "settings_exports"     { "Select default Exports & Support Bundles folder" }
@@ -1055,6 +1092,39 @@ $HandleUiMessageEvent = {
             $fd.Filter = "All Files (*.*)|*.*|Archives & Installers (*.zip;*.exe;*.msi;*.txt)|*.zip;*.exe;*.msi;*.txt"
             if ($fd.ShowDialog($MainForm) -eq [System.Windows.Forms.DialogResult]::OK -and $fd.FileName) {
                 Send-CoreWatchMessageToUi -PayloadObj @{ type = "BROWSE_FILE_RESULT"; target = "github_upload_asset"; path = [string]$fd.FileName }
+            }
+            $fd.Dispose()
+        }
+        '^Browse-File:theme_bg_image$' {
+            $fd = New-Object System.Windows.Forms.OpenFileDialog
+            $fd.Title  = "Select Custom Background Wallpaper Image"
+            $fd.Filter = "Images (*.png;*.jpg;*.jpeg;*.webp;*.bmp;*.gif)|*.png;*.jpg;*.jpeg;*.webp;*.bmp;*.gif|All Files (*.*)|*.*"
+            $picsDir = [Environment]::GetFolderPath("MyPictures")
+            if ($picsDir -and (Test-Path -LiteralPath $picsDir -PathType Container)) { $fd.InitialDirectory = $picsDir }
+            if ($fd.ShowDialog($MainForm) -eq [System.Windows.Forms.DialogResult]::OK -and $fd.FileName) {
+                try {
+                    $ext = [System.IO.Path]::GetExtension($fd.FileName).ToLowerInvariant()
+                    if ($ext -notin @('.png', '.jpg', '.jpeg', '.webp', '.bmp', '.gif')) { $ext = '.png' }
+                    Get-ChildItem -LiteralPath $AppDataRoot -Filter "custom-bg.*" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+                    $destName = "custom-bg$ext"
+                    $destPath = Join-Path $AppDataRoot $destName
+                    Copy-Item -LiteralPath $fd.FileName -Destination $destPath -Force
+                    $ts = [DateTime]::UtcNow.Ticks
+                    $url = "https://corewatch-local.assets/$([Uri]::EscapeDataString($destName))?t=$ts"
+                    Send-CoreWatchMessageToUi -PayloadObj @{
+                        type = "THEME_BG_IMAGE_SELECTED"
+                        ok   = $true
+                        file = $destName
+                        name = [System.IO.Path]::GetFileName($fd.FileName)
+                        url  = $url
+                    }
+                } catch {
+                    Send-CoreWatchMessageToUi -PayloadObj @{
+                        type  = "THEME_BG_IMAGE_SELECTED"
+                        ok    = $false
+                        error = "Failed to load background image: $($_.Exception.Message)"
+                    }
+                }
             }
             $fd.Dispose()
         }
@@ -1503,6 +1573,106 @@ $HandleUiMessageEvent = {
                         return
                     }
 
+                    if ($Payload.command -in @(
+                        'ALERTS_LOAD', 'ALERTS_TOGGLE_MUTE', 'ALERTS_TOGGLE_RULE', 'ALERTS_SAVE_RULE',
+                        'ALERTS_DELETE_RULE', 'ALERTS_RESET_DEFAULTS', 'ALERTS_TEST_TOAST',
+                        'ALERTS_ACK_ALL', 'ALERTS_CLEAR_HISTORY'
+                    )) {
+                        if (-not $Global:AlertsModuleAvailable) {
+                            Send-CoreWatchMessageToUi -PayloadObj @{ type = "SMART_ALERTS_STATE"; notice = "Smart Alerts module is not installed."; noticeError = $true; rules = @(); history = @() }
+                            return
+                        }
+                        $data = Invoke-SmartAlertsAction -RawJson $RawMessage -RootPath $Global:NodeWatchRoot
+                        Send-CoreWatchMessageToUi -PayloadObj $data
+                        return
+                    }
+
+                    if ($Payload.command -in @(
+                        'UPDATES_LOAD', 'UPDATES_TOGGLE_PIN', 'UPDATES_RUN_WINGET_BATCH', 'UPDATES_OPEN_WINUPDATE'
+                    )) {
+                        Start-AsyncTabTask -FallbackType "UPDATE_CENTER_NOTICE" -Arguments @($Global:NodeWatchRoot, $RawMessage) -ScriptBlock {
+                            param($RootPath, $RawJson)
+                            . (Join-Path $RootPath "modules\tabs\UpdateCenterManager.ps1")
+                            $data = Invoke-UpdateCenterAction -RawJson $RawJson -RootPath $RootPath
+                            return ($data | ConvertTo-Json -Compress -Depth 8)
+                        }
+                        return
+                    }
+
+                    if ($Payload.command -in @(
+                        'SNAP_LOAD', 'SNAP_CREATE', 'SNAP_DIFF', 'SNAP_DELETE', 'SNAP_OPEN_RESTORE_UI'
+                    )) {
+                        Start-AsyncTabTask -FallbackType "SNAPSHOTS_NOTICE" -Arguments @($Global:NodeWatchRoot, $RawMessage) -ScriptBlock {
+                            param($RootPath, $RawJson)
+                            . (Join-Path $RootPath "modules\tabs\SnapshotsManager.ps1")
+                            $data = Invoke-SnapshotsAction -RawJson $RawJson -RootPath $RootPath
+                            return ($data | ConvertTo-Json -Compress -Depth 8)
+                        }
+                        return
+                    }
+
+                    if ($Payload.command -in @(
+                        'BATTERY_LOAD', 'BATTERY_OPEN_REPORT', 'BATTERY_OPEN_SLEEPSTUDY'
+                    )) {
+                        Start-AsyncTabTask -FallbackType "BATTERY_NOTICE" -Arguments @($Global:NodeWatchRoot, $RawMessage) -ScriptBlock {
+                            param($RootPath, $RawJson)
+                            . (Join-Path $RootPath "modules\tabs\BatteryPeripheralsManager.ps1")
+                            $data = Invoke-BatteryPeripheralsAction -RawJson $RawJson -RootPath $RootPath
+                            return ($data | ConvertTo-Json -Compress -Depth 8)
+                        }
+                        return
+                    }
+
+                    if ($Payload.command -in @(
+                        'BACKUP_LOAD', 'BACKUP_SAVE_JOB', 'BACKUP_DELETE_JOB', 'BACKUP_DRY_RUN', 'BACKUP_RUN_JOB'
+                    )) {
+                        Start-AsyncTabTask -FallbackType "BACKUP_NOTICE" -Arguments @($Global:NodeWatchRoot, $RawMessage) -ScriptBlock {
+                            param($RootPath, $RawJson)
+                            . (Join-Path $RootPath "modules\tabs\BackupSyncManager.ps1")
+                            $data = Invoke-BackupSyncAction -RawJson $RawJson -RootPath $RootPath
+                            return ($data | ConvertTo-Json -Compress -Depth 8)
+                        }
+                        return
+                    }
+
+                    if ($Payload.command -in @(
+                        'DOCKER_LOAD', 'DOCKER_CONTAINER_ACTION', 'DOCKER_CONTAINER_LOGS',
+                        'DOCKER_CONTAINER_SHELL', 'DOCKER_PRUNE', 'DOCKER_SERVICE_TOGGLE'
+                    )) {
+                        Start-AsyncTabTask -FallbackType "DOCKER_NOTICE" -Arguments @($Global:NodeWatchRoot, $RawMessage) -ScriptBlock {
+                            param($RootPath, $RawJson)
+                            . (Join-Path $RootPath "modules\tabs\DockerServicesManager.ps1")
+                            $data = Invoke-DockerServicesAction -RawJson $RawJson -RootPath $RootPath
+                            return ($data | ConvertTo-Json -Compress -Depth 8)
+                        }
+                        return
+                    }
+
+                    if ($Payload.command -in @(
+                        'SSH_LOAD', 'SSH_LAUNCH_HOST', 'SSH_SAVE_HOST', 'SSH_DELETE_HOST', 'SSH_GEN_KEY', 'SSH_OPEN_CONFIG'
+                    )) {
+                        Start-AsyncTabTask -FallbackType "SSH_CERTS_NOTICE" -Arguments @($Global:NodeWatchRoot, $RawMessage) -ScriptBlock {
+                            param($RootPath, $RawJson)
+                            . (Join-Path $RootPath "modules\tabs\SshCertsManager.ps1")
+                            $data = Invoke-SshCertsAction -RawJson $RawJson -RootPath $RootPath
+                            return ($data | ConvertTo-Json -Compress -Depth 8)
+                        }
+                        return
+                    }
+
+                    if ($Payload.command -in @(
+                        'HOMELAB_LOAD', 'HOMELAB_POLL_ALL', 'HOMELAB_SAVE_NODE',
+                        'HOMELAB_DELETE_NODE', 'HOMELAB_LAUNCH_SSH', 'HOMELAB_LAUNCH_RDP'
+                    )) {
+                        Start-AsyncTabTask -FallbackType "HOMELAB_NOTICE" -Arguments @($Global:NodeWatchRoot, $RawMessage) -ScriptBlock {
+                            param($RootPath, $RawJson)
+                            . (Join-Path $RootPath "modules\tabs\HomelabManager.ps1")
+                            $data = Invoke-HomelabAction -RawJson $RawJson -RootPath $RootPath
+                            return ($data | ConvertTo-Json -Compress -Depth 8)
+                        }
+                        return
+                    }
+
                     if ($Payload.command -eq "SET_WINDOW_LOCK_MODE") {
                         $wantMode = ([string]($Payload.mode ?? "none")).ToLowerInvariant()
                         if ($wantMode -notin @("none", "position", "all")) { $wantMode = "none" }
@@ -1543,6 +1713,70 @@ $HandleUiMessageEvent = {
                         if (-not ($Global:SavedUiSettings -is [hashtable])) { $Global:SavedUiSettings = @{} }
                         $Global:SavedUiSettings["layout"] = $Payload.layout
                         Save-CoreWatchUiSettings -Settings $Global:SavedUiSettings
+                        return
+                    }
+
+                    if ($Payload.command -eq "SAVE_UI_THEME") {
+                        if (-not ($Global:SavedUiSettings -is [hashtable])) { $Global:SavedUiSettings = @{} }
+                        $themeHash = ($RawMessage | ConvertFrom-Json -AsHashtable)["theme"]
+                        if ($themeHash -is [hashtable]) {
+                            $themeHash.Remove("bgImageUrl")
+                        }
+                        $Global:SavedUiSettings["theme"] = $themeHash
+                        Save-CoreWatchUiSettings -Settings $Global:SavedUiSettings
+                        return
+                    }
+
+                    if ($Payload.command -eq "CLEAR_THEME_BG_IMAGE") {
+                        Get-ChildItem -LiteralPath $AppDataRoot -Filter "custom-bg.*" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+                        if ($Global:SavedUiSettings -is [hashtable] -and $Global:SavedUiSettings.ContainsKey("theme") -and ($Global:SavedUiSettings["theme"] -is [hashtable])) {
+                            $Global:SavedUiSettings["theme"]["bgImageFile"] = ""
+                            $Global:SavedUiSettings["theme"]["bgImageName"] = ""
+                            Save-CoreWatchUiSettings -Settings $Global:SavedUiSettings
+                        }
+                        return
+                    }
+
+                    if ($Payload.command -eq "THEME_EXPORT") {
+                        try {
+                            $themeObj = ($RawMessage | ConvertFrom-Json -AsHashtable)["theme"]
+                            if ($themeObj -is [hashtable]) {
+                                $themeObj.Remove("bgImageUrl")
+                                $themeObj.Remove("bgImageFile")
+                            }
+                            $sfd = New-Object System.Windows.Forms.SaveFileDialog
+                            $sfd.Title    = "Export CoreWatch Theme Preset (JSON)"
+                            $sfd.Filter   = "JSON Theme (*.json)|*.json|All Files (*.*)|*.*"
+                            $sfd.FileName = "CoreWatch_Theme_$(Get-Date -Format 'yyyyMMdd').json"
+                            $defExp = [string]$Global:AppSettings.directories.exportsRoot
+                            if ($defExp -and (Test-Path -LiteralPath $defExp -PathType Container)) { $sfd.InitialDirectory = $defExp }
+                            if ($sfd.ShowDialog($MainForm) -eq [System.Windows.Forms.DialogResult]::OK -and $sfd.FileName) {
+                                $exp = [ordered]@{ schemaVersion = 1; app = "CoreWatch"; exportedUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ"); theme = $themeObj }
+                                [System.IO.File]::WriteAllText($sfd.FileName, ($exp | ConvertTo-Json -Depth 8), (New-Object System.Text.UTF8Encoding($false)))
+                                Send-CoreWatchMessageToUi -PayloadObj @{ type = "THEME_NOTICE"; ok = $true; message = "Exported theme to $(Split-Path -Leaf $sfd.FileName)." }
+                            }
+                            $sfd.Dispose()
+                        } catch {
+                            Send-CoreWatchMessageToUi -PayloadObj @{ type = "THEME_NOTICE"; ok = $false; message = "Theme export failed: $($_.Exception.Message)" }
+                        }
+                        return
+                    }
+
+                    if ($Payload.command -eq "THEME_IMPORT") {
+                        try {
+                            $fd = New-Object System.Windows.Forms.OpenFileDialog
+                            $fd.Title  = "Import CoreWatch Theme Preset (JSON)"
+                            $fd.Filter = "JSON Theme (*.json)|*.json|All Files (*.*)|*.*"
+                            if ($fd.ShowDialog($MainForm) -eq [System.Windows.Forms.DialogResult]::OK -and $fd.FileName) {
+                                $raw = Get-Content -LiteralPath $fd.FileName -Raw -ErrorAction Stop | ConvertFrom-Json -AsHashtable
+                                $imported = if ($raw -is [hashtable] -and $raw.ContainsKey("theme") -and ($raw["theme"] -is [hashtable])) { $raw["theme"] } elseif ($raw -is [hashtable]) { $raw } else { $null }
+                                if ($null -eq $imported) { throw "Invalid CoreWatch theme JSON file." }
+                                Send-CoreWatchMessageToUi -PayloadObj @{ type = "THEME_IMPORTED"; ok = $true; theme = $imported; message = "Imported theme from $(Split-Path -Leaf $fd.FileName)." }
+                            }
+                            $fd.Dispose()
+                        } catch {
+                            Send-CoreWatchMessageToUi -PayloadObj @{ type = "THEME_NOTICE"; ok = $false; message = "Theme import failed: $($_.Exception.Message)" }
+                        }
                         return
                     }
 
@@ -2016,6 +2250,13 @@ $global:WebViewControl.Add_CoreWebView2InitializationCompleted({
     if ($evtArgs.IsSuccess) {
         $global:WebViewControl.CoreWebView2.Settings.AreDefaultContextMenusEnabled = $false
         $global:WebViewControl.CoreWebView2.Settings.AreDevToolsEnabled = [bool]$Global:EnableDevTools
+        try {
+            $global:WebViewControl.CoreWebView2.SetVirtualHostNameToFolderMapping(
+                "corewatch-local.assets",
+                $AppDataRoot,
+                [Microsoft.Web.WebView2.Core.CoreWebView2HostResourceAccessKind]::Allow
+            )
+        } catch {}
         $global:WebViewControl.Add_WebMessageReceived($HandleUiMessageEvent)
         $global:WebViewControl.Source = "file:///" + ((Join-Path $Global:NodeWatchRoot "modules\layouts\index.html") -replace '\\', '/')
     }

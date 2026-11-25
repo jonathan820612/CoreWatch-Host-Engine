@@ -31,7 +31,15 @@ window.SwitchAppLayoutView = function(targetViewId) {
         github: document.getElementById('viewGitHubPanel'),
         jira: document.getElementById('viewJiraPanel'),
         security: document.getElementById('viewSecurityRepairPanel'),
-        profiles: document.getElementById('viewProfilesPanel')
+        profiles: document.getElementById('viewProfilesPanel'),
+        alerts: document.getElementById('viewSmartAlertsPanel'),
+        updates: document.getElementById('viewUpdateCenterPanel'),
+        snapshots: document.getElementById('viewSnapshotsPanel'),
+        battery: document.getElementById('viewBatteryPanel'),
+        backupsync: document.getElementById('viewBackupSyncPanel'),
+        docker: document.getElementById('viewDockerPanel'),
+        sshcerts: document.getElementById('viewSshCertsPanel'),
+        homelab: document.getElementById('viewHomelabPanel')
     };
 
     const buttons = {
@@ -50,7 +58,15 @@ window.SwitchAppLayoutView = function(targetViewId) {
         github: document.getElementById('tabGitHubManager'),
         jira: document.getElementById('tabJiraManager'),
         security: document.getElementById('tabSecurityRepair'),
-        profiles: document.getElementById('tabProfiles')
+        profiles: document.getElementById('tabProfiles'),
+        alerts: document.getElementById('tabSmartAlerts'),
+        updates: document.getElementById('tabUpdateCenter'),
+        snapshots: document.getElementById('tabSnapshots'),
+        battery: document.getElementById('tabBatteryPeripherals'),
+        backupsync: document.getElementById('tabBackupSync'),
+        docker: document.getElementById('tabDockerServices'),
+        sshcerts: document.getElementById('tabSshCerts'),
+        homelab: document.getElementById('tabHomelab')
     };
 
     Object.values(panels).forEach(p => { if (p) p.style.display = 'none'; });
@@ -59,6 +75,10 @@ window.SwitchAppLayoutView = function(targetViewId) {
     // Auto-pause Tasks & Ports live refresh whenever leaving that tab
     if (targetViewId !== 'tasksports' && window._tpLiveWatchTimer) {
         StopTasksPortsLiveWatch();
+    }
+    if (targetViewId !== 'homelab' && window._homelabTimer) {
+        clearInterval(window._homelabTimer);
+        window._homelabTimer = null;
     }
 
     // Close System Tools dropdown and update grouped trigger label/active highlight
@@ -72,7 +92,6 @@ window.SwitchAppLayoutView = function(targetViewId) {
     }
     const systemMenuLabels = {
         profiles: '⚡ Profiles',
-        security: '🛡️ Security',
         startup: '🚀 Startup',
         sharing: '📂 Sharing',
         apps: '📦 Apps',
@@ -88,6 +107,30 @@ window.SwitchAppLayoutView = function(targetViewId) {
         sysLabel.textContent = '🧰 System';
     }
 
+    // Close Ops & Guard dropdown and update grouped trigger label/active highlight
+    const opsDrop = document.getElementById('navOpsDropdown');
+    const opsTrigger = document.getElementById('tabOpsMenu');
+    const opsLabel = document.getElementById('lblOpsMenuText');
+    if (opsDrop) opsDrop.classList.remove('open');
+    if (opsTrigger) {
+        opsTrigger.classList.remove('active');
+        opsTrigger.setAttribute('aria-expanded', 'false');
+    }
+    const opsMenuLabels = {
+        alerts: '🔔 Alerts',
+        updates: '🔄 Updates',
+        snapshots: '📸 Snapshots',
+        backupsync: '💾 Backup',
+        battery: '🔋 Battery',
+        security: '🛡️ Security'
+    };
+    if (opsMenuLabels[targetViewId]) {
+        if (opsTrigger) opsTrigger.classList.add('active');
+        if (opsLabel) opsLabel.textContent = opsMenuLabels[targetViewId];
+    } else if (opsLabel) {
+        opsLabel.textContent = '🛡️ Ops & Guard';
+    }
+
     // Close Dev & Work dropdown and update grouped trigger label/active highlight
     const devDrop = document.getElementById('navDevDropdown');
     const devTrigger = document.getElementById('tabDevMenu');
@@ -100,7 +143,10 @@ window.SwitchAppLayoutView = function(targetViewId) {
     const devMenuLabels = {
         github: '🐙 GitHub',
         jira: '📋 Jira',
-        wsl: '🐧 WSL'
+        wsl: '🐧 WSL',
+        docker: '🐳 Docker',
+        sshcerts: '🔐 SSH/Certs',
+        homelab: '🌐 Homelab'
     };
     if (devMenuLabels[targetViewId]) {
         if (devTrigger) devTrigger.classList.add('active');
@@ -203,6 +249,47 @@ window.SwitchAppLayoutView = function(targetViewId) {
         if (!window._jiraManagerLoaded) {
             RequestJiraManagerState();
         }
+    }
+    else if (targetViewId === 'alerts') {
+        if (panels.alerts) panels.alerts.style.display = 'flex';
+        if (buttons.alerts) buttons.alerts.classList.add('active');
+        RequestSmartAlertsState();
+    }
+    else if (targetViewId === 'updates') {
+        if (panels.updates) panels.updates.style.display = 'flex';
+        if (buttons.updates) buttons.updates.classList.add('active');
+        if (!window._updatesLoaded) RequestUpdateCenterState(false);
+    }
+    else if (targetViewId === 'snapshots') {
+        if (panels.snapshots) panels.snapshots.style.display = 'flex';
+        if (buttons.snapshots) buttons.snapshots.classList.add('active');
+        RequestSnapshotsState();
+    }
+    else if (targetViewId === 'battery') {
+        if (panels.battery) panels.battery.style.display = 'flex';
+        if (buttons.battery) buttons.battery.classList.add('active');
+        RequestBatteryState();
+    }
+    else if (targetViewId === 'backupsync') {
+        if (panels.backupsync) panels.backupsync.style.display = 'flex';
+        if (buttons.backupsync) buttons.backupsync.classList.add('active');
+        RequestBackupSyncState();
+    }
+    else if (targetViewId === 'docker') {
+        if (panels.docker) panels.docker.style.display = 'flex';
+        if (buttons.docker) buttons.docker.classList.add('active');
+        RequestDockerState();
+    }
+    else if (targetViewId === 'sshcerts') {
+        if (panels.sshcerts) panels.sshcerts.style.display = 'flex';
+        if (buttons.sshcerts) buttons.sshcerts.classList.add('active');
+        RequestSshCertsState();
+    }
+    else if (targetViewId === 'homelab') {
+        if (panels.homelab) panels.homelab.style.display = 'flex';
+        if (buttons.homelab) buttons.homelab.classList.add('active');
+        RequestHomelabState(false);
+        OnHomelabAutoRefreshChange();
     }
     else {
         if (panels.dashboard) panels.dashboard.style.display = 'grid';
@@ -474,6 +561,69 @@ const msgType = stats.type || stats.Type;
     }
     else if (msgType === "JIRA_NOTICE") {
         HandleJiraNotice(stats);
+    }
+    else if (msgType === "THEME_BG_IMAGE_SELECTED") {
+        HandleThemeBgImageSelected(stats);
+    }
+    else if (msgType === "THEME_IMPORTED") {
+        HandleThemeImported(stats);
+    }
+    else if (msgType === "THEME_NOTICE") {
+        HandleThemeNotice(stats);
+    }
+    else if (msgType === "SMART_ALERTS_STATE") {
+        RenderSmartAlertsState(stats);
+    }
+    else if (msgType === "UPDATE_CENTER_STATE") {
+        RenderUpdateCenterState(stats);
+    }
+    else if (msgType === "UPDATE_CENTER_NOTICE") {
+        SetUpdateCenterStatus(stats.error || stats.message || '', !stats.ok || !!stats.error);
+    }
+    else if (msgType === "SNAPSHOTS_STATE") {
+        RenderSnapshotsState(stats);
+    }
+    else if (msgType === "SNAPSHOTS_DIFF_RESULT") {
+        RenderSnapshotsDiffResult(stats);
+    }
+    else if (msgType === "SNAPSHOTS_NOTICE") {
+        SetSnapshotsStatus(stats.error || stats.message || '', !stats.ok || !!stats.error);
+    }
+    else if (msgType === "BATTERY_PERIPHERALS_STATE") {
+        RenderBatteryPeripheralsState(stats);
+    }
+    else if (msgType === "BATTERY_NOTICE") {
+        SetBatteryStatus(stats.error || stats.message || '', !stats.ok || !!stats.error);
+    }
+    else if (msgType === "BACKUP_SYNC_STATE") {
+        RenderBackupSyncState(stats);
+    }
+    else if (msgType === "BACKUP_RUN_OUTPUT") {
+        RenderBackupRunOutput(stats);
+    }
+    else if (msgType === "BACKUP_NOTICE") {
+        SetBackupStatus(stats.error || stats.message || '', !stats.ok || !!stats.error);
+    }
+    else if (msgType === "DOCKER_SERVICES_STATE") {
+        RenderDockerState(stats);
+    }
+    else if (msgType === "DOCKER_LOGS_RESULT") {
+        RenderDockerLogs(stats);
+    }
+    else if (msgType === "DOCKER_NOTICE") {
+        SetDockerStatus(stats.error || stats.message || '', !stats.ok || !!stats.error);
+    }
+    else if (msgType === "SSH_CERTS_STATE") {
+        RenderSshCertsState(stats);
+    }
+    else if (msgType === "SSH_CERTS_NOTICE") {
+        SetSshCertsStatus(stats.error || stats.message || '', !stats.ok || !!stats.error);
+    }
+    else if (msgType === "HOMELAB_STATE") {
+        RenderHomelabState(stats);
+    }
+    else if (msgType === "HOMELAB_NOTICE") {
+        SetHomelabStatus(stats.error || stats.message || '', !stats.ok || !!stats.error);
     }
     else {
         // Dashboard Full Telemetry (1s cadence)
@@ -2958,7 +3108,7 @@ function RenderDeviceDriverFixCenter(devices) {
 
     const header = document.createElement('div');
     header.className = 'device-fix-banner-title';
-    header.innerHTML = `<span>⚠️ ${issueDevs.length} Missing / Problematic Driver${issueDevs.length > 1 ? 's' : ''} Detected — Quick Download &amp; Fix Links</span><span style="font-weight:400; color:#cbd5e0;">Click any official portal below</span>`;
+    header.innerHTML = `<span>⚠️ ${issueDevs.length} Missing / Problematic Driver${issueDevs.length > 1 ? 's' : ''} Detected — Quick Download &amp; Fix Links</span><span style="font-weight:400; color:var(--cw-text-secondary);">Click any official portal below</span>`;
     box.appendChild(header);
 
     issueDevs.forEach(dev => {
@@ -3414,6 +3564,12 @@ function HandleBrowseFolderResult(data) {
         const inp = document.getElementById('inpGhProjectsRoot');
         if (inp) inp.value = data.path;
         ScanGitHubProjectsRoot();
+    } else if (data.target === 'backup_source') {
+        const inp = document.getElementById('inpBkpSource');
+        if (inp) inp.value = data.path;
+    } else if (data.target === 'backup_dest') {
+        const inp = document.getElementById('inpBkpDest');
+        if (inp) inp.value = data.path;
     } else {
         const inp = document.getElementById('orgCustomFolderInput');
         if (inp) inp.value = data.path;
@@ -4911,7 +5067,7 @@ function RenderDiagXCodeTranslation(data) {
 
     box.innerHTML = `
         <div class="diagx-trans-head">
-            <span><strong>${t.code}</strong> — <span style="color:#90cdf4;">${t.name}</span></span>
+            <span><strong>${t.code}</strong> — <span style="color:var(--cw-accent-soft);">${t.name}</span></span>
             <span class="sharing-badge badge-info">${t.category}</span>
         </div>
         <div class="diagx-trans-body">${t.explanation}</div>
@@ -5605,10 +5761,10 @@ window.RenderCurrentTasksPortsView = function() {
 
             return `<tr>
                 <td><span class="sharing-badge ${x.protocol === 'UDP' ? 'badge-purple' : 'badge-info'}">${x.protocol}</span></td>
-                <td><span class="tp-port-badge">${x.localPort}</span> <span style="color:#a0aec0;">${EscapeHtmlTp(x.localAddress)}</span></td>
-                <td style="color:#a0aec0;">${EscapeHtmlTp(remoteEp)}</td>
+                <td><span class="tp-port-badge">${x.localPort}</span> <span style="color:var(--cw-text-muted);">${EscapeHtmlTp(x.localAddress)}</span></td>
+                <td style="color:var(--cw-text-muted);">${EscapeHtmlTp(remoteEp)}</td>
                 <td><span class="sharing-badge ${stCls}">${EscapeHtmlTp(x.state)}</span></td>
-                <td><span class="tp-cell-primary">${EscapeHtmlTp(x.processName)}</span> <span style="color:#718096;">(${x.pid})</span>${x.processPath ? `<span class="tp-cell-sub" title="${EscapeHtmlTp(x.processPath)}">${EscapeHtmlTp(x.processPath)}</span>` : ''}</td>
+                <td><span class="tp-cell-primary">${EscapeHtmlTp(x.processName)}</span> <span style="color:var(--cw-text-muted);">(${x.pid})</span>${x.processPath ? `<span class="tp-cell-sub" title="${EscapeHtmlTp(x.processPath)}">${EscapeHtmlTp(x.processPath)}</span>` : ''}</td>
                 <td><div class="tp-row-actions"><button type="button" onclick="CopyRawText('${safeEp}', 'Endpoint')">Copy</button>${locBtn}${killBtn}</div></td>
             </tr>`;
         }).join('');
@@ -5663,9 +5819,16 @@ window.ToggleSystemToolsMenu = function(e) {
     if (e) e.stopPropagation();
     const dd = document.getElementById('navSystemDropdown');
     const trigger = document.getElementById('tabSystemMenu');
+    const devDrop = document.getElementById('navDevDropdown');
+    const opsDrop = document.getElementById('navOpsDropdown');
+    const modeDrop = document.getElementById('navModePillDropdown');
+    if (devDrop) devDrop.classList.remove('open');
+    if (opsDrop) opsDrop.classList.remove('open');
+    if (modeDrop) modeDrop.classList.remove('open');
     if (!dd) return;
     const isOpen = dd.classList.toggle('open');
     if (trigger) trigger.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    if (isOpen) ClampNavDropdownMenu(document.getElementById('navSystemMenu'));
 };
 
 window.SelectSystemMenuView = function(viewKey) {
@@ -5712,12 +5875,13 @@ function RenderPowerShellVersionControl(infra) {
     const el = document.getElementById('lblPsVersion');
     if (!el || !infra) return;
 
-    const ver    = String(infra.PsVersion || '--');
-    const latest = String(infra.PsLatestVersion || '');
-    const missed = Number(infra.PsMissedUpdates || 0);
-    const tier   = String(infra.PsVersionTier || 'uptodate');
-    const hasMsi = (infra.PsLatestHasMsi !== false);
-    const detail = String(infra.PsUpdateDetail || 'Click to check for PowerShell updates').replace(/"/g, '&quot;');
+    const ver     = String(infra.PsVersion || '--');
+    const latest  = String(infra.PsLatestVersion || '');
+    const missed  = Number(infra.PsMissedUpdates || 0);
+    const tier    = String(infra.PsVersionTier || 'uptodate');
+    const hasMsi  = (infra.PsLatestHasMsi !== false);
+    const channel = String(infra.PsInstallChannel || 'msi');
+    const detail  = String(infra.PsUpdateDetail || 'Click to check for PowerShell updates').replace(/"/g, '&quot;');
 
     const isBusy = IsControlPending('CHECK_PS_UPDATE') || IsControlPending('INSTALL_PS_UPDATE');
     if (isBusy) {
@@ -5726,33 +5890,39 @@ function RenderPowerShellVersionControl(infra) {
     }
 
     let cls = 'ver-uptodate';
-    let label = `${ver} ✓`;
-    const msiTag = (!hasMsi && missed > 0) ? ' (ZIP)' : '';
+    const chanBadge = channel === 'msix' ? ' (MSIX)' : '';
+    let label = `${ver}${chanBadge} ✓`;
     if (tier === 'critical' || missed > 5) {
         cls = 'ver-critical';
-        label = latest ? `${ver} ⚠ ${latest}${msiTag} (+${missed})` : `${ver} ⚠ Outdated`;
+        label = latest ? `${ver}${chanBadge} ⚠ ${latest} (+${missed})` : `${ver}${chanBadge} ⚠ Outdated`;
     } else if (tier === 'update' || missed > 0) {
         cls = 'ver-update';
-        label = latest ? `${ver} ⬆ ${latest}${msiTag}` : `${ver} ⬆ Update`;
+        label = latest ? `${ver}${chanBadge} ⬆ ${latest}` : `${ver}${chanBadge} ⬆ Update`;
     }
 
     const safeLatest = latest.replace(/'/g, "\\'");
     const safeVer = ver.replace(/'/g, "\\'");
-    SetDomHtml(el, `<button type="button" class="toggle-pill-btn ${cls}" onclick="TriggerPowerShellUpdateToggle('${safeVer}', '${safeLatest}', ${missed}, ${hasMsi ? 'true' : 'false'})" title="${detail}">${label}</button>`);
+    const safeChan = channel.replace(/'/g, "\\'");
+    SetDomHtml(el, `<button type="button" class="toggle-pill-btn ${cls}" onclick="TriggerPowerShellUpdateToggle('${safeVer}', '${safeLatest}', ${missed}, ${hasMsi ? 'true' : 'false'}, '${safeChan}')" title="${detail}">${label}</button>`);
 }
 
-window.TriggerPowerShellUpdateToggle = function(curVer, latestVer, missed, hasMsi = true) {
-    if (missed > 0) {
-        const methodNote = hasMsi
-            ? `Click OK to download & install the official PowerShell ${latestVer} .msi directly into C:\\Program Files\\PowerShell\\7.`
-            : `Note: PowerShell ${latestVer} has NO .msi installer (Microsoft only ships MSIX/WindowsApps + official .zip).\n\nClick OK to automatically download the official .zip, unzip it cleanly into C:\\Program Files\\PowerShell\\7 (CoreWatch will briefly restart to unlock pwsh.exe).`;
+window.TriggerPowerShellUpdateToggle = function(curVer, latestVer, missed, hasMsi = true, channel = 'msi') {
+    if (missed > 0 || channel === 'none') {
+        let methodNote = '';
+        if (channel === 'none') {
+            methodNote = `PowerShell Core 7 is not currently installed.\n\nClick OK to install PowerShell ${latestVer || '7'} (MSIX) via WinGet.\n\nNote: The MSIX version installs inside C:\\Program Files\\WindowsApps where Windows restricts direct browsing or manual edits to the install folder.`;
+        } else if (channel === 'msix') {
+            methodNote = `You are using the MSIX / Microsoft Store edition (WindowsApps).\n\nClick OK to upgrade to PowerShell ${latestVer || 'Latest'} via WinGet.\n\nNote: Windows restricts direct access/editing of the WindowsApps install folder.`;
+        } else {
+            methodNote = `Click OK to download & install the official PowerShell ${latestVer} .msi directly into C:\\Program Files\\PowerShell\\7 (full folder access; CoreWatch will briefly restart to unlock pwsh.exe).`;
+        }
         const action = confirm(
-            `PowerShell update available: ${curVer} → ${latestVer || 'Latest'} (${missed} release${missed > 1 ? 's' : ''} behind).\n\n` +
+            `PowerShell update available: ${curVer} → ${latestVer || 'Latest'}${missed > 0 ? ` (${missed} release${missed > 1 ? 's' : ''} behind)` : ''}.\n\n` +
             `${methodNote}\n\n` +
             `(Click Cancel to re-check GitHub releases without installing.)`
         );
         if (action) {
-            DispatchDashboardControl('INSTALL_PS_UPDATE', {}, `Launching PowerShell 7 ${hasMsi ? 'MSI' : 'ZIP'} updater (${curVer} -> ${latestVer || 'Latest'})...`, 'lblPsVersion');
+            DispatchDashboardControl('INSTALL_PS_UPDATE', {}, `Launching PowerShell 7 ${channel === 'msi' ? 'MSI' : 'MSIX/WinGet'} updater (${curVer} -> ${latestVer || 'Latest'})...`, 'lblPsVersion');
         } else {
             DispatchDashboardControl('CHECK_PS_UPDATE', {}, 'Checking GitHub for latest PowerShell release...', 'lblPsVersion');
         }
@@ -6026,7 +6196,7 @@ function RenderNetDiagResult(data) {
             return `<tr>
                 <td class="tp-cell-num">${h.hop}</td>
                 <td class="tp-cell-primary">${EscapeHtmlTp(h.ip)}</td>
-                <td style="color:#a0aec0;">${EscapeHtmlTp(h.hostname || '--')}</td>
+                <td style="color:var(--cw-text-muted);">${EscapeHtmlTp(h.hostname || '--')}</td>
                 <td class="tp-cell-num ${rttCls}">${isTo ? '*' : h.rttMs + ' ms'}</td>
                 <td><span class="sharing-badge ${isTo ? 'badge-danger' : 'badge-success'}">${EscapeHtmlTp(h.status)}</span></td>
             </tr>`;
@@ -6051,7 +6221,7 @@ function RenderNetDiagResult(data) {
             <td>${EscapeHtmlTp(r.serviceHint)}</td>
             <td><span class="sharing-badge ${r.open ? 'badge-success' : 'badge-danger'}">${r.open ? 'OPEN' : 'CLOSED'}</span></td>
             <td class="tp-cell-num">${r.rttMs} ms</td>
-            <td style="color:#a0aec0;">${EscapeHtmlTp(r.detail)}</td>
+            <td style="color:var(--cw-text-muted);">${EscapeHtmlTp(r.detail)}</td>
         </tr>`).join('');
 
         area.innerHTML = `<table class="tp-data-table">
@@ -6121,8 +6291,8 @@ function RenderNetDiagWifiAndRoutes(data) {
                 <thead><tr><th>Destination</th><th>Next Hop</th><th>Interface</th><th style="text-align:right">Metric</th></tr></thead>
                 <tbody>${routes.map(r => `<tr>
                     <td class="tp-cell-primary">${EscapeHtmlTp(r.destination)}</td>
-                    <td style="color:#90cdf4;">${EscapeHtmlTp(r.nextHop)}</td>
-                    <td style="color:#a0aec0;">${EscapeHtmlTp(r.interface)}</td>
+                    <td style="color:var(--cw-accent-soft);">${EscapeHtmlTp(r.nextHop)}</td>
+                    <td style="color:var(--cw-text-muted);">${EscapeHtmlTp(r.interface)}</td>
                     <td class="tp-cell-num">${r.totalMetric}</td>
                 </tr>`).join('')}</tbody>
             </table>`;
@@ -6140,9 +6310,9 @@ function RenderNetDiagWifiAndRoutes(data) {
                 <thead><tr><th>IPv4</th><th>MAC Address</th><th>State</th><th>Interface</th></tr></thead>
                 <tbody>${arp.map(a => `<tr>
                     <td class="tp-cell-primary">${EscapeHtmlTp(a.ip)}</td>
-                    <td style="color:#90cdf4; user-select:text;">${EscapeHtmlTp(a.mac)}</td>
+                    <td style="color:var(--cw-accent-soft); user-select:text;">${EscapeHtmlTp(a.mac)}</td>
                     <td><span class="sharing-badge ${a.state === 'Reachable' ? 'badge-success' : 'badge-neutral'}">${EscapeHtmlTp(a.state)}</span></td>
-                    <td style="color:#a0aec0;">${EscapeHtmlTp(a.interface)}</td>
+                    <td style="color:var(--cw-text-muted);">${EscapeHtmlTp(a.interface)}</td>
                 </tr>`).join('')}</tbody>
             </table>`;
         }
@@ -6222,7 +6392,7 @@ function RenderTempBloatWidget(tempBloat) {
             <td><span class="tp-cell-primary">${EscapeHtmlTp(i.label)}</span><span class="tp-cell-sub">${EscapeHtmlTp(i.path)}</span></td>
             <td class="tp-cell-num ${i.bytes >= 536870912 ? 'warn-val' : ''}">${EscapeHtmlTp(i.sizeText)}</td>
         </tr>`).join('')}</tbody>
-    </table><div class="wsl-hint-line" style="margin-top:5px;">Total Scanned Footprint: <strong style="color:#90cdf4;">${EscapeHtmlTp(tempBloat.totalText)}</strong> · Clean Temp safely removes unlocked files in %TEMP% &amp; Windows\\Temp.</div>`;
+    </table><div class="wsl-hint-line" style="margin-top:5px;">Total Scanned Footprint: <strong style="color:var(--cw-accent-soft);">${EscapeHtmlTp(tempBloat.totalText)}</strong> · Clean Temp safely removes unlocked files in %TEMP% &amp; Windows\\Temp.</div>`;
 }
 
 function RenderSecEnvHostsProxyState(data) {
@@ -6258,7 +6428,7 @@ function RenderSecEnvHostsProxyState(data) {
                 <thead><tr><th style="text-align:right">Line</th><th>IP Address</th><th>Hostname(s)</th></tr></thead>
                 <tbody>${hosts.map(h => `<tr>
                     <td class="tp-cell-num">${h.line}</td>
-                    <td class="tp-cell-primary" style="color:#90cdf4;">${EscapeHtmlTp(h.ip)}</td>
+                    <td class="tp-cell-primary" style="color:var(--cw-accent-soft);">${EscapeHtmlTp(h.ip)}</td>
                     <td style="user-select:text;">${EscapeHtmlTp(h.host)}</td>
                 </tr>`).join('')}</tbody>
             </table>`;
@@ -6276,8 +6446,8 @@ function RenderSecEnvHostsProxyState(data) {
             kbBox.innerHTML = `<table class="tp-data-table">
                 <thead><tr><th>KB ID</th><th>Type</th><th>Installed</th></tr></thead>
                 <tbody>${kbs.map(k => `<tr>
-                    <td class="tp-cell-primary" style="color:#90cdf4;">${EscapeHtmlTp(k.kb)}</td>
-                    <td style="color:#a0aec0;">${EscapeHtmlTp(k.description)}</td>
+                    <td class="tp-cell-primary" style="color:var(--cw-accent-soft);">${EscapeHtmlTp(k.kb)}</td>
+                    <td style="color:var(--cw-text-muted);">${EscapeHtmlTp(k.description)}</td>
                     <td class="tp-cell-num">${EscapeHtmlTp(k.installedOn)}</td>
                 </tr>`).join('')}</tbody>
             </table>`;
@@ -6364,7 +6534,7 @@ function RenderSecurityRepairState(data) {
                     <td class="tp-cell-primary">${EscapeHtmlTp(v.mountPoint)}</td>
                     <td><span class="sharing-badge ${v.protectionStatus === 'On' ? 'badge-success' : 'badge-danger'}">${EscapeHtmlTp(v.protectionStatus)}</span></td>
                     <td class="tp-cell-num">${v.encryptionPct}%</td>
-                    <td style="color:#a0aec0;">${EscapeHtmlTp(v.method)}</td>
+                    <td style="color:var(--cw-text-muted);">${EscapeHtmlTp(v.method)}</td>
                 </tr>`).join('')}</tbody>
             </table>`;
         }
@@ -6380,7 +6550,7 @@ function RenderSecurityRepairState(data) {
                 <thead><tr><th>Account</th><th>Type</th><th>Source</th></tr></thead>
                 <tbody>${admins.map(a => `<tr>
                     <td class="tp-cell-primary">${EscapeHtmlTp(a.name)}</td>
-                    <td style="color:#a0aec0;">${EscapeHtmlTp(a.class)}</td>
+                    <td style="color:var(--cw-text-muted);">${EscapeHtmlTp(a.class)}</td>
                     <td><span class="sharing-badge badge-info">${EscapeHtmlTp(a.source)}</span></td>
                 </tr>`).join('')}</tbody>
             </table>`;
@@ -6444,7 +6614,7 @@ window.RenderSecScheduledTasks = function() {
             return `<tr>
                 <td><span class="tp-cell-primary">${EscapeHtmlTp(t.name)}</span><span class="tp-cell-sub" title="${EscapeHtmlTp(t.action || t.path)}">${EscapeHtmlTp(t.action || t.path)}</span></td>
                 <td><span class="sharing-badge ${badgeCls}">${EscapeHtmlTp(t.state)}</span></td>
-                <td style="color:#a0aec0;">${EscapeHtmlTp(t.author)}</td>
+                <td style="color:var(--cw-text-muted);">${EscapeHtmlTp(t.author)}</td>
                 <td><div class="tp-row-actions">${toggleBtn}</div></td>
             </tr>`;
         }).join('')}</tbody>
@@ -6516,11 +6686,24 @@ const COREWATCH_PALETTE_ITEMS = [
     { label: '🌙 Switch Mode → Night / Quiet (Night Light + DnD)', cat: 'Mode', moduleId: 'profiles', run: () => TriggerApplyProfile('night') },
     { label: '🖥️ Switch Mode → Normal / Default', cat: 'Mode', moduleId: 'profiles', run: () => TriggerApplyProfile('normal') },
     { label: '✏️ Customize Dashboard Layout (Grid / Side Dock / Hide)', cat: 'UI', run: () => { SwitchAppLayoutView('dashboard'); OpenLayoutCustomizer(); } },
+    { label: '🎨 Theme & Appearance Studio (Live Custom Colors & Background Image)', cat: 'UI', run: () => OpenThemeStudio() },
     { label: '◫ Toggle Side Pop-Out Telemetry Dock', cat: 'UI', run: () => ToggleSideTelemetryDock() },
     { label: '📌 Toggle Always on Top (Pin Window)', cat: 'Window', run: () => ToggleWindowAlwaysOnTop() },
     { label: '🔒 Cycle Window Lock (Unlocked → Position → Position & Size)', cat: 'Window', run: () => CycleWindowLockMode() },
     { label: '🐙 GitHub Manager — Local Projects, Clone & Releases', cat: 'Tab', moduleId: 'github', run: () => SwitchAppLayoutView('github') },
     { label: '📋 Jira Manager — Work Tasks, Transitions & Comments', cat: 'Tab', moduleId: 'jira', run: () => SwitchAppLayoutView('jira') },
+    { label: '🐳 Docker & Local Dev Services — Containers, Logs & Prune', cat: 'Tab', moduleId: 'docker', run: () => SwitchAppLayoutView('docker') },
+    { label: '🧹 Prune Unused Docker Containers & Images', cat: 'Action', moduleId: 'docker', run: () => { SwitchAppLayoutView('docker'); TriggerDockerPrune(); } },
+    { label: '🔐 SSH Host Launcher & Windows Certificate Inspector', cat: 'Tab', moduleId: 'sshcerts', run: () => SwitchAppLayoutView('sshcerts') },
+    { label: '🌐 Multi-PC / Homelab Monitor — Remote SSH/WinRM/HTTP Nodes', cat: 'Tab', moduleId: 'homelab', run: () => SwitchAppLayoutView('homelab') },
+    { label: '🔄 Poll All Homelab Nodes Now', cat: 'Action', moduleId: 'homelab', run: () => { SwitchAppLayoutView('homelab'); TriggerPollHomelabAll(); } },
+    { label: '🔔 Smart Alerts & Watchdog Rules (Toast Alerts)', cat: 'Tab', moduleId: 'alerts', run: () => SwitchAppLayoutView('alerts') },
+    { label: '🧪 Send Test Smart Alert Toast Notification', cat: 'Action', moduleId: 'alerts', run: () => { SwitchAppLayoutView('alerts'); TriggerTestAlertToast(); } },
+    { label: '🔄 Unified Update Center (WinGet, Windows Update, PowerShell)', cat: 'Tab', moduleId: 'updates', run: () => SwitchAppLayoutView('updates') },
+    { label: '🔄 Scan All Updates Now', cat: 'Action', moduleId: 'updates', run: () => { SwitchAppLayoutView('updates'); RequestUpdateCenterState(false); } },
+    { label: '📸 System Snapshots & "What Changed?" Diff', cat: 'Tab', moduleId: 'snapshots', run: () => SwitchAppLayoutView('snapshots') },
+    { label: '💾 Backup & Folder Sync Manager (Robocopy)', cat: 'Tab', moduleId: 'backupsync', run: () => SwitchAppLayoutView('backupsync') },
+    { label: '🔋 Battery Health & Wireless Bluetooth Peripherals', cat: 'Tab', moduleId: 'battery', run: () => SwitchAppLayoutView('battery') },
     { label: '📡 Network — Adapters, Diagnostics & Routing', cat: 'Tab', moduleId: 'netmanager', run: () => SwitchAppLayoutView('netmanager') },
     { label: '🧪 Network — Active Diagnostics (Ping / Trace / Ports / DNS)', cat: 'Tool', moduleId: 'netmanager', run: () => { SwitchAppLayoutView('netmanager'); SetNetworkSubView('diagnostics'); } },
     { label: '📶 Network — Wi-Fi RSSI, Routing Table & ARP', cat: 'Tool', moduleId: 'netmanager', run: () => { SwitchAppLayoutView('netmanager'); SetNetworkSubView('wifiroutes'); } },
@@ -6936,8 +7119,8 @@ function RenderAppStoreWingetResults(data) {
         const safeName = String(r.name || '').replace(/'/g, "\\'");
         return `<tr>
             <td class="tp-cell-primary">${EscapeHtmlTp(r.name)}</td>
-            <td style="color:#90cdf4; user-select:text;">${EscapeHtmlTp(r.id)}</td>
-            <td style="color:#a0aec0;">${EscapeHtmlTp(r.version)}</td>
+            <td style="color:var(--cw-accent-soft); user-select:text;">${EscapeHtmlTp(r.id)}</td>
+            <td style="color:var(--cw-text-muted);">${EscapeHtmlTp(r.version)}</td>
             <td><div class="tp-row-actions"><button type="button" class="btn-accent-action" onclick="TriggerInstallOneApp('${safeId}', '${safeName}', 'install')">⬇️ Install</button></div></td>
         </tr>`;
     }).join('');
@@ -7044,9 +7227,9 @@ function RenderDiskMapDrives(drives) {
         const fillColor = d.usedPct >= 90 ? '#f56565' : (d.usedPct >= 75 ? '#ecc94b' : '#4299e1');
         btn.innerHTML = `
             <strong>${EscapeHtmlTp(d.letter)}</strong>
-            <span style="color:#a0aec0;">${EscapeHtmlTp(d.label)}</span>
+            <span style="color:var(--cw-text-muted);">${EscapeHtmlTp(d.label)}</span>
             <span class="diskmap-drive-mini-bar"><span class="diskmap-drive-mini-fill" style="width:${d.usedPct}%; background:${fillColor}; display:block;"></span></span>
-            <span style="font-size:10px; color:#cbd5e0;">${d.usedGB}/${d.totalGB} GB</span>
+            <span style="font-size:10px; color:var(--cw-text-secondary);">${d.usedGB}/${d.totalGB} GB</span>
         `;
         btn.title = `Scan ${d.path} (${d.format}) — ${d.freeGB} GB free`;
         btn.addEventListener('click', () => {
@@ -7260,8 +7443,8 @@ window.RenderDiskMapCurrentView = function() {
             const zoomBtn = c.isDir ? `<button type="button" onclick="event.stopPropagation(); DiskMapZoomByIndex(${idx})">Zoom</button>` : '';
             return `<tr class="diskmap-row-clickable${selCls}" onclick="DiskMapSelectFromTree(${idx})" ondblclick="DiskMapDoubleClickTree(${idx})">
                 <td><span class="tp-cell-primary">${icon} ${EscapeHtmlTp(c.name)}</span><span class="tp-cell-sub" title="${EscapeHtmlTp(c.path)}">${c.isDir ? `${(c.files || 0).toLocaleString()} files · ${(c.dirs || 0).toLocaleString()} folders` : `${EscapeHtmlTp(c.ext || 'file')}${c.modified ? ' · ' + c.modified : ''}`}</span></td>
-                <td class="tp-cell-num" style="font-weight:700; color:#edf2f7;">${FormatDiskBytes(c.size)}</td>
-                <td style="white-space:nowrap;"><span class="diskmap-pct-bar"><span class="diskmap-pct-fill" style="width:${pct.toFixed(1)}%; background:${color}; display:block;"></span></span><span style="color:#a0aec0; font-size:10px;">${pct.toFixed(1)}%</span></td>
+                <td class="tp-cell-num" style="font-weight:700; color:var(--cw-text-primary);">${FormatDiskBytes(c.size)}</td>
+                <td style="white-space:nowrap;"><span class="diskmap-pct-bar"><span class="diskmap-pct-fill" style="width:${pct.toFixed(1)}%; background:${color}; display:block;"></span></span><span style="color:var(--cw-text-muted); font-size:10px;">${pct.toFixed(1)}%</span></td>
                 <td><div class="tp-row-actions">${zoomBtn}<button type="button" onclick="event.stopPropagation(); DiskMapOpenInExplorer('${safePath}')">Explorer</button><button type="button" class="wsl-btn-danger" onclick="event.stopPropagation(); DiskMapRecyclePath('${safePath}')">Recycle</button></div></td>
             </tr>`;
         }).join('');
@@ -7297,10 +7480,10 @@ window.RenderDiskMapCurrentView = function() {
             const safePath = String(f.path || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
             return `<tr>
                 <td><span class="tp-cell-primary"><span class="diskmap-ext-dot" style="background:${color};"></span>${EscapeHtmlTp(f.name)}</span><span class="tp-cell-sub" title="${EscapeHtmlTp(f.path)}">${EscapeHtmlTp(f.dir || f.path)}</span></td>
-                <td><span class="sharing-badge badge-neutral" style="border-color:${color}; color:#edf2f7;">${EscapeHtmlTp(f.ext || '')}</span></td>
-                <td class="tp-cell-num" style="font-weight:700; color:#edf2f7;">${FormatDiskBytes(f.size)}</td>
-                <td class="tp-cell-num" style="color:#a0aec0;">${pct.toFixed(2)}%</td>
-                <td style="color:#a0aec0; white-space:nowrap;">${EscapeHtmlTp(f.modified || '--')}</td>
+                <td><span class="sharing-badge badge-neutral" style="border-color:${color}; color:var(--cw-text-primary);">${EscapeHtmlTp(f.ext || '')}</span></td>
+                <td class="tp-cell-num" style="font-weight:700; color:var(--cw-text-primary);">${FormatDiskBytes(f.size)}</td>
+                <td class="tp-cell-num" style="color:var(--cw-text-muted);">${pct.toFixed(2)}%</td>
+                <td style="color:var(--cw-text-muted); white-space:nowrap;">${EscapeHtmlTp(f.modified || '--')}</td>
                 <td><div class="tp-row-actions"><button type="button" onclick="DiskMapOpenInExplorer('${safePath}')">Explorer</button><button type="button" onclick="CopyRawText('${safePath}', 'Path')">Copy</button><button type="button" class="wsl-btn-danger" onclick="DiskMapRecyclePath('${safePath}')">Recycle</button></div></td>
             </tr>`;
         }).join('');
@@ -7329,8 +7512,8 @@ window.RenderDiskMapCurrentView = function() {
             const isAct = (extFlt === String(e.ext || '').toLowerCase());
             return `<tr class="diskmap-row-clickable${isAct ? ' diskmap-row-selected' : ''}" onclick="ToggleDiskMapExtFilter('${safeExt}')" title="Click to highlight ${EscapeHtmlTp(e.ext)} files in Treemap & Largest Files">
                 <td><span class="tp-cell-primary"><span class="diskmap-ext-dot" style="background:${color};"></span>${EscapeHtmlTp(e.ext)}</span></td>
-                <td class="tp-cell-num" style="font-weight:700; color:#edf2f7;">${FormatDiskBytes(e.size)}</td>
-                <td style="white-space:nowrap;"><span class="diskmap-pct-bar"><span class="diskmap-pct-fill" style="width:${pct.toFixed(1)}%; background:${color}; display:block;"></span></span><span style="color:#a0aec0; font-size:10px;">${pct.toFixed(1)}%</span></td>
+                <td class="tp-cell-num" style="font-weight:700; color:var(--cw-text-primary);">${FormatDiskBytes(e.size)}</td>
+                <td style="white-space:nowrap;"><span class="diskmap-pct-bar"><span class="diskmap-pct-fill" style="width:${pct.toFixed(1)}%; background:${color}; display:block;"></span></span><span style="color:var(--cw-text-muted); font-size:10px;">${pct.toFixed(1)}%</span></td>
                 <td class="tp-cell-num">${(e.count || 0).toLocaleString()}</td>
                 <td><span class="tp-cell-sub" style="max-width:340px;" title="${EscapeHtmlTp(e.topFile || '')}">${EscapeHtmlTp(e.topFile || '--')} (${FormatDiskBytes(e.topFileSize || 0)})</span></td>
             </tr>`;
@@ -7658,10 +7841,10 @@ function SetupDiskMapCanvasEvents() {
         const pct = cur && cur.size > 0 ? ((it.size / cur.size) * 100).toFixed(2) : '0.00';
         tip.style.display = 'block';
         tip.innerHTML = `
-            <div style="font-weight:700; color:#90cdf4;">${it.isDir ? '📁' : '📄'} ${EscapeHtmlTp(it.name)}</div>
-            <div style="color:#edf2f7;">Size: <strong>${FormatDiskBytes(it.size)}</strong> (${pct}% of current view)</div>
-            ${it.isDir ? `<div style="color:#a0aec0;">${(it.files || 0).toLocaleString()} files · ${(it.dirs || 0).toLocaleString()} folders · Double-click to zoom</div>` : `<div style="color:#a0aec0;">Type: ${EscapeHtmlTp(it.ext || 'file')}${it.modified ? ' · Modified: ' + it.modified : ''}</div>`}
-            <div style="color:#718096; font-size:9.5px; word-break:break-all; margin-top:2px;">${EscapeHtmlTp(it.path)}</div>
+            <div style="font-weight:700; color:var(--cw-accent-soft);">${it.isDir ? '📁' : '📄'} ${EscapeHtmlTp(it.name)}</div>
+            <div style="color:var(--cw-text-primary);">Size: <strong>${FormatDiskBytes(it.size)}</strong> (${pct}% of current view)</div>
+            ${it.isDir ? `<div style="color:var(--cw-text-muted);">${(it.files || 0).toLocaleString()} files · ${(it.dirs || 0).toLocaleString()} folders · Double-click to zoom</div>` : `<div style="color:var(--cw-text-muted);">Type: ${EscapeHtmlTp(it.ext || 'file')}${it.modified ? ' · Modified: ' + it.modified : ''}</div>`}
+            <div style="color:var(--cw-text-muted); font-size:9.5px; word-break:break-all; margin-top:2px;">${EscapeHtmlTp(it.path)}</div>
         `;
         const tx = Math.min(wrap.clientWidth - tip.offsetWidth - 8, mx + 14);
         const ty = Math.min(wrap.clientHeight - tip.offsetHeight - 8, my + 14);
@@ -8323,17 +8506,29 @@ function ApplyHostUiSettingsState(data) {
     } else {
         window._diagXDismissed = LoadLocalDiagXDismissed();
     }
+    if (data.theme && typeof data.theme === 'object') {
+        ApplyThemeState(data.theme, false);
+    } else {
+        ApplyThemeState(LoadLocalThemeFallback(), false);
+    }
     ApplyDashboardLayout(false);
 }
 
 document.addEventListener('DOMContentLoaded', () => {
     window._cwLayoutState = LoadLocalLayoutFallback();
     window._diagXDismissed = LoadLocalDiagXDismissed();
+    ApplyThemeState(LoadLocalThemeFallback(), false);
+    InitThemeStudioDrag();
     ApplyDashboardLayout(false);
 });
 
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
+        const themePop = document.getElementById('themeStudioPopup');
+        if (themePop && themePop.style.display !== 'none') {
+            CloseThemeStudio();
+            return;
+        }
         const jiraModal = document.getElementById('jiraCreateIssueModal');
         if (jiraModal && jiraModal.style.display !== 'none') {
             CloseJiraCreateIssueModal();
@@ -8385,28 +8580,28 @@ function ApplyModularTabsVisibility() {
 
     let anySystemEnabled = false;
     let anyDevEnabled = false;
+    let anyOpsEnabled = false;
     ms.modules.forEach(m => {
         const btn = m.tabButtonId ? document.getElementById(m.tabButtonId) : null;
         if (btn) {
             btn.style.display = m.enabled ? '' : 'none';
         }
-        if (m.navSlot === 'system' && m.enabled) {
-            anySystemEnabled = true;
-        }
-        if (m.navSlot === 'dev' && m.enabled) {
-            anyDevEnabled = true;
-        }
+        if (m.navSlot === 'system' && m.enabled) anySystemEnabled = true;
+        if (m.navSlot === 'dev' && m.enabled) anyDevEnabled = true;
+        if (m.navSlot === 'ops' && m.enabled) anyOpsEnabled = true;
     });
 
     const sysDrop = document.getElementById('navSystemDropdown');
-    if (sysDrop) {
-        sysDrop.style.display = anySystemEnabled ? '' : 'none';
-    }
+    if (sysDrop) sysDrop.style.display = anySystemEnabled ? '' : 'none';
 
     const devDrop = document.getElementById('navDevDropdown');
-    if (devDrop) {
-        devDrop.style.display = anyDevEnabled ? '' : 'none';
-    }
+    if (devDrop) devDrop.style.display = anyDevEnabled ? '' : 'none';
+
+    const opsDrop = document.getElementById('navOpsDropdown');
+    if (opsDrop) opsDrop.style.display = anyOpsEnabled ? '' : 'none';
+
+    const bellBtn = document.getElementById('btnHeaderAlertsBell');
+    if (bellBtn) bellBtn.style.display = IsModuleEnabled('alerts') ? '' : 'none';
 
     const modeDrop = document.getElementById('navModePillDropdown');
     if (modeDrop) {
@@ -9224,13 +9419,16 @@ window.ToggleDevWorkMenu = function(e) {
     const drop = document.getElementById('navDevDropdown');
     const trig = document.getElementById('tabDevMenu');
     const sysDrop = document.getElementById('navSystemDropdown');
+    const opsDrop = document.getElementById('navOpsDropdown');
     const modeDrop = document.getElementById('navModePillDropdown');
     if (sysDrop) sysDrop.classList.remove('open');
+    if (opsDrop) opsDrop.classList.remove('open');
     if (modeDrop) modeDrop.classList.remove('open');
     if (!drop) return;
     const willOpen = !drop.classList.contains('open');
     drop.classList.toggle('open', willOpen);
     if (trig) trig.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+    if (willOpen) ClampNavDropdownMenu(document.getElementById('navDevMenu'));
 };
 
 window.SelectDevWorkMenuView = function(viewKey) {
@@ -9385,7 +9583,7 @@ window.RenderGitHubLocalRepos = function() {
                 <div class="card-badge-group"><span class="sharing-badge badge-info">🌿 ${EscapeHtmlTp(r.branch)}</span>${dirtyBadge}${syncBadges}</div>
             </div>
             <div class="dev-repo-meta" title="${EscapeHtmlTp(r.lastCommit || '')}">${EscapeHtmlTp(r.lastCommit || 'No commits yet')}${r.lastDate ? ` · ${EscapeHtmlTp(r.lastDate)}` : ''}</div>
-            <div class="dev-repo-meta" style="color:#63b3ed;">${EscapeHtmlTp(r.repoSlug || r.path)}</div>
+            <div class="dev-repo-meta" style="color:var(--cw-accent-soft);">${EscapeHtmlTp(r.repoSlug || r.path)}</div>
             <div class="dev-repo-actions">
                 <button type="button" class="btn-vscode" onclick="TriggerGhRepoAction('GH_OPEN_VSCODE', '${safePath}')">💻 VS Code</button>
                 <button type="button" onclick="TriggerGhRepoAction('GH_OPEN_TERMINAL', '${safePath}')">🐚 Terminal</button>
@@ -9801,7 +9999,7 @@ function RenderJiraIssueDetail(data) {
                 <span class="sharing-badge badge-purple">${EscapeHtmlTp(iss.priority)}</span>
             </div>
         </div>
-        <div style="font-size:14px; font-weight:700; color:#fff;">${EscapeHtmlTp(iss.summary)}</div>
+        <div style="font-size:14px; font-weight:700; color:var(--cw-text-primary);">${EscapeHtmlTp(iss.summary)}</div>
         <div class="dev-repo-meta">Assignee: ${EscapeHtmlTp(iss.assignee)} · Reporter: ${EscapeHtmlTp(iss.reporter || '--')} · Logged: ${EscapeHtmlTp(data.timeSpent || 'None')}</div>
 
         <div class="jira-transitions-bar">
@@ -9893,4 +10091,1372 @@ window.TriggerCreateJiraIssue = function() {
 function HandleJiraNotice(data) {
     const msg = data?.error || data?.message || '';
     if (msg) SetJiraStatus(msg, !data.ok || !!data.error);
+}
+
+// =========================================================================
+// RESPONSIVE DROPDOWN VIEWPORT EDGE CLAMPING
+// =========================================================================
+function ClampNavDropdownMenu(menuEl) {
+    if (!menuEl) return;
+    menuEl.style.left = '';
+    menuEl.style.right = '';
+    const rect = menuEl.getBoundingClientRect();
+    const vw = window.innerWidth || document.documentElement.clientWidth || 1080;
+    if (rect.right > vw - 8) {
+        menuEl.style.left = 'auto';
+        menuEl.style.right = '0';
+    }
+    const rectAfter = menuEl.getBoundingClientRect();
+    if (rectAfter.left < 8) {
+        menuEl.style.left = '0';
+        menuEl.style.right = 'auto';
+    }
+}
+
+// =========================================================================
+// LIVE DRAGGABLE THEME & APPEARANCE STUDIO CONTROLLER
+//   - Non-blocking movable popup so live changes are visible immediately
+//   - Customizes all non-functional UI chrome, surfaces, accents & typography
+//   - Preserves coded diagnostic/status/thermal/RX-TX colors
+//   - Local host wallpaper with Cover/Stretch/Center/Contain/Tile, Transparency,
+//     Fade style/strength, Blur & Card Surface Opacity
+// =========================================================================
+const CW_THEME_STORAGE_KEY = 'cw_custom_theme_v1';
+
+const CW_THEME_DEFAULTS = {
+    presetId: 'classic',
+    bgApp: '#1a202c',
+    bgSurface: '#212936',
+    bgInset: '#141923',
+    bgControl: '#2d3748',
+    border: '#323c4b',
+    borderStrong: '#4a5568',
+    accent: '#3182ce',
+    accentLight: '#4299e1',
+    accentSoft: '#63b3ed',
+    textPrimary: '#f7fafc',
+    textSecondary: '#cbd5e0',
+    textMuted: '#a0aec0',
+    surfaceOpacity: 100,
+    cardBlur: 0,
+    bgImageFile: '',
+    bgImageName: '',
+    bgImageUrl: '',
+    bgFit: 'cover',
+    bgOpacity: 45,
+    bgBlur: 0,
+    bgFadeMode: 'vignette',
+    bgFadeStrength: 35
+};
+
+const CW_THEME_PRESETS = [
+    {
+        id: 'classic', name: 'CoreWatch Classic',
+        dots: ['#1a202c', '#212936', '#3182ce'],
+        colors: {
+            bgApp: '#1a202c', bgSurface: '#212936', bgInset: '#141923', bgControl: '#2d3748',
+            border: '#323c4b', borderStrong: '#4a5568',
+            accent: '#3182ce', accentLight: '#4299e1', accentSoft: '#63b3ed',
+            textPrimary: '#f7fafc', textSecondary: '#cbd5e0', textMuted: '#a0aec0'
+        }
+    },
+    {
+        id: 'midnight', name: 'Midnight OLED',
+        dots: ['#06080d', '#0f141e', '#38bdf8'],
+        colors: {
+            bgApp: '#06080d', bgSurface: '#0f141e', bgInset: '#090c13', bgControl: '#192233',
+            border: '#1e293b', borderStrong: '#334155',
+            accent: '#0284c7', accentLight: '#38bdf8', accentSoft: '#7dd3fc',
+            textPrimary: '#f8fafc', textSecondary: '#cbd5e1', textMuted: '#94a3b8'
+        }
+    },
+    {
+        id: 'cyberpunk', name: 'Cyberpunk Neon',
+        dots: ['#0d0a1a', '#17122b', '#d946ef'],
+        colors: {
+            bgApp: '#0d0a1a', bgSurface: '#17122b', bgInset: '#100c20', bgControl: '#261d42',
+            border: '#322459', borderStrong: '#523b8a',
+            accent: '#c026d3', accentLight: '#e879f9', accentSoft: '#22d3ee',
+            textPrimary: '#fdf4ff', textSecondary: '#e9d5ff', textMuted: '#a78bfa'
+        }
+    },
+    {
+        id: 'emerald', name: 'Emerald Matrix',
+        dots: ['#0a1310', '#12211b', '#10b981'],
+        colors: {
+            bgApp: '#0a1310', bgSurface: '#12211b', bgInset: '#0c1713', bgControl: '#1b3129',
+            border: '#214035', borderStrong: '#2f5e4d',
+            accent: '#059669', accentLight: '#10b981', accentSoft: '#34d399',
+            textPrimary: '#ecfdf5', textSecondary: '#bbf7d0', textMuted: '#86efac'
+        }
+    },
+    {
+        id: 'amber', name: 'Amber Forge',
+        dots: ['#16120f', '#221b16', '#d97706'],
+        colors: {
+            bgApp: '#16120f', bgSurface: '#221b16', bgInset: '#1a1410', bgControl: '#332820',
+            border: '#44352a', borderStrong: '#634d3d',
+            accent: '#d97706', accentLight: '#f59e0b', accentSoft: '#fbbf24',
+            textPrimary: '#fffbeb', textSecondary: '#fde68a', textMuted: '#c2a685'
+        }
+    },
+    {
+        id: 'nord', name: 'Nord Frost',
+        dots: ['#2e3440', '#3b4252', '#88c0d0'],
+        colors: {
+            bgApp: '#2e3440', bgSurface: '#3b4252', bgInset: '#272c36', bgControl: '#434c5e',
+            border: '#4c566a', borderStrong: '#616e88',
+            accent: '#5e81ac', accentLight: '#81a1c1', accentSoft: '#88c0d0',
+            textPrimary: '#eceff4', textSecondary: '#e5e9f0', textMuted: '#aeb9cc'
+        }
+    },
+    {
+        id: 'crimson', name: 'Crimson Ops',
+        dots: ['#141014', '#211820', '#e11d48'],
+        colors: {
+            bgApp: '#141014', bgSurface: '#211820', bgInset: '#181218', bgControl: '#332331',
+            border: '#442d40', borderStrong: '#66405f',
+            accent: '#be123c', accentLight: '#f43f5e', accentSoft: '#fda4af',
+            textPrimary: '#fff1f2', textSecondary: '#fecdd3', textMuted: '#bca0a8'
+        }
+    },
+    {
+        id: 'synthwave', name: 'Synthwave Sunset',
+        dots: ['#110b1f', '#f97316', '#fb7185'],
+        colors: {
+            bgApp: '#110b1f', bgSurface: '#1b1230', bgInset: '#140d24', bgControl: '#2b1c47',
+            border: '#3e2763', borderStrong: '#653d99',
+            accent: '#ea580c', accentLight: '#fb7185', accentSoft: '#fbbf24',
+            textPrimary: '#fff7ed', textSecondary: '#fed7aa', textMuted: '#c4b5fd'
+        }
+    },
+    {
+        id: 'aurora', name: 'Aurora Borealis',
+        dots: ['#07121b', '#06b6d4', '#c084fc'],
+        colors: {
+            bgApp: '#07121b', bgSurface: '#0f202e', bgInset: '#0a1722', bgControl: '#183247',
+            border: '#1f445e', borderStrong: '#2e6487',
+            accent: '#0891b2', accentLight: '#2dd4bf', accentSoft: '#c084fc',
+            textPrimary: '#ecfeff', textSecondary: '#bae6fd', textMuted: '#88b4cc'
+        }
+    },
+    {
+        id: 'daylight', name: 'Daylight Slate',
+        dots: ['#e2e8f0', '#ffffff', '#2563eb'],
+        colors: {
+            bgApp: '#e2e8f0', bgSurface: '#ffffff', bgInset: '#f1f5f9', bgControl: '#e2e8f0',
+            border: '#cbd5e1', borderStrong: '#94a3b8',
+            accent: '#2563eb', accentLight: '#1d4ed8', accentSoft: '#0284c7',
+            textPrimary: '#0f172a', textSecondary: '#334155', textMuted: '#64748b'
+        }
+    }
+];
+
+const CW_THEME_COLOR_FIELDS = [
+    { key: 'bgApp',         inp: 'clrBgApp',         hex: 'hexBgApp' },
+    { key: 'bgSurface',     inp: 'clrBgSurface',     hex: 'hexBgSurface' },
+    { key: 'bgInset',       inp: 'clrBgInset',       hex: 'hexBgInset' },
+    { key: 'bgControl',     inp: 'clrBgControl',     hex: 'hexBgControl' },
+    { key: 'border',        inp: 'clrBorder',        hex: 'hexBorder' },
+    { key: 'borderStrong',  inp: 'clrBorderStrong',  hex: 'hexBorderStrong' },
+    { key: 'accent',        inp: 'clrAccent',        hex: 'hexAccent' },
+    { key: 'accentLight',   inp: 'clrAccentLight',   hex: 'hexAccentLight' },
+    { key: 'accentSoft',    inp: 'clrAccentSoft',    hex: 'hexAccentSoft' },
+    { key: 'textPrimary',   inp: 'clrTextPrimary',   hex: 'hexTextPrimary' },
+    { key: 'textSecondary', inp: 'clrTextSecondary', hex: 'hexTextSecondary' },
+    { key: 'textMuted',     inp: 'clrTextMuted',     hex: 'hexTextMuted' }
+];
+
+window._cwThemeState = { ...CW_THEME_DEFAULTS };
+window._cwThemeSaveTimer = null;
+
+function NormalizeHexColor(val, fallback) {
+    const s = String(val || '').trim();
+    if (/^#[0-9a-fA-F]{6}$/.test(s)) return s.toLowerCase();
+    if (/^#[0-9a-fA-F]{3}$/.test(s)) {
+        return ('#' + s[1] + s[1] + s[2] + s[2] + s[3] + s[3]).toLowerCase();
+    }
+    return fallback;
+}
+
+function HexToRgbParts(hex) {
+    const h = NormalizeHexColor(hex, '#1a202c').slice(1);
+    return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+}
+
+function HexToRgbTuple(hex) {
+    const [r, g, b] = HexToRgbParts(hex);
+    return `${r}, ${g}, ${b}`;
+}
+
+function AdjustHexBrightness(hex, delta) {
+    const [r, g, b] = HexToRgbParts(hex);
+    const clamp = (n) => Math.max(0, Math.min(255, Math.round(n)));
+    const toHex = (n) => clamp(n).toString(16).padStart(2, '0');
+    return `#${toHex(r + delta)}${toHex(g + delta)}${toHex(b + delta)}`;
+}
+
+function PickOnAccentColor(hex) {
+    const [r, g, b] = HexToRgbParts(hex);
+    const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    return lum > 0.62 ? '#0f172a' : '#ffffff';
+}
+
+function BuildThemeFadeOverlay(mode, strengthPct, bgAppRgb) {
+    const alpha = Math.max(0, Math.min(0.95, Number(strengthPct || 0) / 100));
+    if (mode === 'none' || alpha <= 0.005) return 'none';
+    if (mode === 'uniform') return `rgba(${bgAppRgb}, ${alpha.toFixed(2)})`;
+    if (mode === 'vignette') {
+        const inner = (alpha * 0.25).toFixed(2);
+        return `radial-gradient(ellipse at center, rgba(${bgAppRgb}, ${inner}) 28%, rgba(${bgAppRgb}, ${alpha.toFixed(2)}) 100%)`;
+    }
+    if (mode === 'top') {
+        return `linear-gradient(to bottom, rgba(${bgAppRgb}, ${alpha.toFixed(2)}) 0%, rgba(${bgAppRgb}, ${(alpha * 0.2).toFixed(2)}) 55%, rgba(${bgAppRgb}, 0) 100%)`;
+    }
+    if (mode === 'bottom') {
+        return `linear-gradient(to top, rgba(${bgAppRgb}, ${alpha.toFixed(2)}) 0%, rgba(${bgAppRgb}, ${(alpha * 0.2).toFixed(2)}) 55%, rgba(${bgAppRgb}, 0) 100%)`;
+    }
+    return 'none';
+}
+
+function NormalizeThemeState(raw) {
+    const src = (raw && typeof raw === 'object') ? raw : {};
+    const out = { ...CW_THEME_DEFAULTS };
+    if (typeof src.presetId === 'string') out.presetId = src.presetId;
+    CW_THEME_COLOR_FIELDS.forEach(f => {
+        out[f.key] = NormalizeHexColor(src[f.key], CW_THEME_DEFAULTS[f.key]);
+    });
+    const clampNum = (v, min, max, def) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? Math.max(min, Math.min(max, Math.round(n))) : def;
+    };
+    out.surfaceOpacity = clampNum(src.surfaceOpacity, 35, 100, CW_THEME_DEFAULTS.surfaceOpacity);
+    out.cardBlur       = clampNum(src.cardBlur, 0, 16, CW_THEME_DEFAULTS.cardBlur);
+    out.bgOpacity      = clampNum(src.bgOpacity, 0, 100, CW_THEME_DEFAULTS.bgOpacity);
+    out.bgBlur         = clampNum(src.bgBlur, 0, 24, CW_THEME_DEFAULTS.bgBlur);
+    out.bgFadeStrength = clampNum(src.bgFadeStrength, 0, 95, CW_THEME_DEFAULTS.bgFadeStrength);
+
+    const validFits = ['cover', 'stretch', 'center', 'contain', 'tile'];
+    out.bgFit = validFits.includes(src.bgFit) ? src.bgFit : CW_THEME_DEFAULTS.bgFit;
+
+    const validFades = ['none', 'uniform', 'vignette', 'top', 'bottom'];
+    out.bgFadeMode = validFades.includes(src.bgFadeMode) ? src.bgFadeMode : CW_THEME_DEFAULTS.bgFadeMode;
+
+    out.bgImageFile = typeof src.bgImageFile === 'string' ? src.bgImageFile : '';
+    out.bgImageName = typeof src.bgImageName === 'string' ? src.bgImageName : '';
+    out.bgImageUrl  = typeof src.bgImageUrl  === 'string' ? src.bgImageUrl  : '';
+    if (!out.bgImageUrl && out.bgImageFile) {
+        out.bgImageUrl = `https://corewatch-local.assets/${encodeURIComponent(out.bgImageFile)}`;
+    }
+    return out;
+}
+
+function LoadLocalThemeFallback() {
+    try {
+        const raw = localStorage.getItem(CW_THEME_STORAGE_KEY);
+        if (raw) return NormalizeThemeState(JSON.parse(raw));
+    } catch {}
+    return { ...CW_THEME_DEFAULTS };
+}
+
+function PersistThemeStateDebounced(theme) {
+    try { localStorage.setItem(CW_THEME_STORAGE_KEY, JSON.stringify(theme)); } catch {}
+    SetDomText('lblThemeSaveState', 'Saving...');
+    if (window._cwThemeSaveTimer) clearTimeout(window._cwThemeSaveTimer);
+    window._cwThemeSaveTimer = setTimeout(() => {
+        window.chrome?.webview?.postMessage(JSON.stringify({ command: 'SAVE_UI_THEME', theme }));
+        SetDomText('lblThemeSaveState', 'Saved ✓');
+    }, 220);
+}
+
+function ApplyThemeState(rawTheme, persist = false) {
+    const t = NormalizeThemeState(rawTheme);
+    window._cwThemeState = t;
+
+    const root = document.documentElement.style;
+    const bgAppRgb     = HexToRgbTuple(t.bgApp);
+    const bgSurfaceRgb = HexToRgbTuple(t.bgSurface);
+    const bgInsetRgb   = HexToRgbTuple(t.bgInset);
+    const accentRgb    = HexToRgbTuple(t.accent);
+
+    const [ctrlR, ctrlG, ctrlB] = HexToRgbParts(t.bgControl);
+    const ctrlLum = (0.299 * ctrlR + 0.587 * ctrlG + 0.114 * ctrlB) / 255;
+    const ctrlHover = AdjustHexBrightness(t.bgControl, ctrlLum > 0.65 ? -16 : 16);
+
+    const surfAlpha  = (t.surfaceOpacity / 100).toFixed(2);
+    const insetAlpha = Math.max(0.30, Math.min(1, (t.surfaceOpacity / 100) * 0.96)).toFixed(2);
+
+    root.setProperty('--cw-bg-app', t.bgApp);
+    root.setProperty('--cw-bg-app-rgb', bgAppRgb);
+    root.setProperty('--cw-bg-surface', t.bgSurface);
+    root.setProperty('--cw-bg-surface-rgb', bgSurfaceRgb);
+    root.setProperty('--cw-bg-inset', t.bgInset);
+    root.setProperty('--cw-bg-inset-rgb', bgInsetRgb);
+    root.setProperty('--cw-bg-control', t.bgControl);
+    root.setProperty('--cw-bg-control-hover', ctrlHover);
+    root.setProperty('--cw-border', t.border);
+    root.setProperty('--cw-border-strong', t.borderStrong);
+    root.setProperty('--cw-accent', t.accent);
+    root.setProperty('--cw-accent-rgb', accentRgb);
+    root.setProperty('--cw-accent-light', t.accentLight);
+    root.setProperty('--cw-accent-soft', t.accentSoft);
+    root.setProperty('--cw-on-accent', PickOnAccentColor(t.accent));
+    root.setProperty('--cw-text-primary', t.textPrimary);
+    root.setProperty('--cw-text-secondary', t.textSecondary);
+    root.setProperty('--cw-text-muted', t.textMuted);
+    root.setProperty('--cw-surface-alpha', surfAlpha);
+    root.setProperty('--cw-inset-alpha', insetAlpha);
+    root.setProperty('--cw-card-blur', `${t.cardBlur}px`);
+
+    // Local Wallpaper & Fit / Transparency / Fade / Blur
+    const hasImg = !!t.bgImageUrl;
+    root.setProperty('--cw-bg-image', hasImg ? `url("${t.bgImageUrl.replace(/"/g, '\\"')}")` : 'none');
+
+    let bgSize = 'cover', bgPos = 'center center', bgRep = 'no-repeat';
+    if (t.bgFit === 'stretch')      { bgSize = '100% 100%'; bgPos = 'center center'; bgRep = 'no-repeat'; }
+    else if (t.bgFit === 'center')  { bgSize = 'auto';      bgPos = 'center center'; bgRep = 'no-repeat'; }
+    else if (t.bgFit === 'contain') { bgSize = 'contain';   bgPos = 'center center'; bgRep = 'no-repeat'; }
+    else if (t.bgFit === 'tile')    { bgSize = 'auto';      bgPos = 'top left';      bgRep = 'repeat'; }
+
+    root.setProperty('--cw-bg-size', bgSize);
+    root.setProperty('--cw-bg-position', bgPos);
+    root.setProperty('--cw-bg-repeat', bgRep);
+    root.setProperty('--cw-bg-opacity', hasImg ? (t.bgOpacity / 100).toFixed(2) : '0');
+    root.setProperty('--cw-bg-blur', `${t.bgBlur}px`);
+    root.setProperty('--cw-bg-scale', t.bgBlur > 0 ? '1.04' : '1');
+    root.setProperty('--cw-bg-fade-overlay', hasImg ? BuildThemeFadeOverlay(t.bgFadeMode, t.bgFadeStrength, bgAppRgb) : 'none');
+
+    SyncThemeStudioControls();
+    if (persist) PersistThemeStateDebounced(t);
+}
+
+function RenderThemePresetButtons() {
+    const grid = document.getElementById('themePresetsGrid');
+    if (!grid) return;
+    const activeId = window._cwThemeState?.presetId || '';
+    grid.innerHTML = CW_THEME_PRESETS.map(p => {
+        const dots = p.dots.map(c => `<span class="cw-preset-dot" style="background:${c};"></span>`).join('');
+        return `<button type="button" class="cw-preset-btn ${p.id === activeId ? 'active' : ''}" onclick="ApplyThemePreset('${p.id}')">
+            <span>${EscapeHtmlTp(p.name)}</span>
+            <span class="cw-preset-dots">${dots}</span>
+        </button>`;
+    }).join('');
+}
+
+function SyncThemeStudioControls() {
+    const t = window._cwThemeState || CW_THEME_DEFAULTS;
+    CW_THEME_COLOR_FIELDS.forEach(f => {
+        const inp = document.getElementById(f.inp);
+        if (inp && inp.value.toLowerCase() !== t[f.key]) inp.value = t[f.key];
+        SetDomText(f.hex, t[f.key]);
+    });
+
+    const setRng = (id, val) => { const el = document.getElementById(id); if (el) el.value = String(val); };
+    setRng('rngThemeSurfaceOpacity', t.surfaceOpacity);
+    setRng('rngThemeSurfaceOpacityMirror', t.surfaceOpacity);
+    setRng('rngThemeCardBlur', t.cardBlur);
+    setRng('rngThemeBgOpacity', t.bgOpacity);
+    setRng('rngThemeBgBlur', t.bgBlur);
+    setRng('rngThemeBgFadeStrength', t.bgFadeStrength);
+
+    SetDomText('lblThemeSurfaceOpacity', `${t.surfaceOpacity}%`);
+    SetDomText('lblThemeSurfaceOpacityMirror', `${t.surfaceOpacity}%`);
+    SetDomText('lblThemeCardBlur', `${t.cardBlur} px`);
+    SetDomText('lblThemeBgOpacity', `${t.bgOpacity}%`);
+    SetDomText('lblThemeBgBlur', `${t.bgBlur} px`);
+    SetDomText('lblThemeBgFadeStrength', `${t.bgFadeStrength}%`);
+
+    const fadeSel = document.getElementById('selThemeBgFadeMode');
+    if (fadeSel) fadeSel.value = t.bgFadeMode;
+
+    document.querySelectorAll('#themeBgFitPills .filter-pill').forEach(b => {
+        b.classList.toggle('active', b.dataset.fit === t.bgFit);
+    });
+
+    const clearBtn = document.getElementById('btnClearThemeBg');
+    if (clearBtn) clearBtn.disabled = !t.bgImageUrl;
+    SetDomText('lblThemeBgName', t.bgImageUrl
+        ? `🖼️ Active: ${t.bgImageName || t.bgImageFile}`
+        : 'No background image selected (using solid App Background color)');
+
+    RenderThemePresetButtons();
+}
+
+window.OpenThemeStudio = function() {
+    const pop = document.getElementById('themeStudioPopup');
+    const btn = document.getElementById('btnOpenThemeStudio');
+    if (!pop) return;
+    pop.style.display = 'flex';
+    pop.classList.remove('is-collapsed');
+    SetDomText('btnThemeStudioCollapse', '▾');
+    if (btn) btn.classList.add('active');
+    SyncThemeStudioControls();
+    ClampThemeStudioIntoViewport();
+};
+
+window.CloseThemeStudio = function() {
+    const pop = document.getElementById('themeStudioPopup');
+    const btn = document.getElementById('btnOpenThemeStudio');
+    if (pop) pop.style.display = 'none';
+    if (btn) btn.classList.remove('active');
+};
+
+window.ToggleThemeStudio = function() {
+    const pop = document.getElementById('themeStudioPopup');
+    if (pop && pop.style.display !== 'none') CloseThemeStudio();
+    else OpenThemeStudio();
+};
+
+window.ToggleThemeStudioCollapse = function() {
+    const pop = document.getElementById('themeStudioPopup');
+    if (!pop) return;
+    const isCol = pop.classList.toggle('is-collapsed');
+    SetDomText('btnThemeStudioCollapse', isCol ? '▴' : '▾');
+};
+
+window.SwitchThemeStudioPane = function(paneKey) {
+    document.querySelectorAll('#themeStudioSubtabs .cw-theme-subtab').forEach(b => {
+        b.classList.toggle('active', b.dataset.pane === paneKey);
+    });
+    const pCol = document.getElementById('themePaneColors');
+    const pBg  = document.getElementById('themePaneBackground');
+    if (pCol) pCol.classList.toggle('active', paneKey === 'colors');
+    if (pBg)  pBg.classList.toggle('active', paneKey === 'background');
+};
+
+window.ApplyThemePreset = function(presetId) {
+    const found = CW_THEME_PRESETS.find(p => p.id === presetId);
+    if (!found) return;
+    const next = { ...window._cwThemeState, ...found.colors, presetId: found.id };
+    ApplyThemeState(next, true);
+};
+
+window.OnThemeColorInput = function(fieldKey, hexVal) {
+    const next = { ...window._cwThemeState, [fieldKey]: hexVal, presetId: 'custom' };
+    ApplyThemeState(next, true);
+};
+
+window.OnThemeSliderInput = function(fieldKey, numVal) {
+    const next = { ...window._cwThemeState, [fieldKey]: numVal };
+    ApplyThemeState(next, true);
+};
+
+window.OnThemeSelectInput = function(fieldKey, val) {
+    const next = { ...window._cwThemeState, [fieldKey]: val };
+    ApplyThemeState(next, true);
+};
+
+window.SetThemeBgFit = function(fitMode) {
+    const next = { ...window._cwThemeState, bgFit: fitMode };
+    ApplyThemeState(next, true);
+};
+
+window.BrowseThemeBackgroundImage = function() {
+    window.chrome?.webview?.postMessage('Browse-File:theme_bg_image');
+};
+
+window.ClearThemeBackgroundImage = function() {
+    const next = { ...window._cwThemeState, bgImageFile: '', bgImageName: '', bgImageUrl: '' };
+    ApplyThemeState(next, true);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'CLEAR_THEME_BG_IMAGE' }));
+};
+
+function HandleThemeBgImageSelected(data) {
+    if (!data) return;
+    if (!data.ok) {
+        SetDomText('lblThemeSaveState', data.error || 'Image load failed');
+        return;
+    }
+    const cur = window._cwThemeState || CW_THEME_DEFAULTS;
+    const next = {
+        ...cur,
+        bgImageFile: data.file || '',
+        bgImageName: data.name || data.file || 'Custom Wallpaper',
+        bgImageUrl:  data.url  || '',
+        // Auto-reveal wallpaper behind cards if cards were 100% solid opaque
+        surfaceOpacity: cur.surfaceOpacity >= 98 ? 84 : cur.surfaceOpacity,
+        bgOpacity: cur.bgOpacity <= 5 ? 45 : cur.bgOpacity
+    };
+    ApplyThemeState(next, true);
+    AppendConsoleLogEntry(`[THEME] Loaded local background picture: ${next.bgImageName}`);
+}
+
+window.ResetThemeToDefaults = function() {
+    if (!ConfirmDestructiveAction('Reset all theme colors and clear custom background picture back to CoreWatch Classic defaults?')) return;
+    ApplyThemeState({ ...CW_THEME_DEFAULTS }, true);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'CLEAR_THEME_BG_IMAGE' }));
+    SetDomText('lblThemeSaveState', 'Reset to Classic ✓');
+};
+
+window.ExportThemePreset = function() {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'THEME_EXPORT', theme: window._cwThemeState }));
+};
+
+window.ImportThemePreset = function() {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'THEME_IMPORT' }));
+};
+
+function HandleThemeImported(data) {
+    if (!data || !data.ok || !data.theme) {
+        SetDomText('lblThemeSaveState', data?.message || 'Import failed');
+        return;
+    }
+    // Preserve currently loaded local wallpaper if imported JSON didn't include one
+    const merged = {
+        ...window._cwThemeState,
+        ...data.theme,
+        bgImageFile: window._cwThemeState.bgImageFile,
+        bgImageName: window._cwThemeState.bgImageName,
+        bgImageUrl:  window._cwThemeState.bgImageUrl
+    };
+    ApplyThemeState(merged, true);
+    SetDomText('lblThemeSaveState', 'Imported ✓');
+    if (data.message) AppendConsoleLogEntry(`[THEME] ${data.message}`);
+}
+
+function HandleThemeNotice(data) {
+    if (data?.message) {
+        SetDomText('lblThemeSaveState', data.ok ? 'Exported ✓' : 'Error');
+        AppendConsoleLogEntry(`[THEME] ${data.message}`);
+    }
+}
+
+function ClampThemeStudioIntoViewport() {
+    const pop = document.getElementById('themeStudioPopup');
+    if (!pop || pop.style.display === 'none') return;
+    if (!pop.style.left) return;
+    const rect = pop.getBoundingClientRect();
+    const maxL = Math.max(8, window.innerWidth - rect.width - 8);
+    const maxT = Math.max(8, window.innerHeight - 44);
+    const curL = parseFloat(pop.style.left) || rect.left;
+    const curT = parseFloat(pop.style.top) || rect.top;
+    pop.style.left = `${Math.max(8, Math.min(maxL, curL))}px`;
+    pop.style.top  = `${Math.max(8, Math.min(maxT, curT))}px`;
+}
+
+function InitThemeStudioDrag() {
+    const pop = document.getElementById('themeStudioPopup');
+    const hdr = document.getElementById('themeStudioHeader');
+    if (!pop || !hdr || hdr._dragBound) return;
+    hdr._dragBound = true;
+
+    let dragging = false;
+    let startX = 0, startY = 0, origL = 0, origT = 0;
+
+    hdr.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        if (e.target.closest('button')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const rect = pop.getBoundingClientRect();
+        pop.style.right = 'auto';
+        pop.style.left  = `${rect.left}px`;
+        pop.style.top   = `${rect.top}px`;
+        dragging = true;
+        startX = e.clientX;
+        startY = e.clientY;
+        origL = rect.left;
+        origT = rect.top;
+    });
+
+    window.addEventListener('mousemove', (e) => {
+        if (!dragging) return;
+        const rect = pop.getBoundingClientRect();
+        const maxL = Math.max(8, window.innerWidth - rect.width - 8);
+        const maxT = Math.max(8, window.innerHeight - 44);
+        const nextL = Math.max(8, Math.min(maxL, origL + (e.clientX - startX)));
+        const nextT = Math.max(8, Math.min(maxT, origT + (e.clientY - startY)));
+        pop.style.left = `${nextL}px`;
+        pop.style.top  = `${nextT}px`;
+    });
+
+    window.addEventListener('mouseup', () => { dragging = false; });
+    window.addEventListener('resize', () => { ClampThemeStudioIntoViewport(); });
+}
+
+// =========================================================================
+// OPS & GUARD DROPDOWN CONTROLLER
+// =========================================================================
+window.ToggleOpsGuardMenu = function(e) {
+    if (e) e.stopPropagation();
+    const drop = document.getElementById('navOpsDropdown');
+    const trig = document.getElementById('tabOpsMenu');
+    ['navSystemDropdown', 'navDevDropdown', 'navModePillDropdown'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.remove('open');
+    });
+    if (!drop) return;
+    const willOpen = !drop.classList.contains('open');
+    drop.classList.toggle('open', willOpen);
+    if (trig) trig.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+    if (willOpen) ClampNavDropdownMenu(document.getElementById('navOpsMenu'));
+};
+
+window.SelectOpsGuardMenuView = function(viewKey) {
+    const drop = document.getElementById('navOpsDropdown');
+    const trig = document.getElementById('tabOpsMenu');
+    if (drop) drop.classList.remove('open');
+    if (trig) trig.setAttribute('aria-expanded', 'false');
+    SwitchAppLayoutView(viewKey);
+};
+
+document.addEventListener('click', (e) => {
+    const drop = document.getElementById('navOpsDropdown');
+    if (drop && drop.classList.contains('open') && !drop.contains(e.target)) {
+        drop.classList.remove('open');
+        const trig = document.getElementById('tabOpsMenu');
+        if (trig) trig.setAttribute('aria-expanded', 'false');
+    }
+});
+
+// =========================================================================
+// 1. SMART ALERTS & WATCHDOG CONTROLLER
+// =========================================================================
+window._alertsState = null;
+
+function SetAlertsStatus(msg, isErr = false) {
+    const el = document.getElementById('alertsStatus');
+    if (el && msg) { el.classList.toggle('sharing-error', !!isErr); el.textContent = msg; }
+    if (msg) AppendConsoleLogEntry(`[ALERTS] ${msg}`);
+}
+
+window.RequestSmartAlertsState = function() {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'ALERTS_LOAD' }));
+};
+
+window.TriggerToggleAlertsMute = function() {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'ALERTS_TOGGLE_MUTE', muted: !(window._alertsState?.muted) }));
+};
+
+window.TriggerTestAlertToast = function() {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'ALERTS_TEST_TOAST' }));
+};
+
+window.TriggerAckAllAlerts = function() {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'ALERTS_ACK_ALL' }));
+};
+
+window.TriggerClearAlertHistory = function() {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'ALERTS_CLEAR_HISTORY' }));
+};
+
+window.TriggerResetDefaultAlerts = function() {
+    if (!ConfirmDestructiveAction('Reset Smart Alerts back to the 6 default watchdog rules?')) return;
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'ALERTS_RESET_DEFAULTS' }));
+};
+
+window.TriggerToggleAlertRule = function(ruleId, enabled) {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'ALERTS_TOGGLE_RULE', ruleId, enabled }));
+};
+
+window.TriggerDeleteAlertRule = function(ruleId) {
+    if (!ConfirmDestructiveAction('Delete this watchdog rule?')) return;
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'ALERTS_DELETE_RULE', ruleId }));
+};
+
+window.TriggerSaveAlertRule = function() {
+    const name = (document.getElementById('inpAlertName')?.value || '').trim();
+    const metric = document.getElementById('selAlertMetric')?.value || 'cpu_temp';
+    const threshold = Number(document.getElementById('inpAlertThreshold')?.value || 85);
+    const durationSec = Number(document.getElementById('inpAlertDuration')?.value || 30);
+    const cooldownMin = Number(document.getElementById('inpAlertCooldown')?.value || 5);
+    const action = document.getElementById('selAlertAction')?.value || 'toast';
+    const target = (document.getElementById('inpAlertTarget')?.value || '').trim();
+    const operator = metric === 'drive_free_pct' ? 'lt' : ((metric === 'internet_status' || metric === 'service_stopped') ? 'eq' : 'gt');
+    window.chrome?.webview?.postMessage(JSON.stringify({
+        command: 'ALERTS_SAVE_RULE',
+        rule: { name: name || `Watch ${metric}`, metric, operator, threshold, durationSec, cooldownMin, action, target, severity: 'warning', enabled: true }
+    }));
+    const inp = document.getElementById('inpAlertName');
+    if (inp) inp.value = '';
+};
+
+function RenderSmartAlertsState(data) {
+    if (!data) return;
+    window._alertsState = data;
+    SetDomText('sumAlertsEnabled', data.enabledCount ?? 0);
+    SetDomText('sumAlertsUnacked', data.unackedCount ?? 0);
+    SetDomText('sumAlertsState', data.muted ? 'Muted' : 'Active');
+
+    const muteBtn = document.getElementById('btnAlertsMuteToggle');
+    if (muteBtn) muteBtn.textContent = data.muted ? '🔊 Unmute' : '🔇 Mute';
+
+    const bell = document.getElementById('btnHeaderAlertsBell');
+    const bellCnt = document.getElementById('lblHeaderAlertsCount');
+    const unacked = Number(data.unackedCount || 0);
+    if (bell) bell.classList.toggle('has-alerts', unacked > 0);
+    if (bellCnt) {
+        bellCnt.textContent = String(unacked);
+        bellCnt.style.display = unacked > 0 ? 'inline-block' : 'none';
+    }
+    if (data.notice) SetAlertsStatus(data.notice, !!data.noticeError);
+
+    const rulesHost = document.getElementById('alertsRulesList');
+    if (rulesHost) {
+        const rules = Array.isArray(data.rules) ? data.rules : [];
+        rulesHost.innerHTML = rules.length ? rules.map(r => {
+            const safeId = String(r.id || '').replace(/'/g, "\\'");
+            const opStr = r.operator === 'lt' ? '<' : (r.operator === 'eq' ? '=' : '>');
+            return `<div class="new-tab-row-item">
+                <div>
+                    <strong>${EscapeHtmlTp(r.name)}</strong>
+                    <div class="dev-repo-meta">${EscapeHtmlTp(r.metric)} ${opStr} ${r.threshold}${r.target ? ' · ' + EscapeHtmlTp(r.target) : ''} · ${r.durationSec}s hold · ${r.cooldownMin}m cooldown · ${EscapeHtmlTp(r.action)}</div>
+                </div>
+                <div style="display:flex; gap:5px; align-items:center;">
+                    <label class="org-checkbox-label"><input type="checkbox" ${r.enabled ? 'checked' : ''} onchange="TriggerToggleAlertRule('${safeId}', this.checked)"><span>On</span></label>
+                    ${r.isBuiltIn ? '' : `<button type="button" class="console-clear-btn wsl-btn-danger" onclick="TriggerDeleteAlertRule('${safeId}')">✕</button>`}
+                </div>
+            </div>`;
+        }).join('') : '<div class="driver-text-node">No watchdog rules configured.</div>';
+    }
+
+    const histHost = document.getElementById('alertsHistoryList');
+    if (histHost) {
+        const hist = Array.isArray(data.history) ? data.history : [];
+        histHost.innerHTML = hist.length ? hist.map(h => {
+            const sevCls = h.severity === 'critical' ? 'badge-danger' : (h.severity === 'warning' ? 'ver-update' : 'badge-info');
+            return `<div class="new-tab-row-item">
+                <div>
+                    <span class="sharing-badge ${sevCls}">${EscapeHtmlTp(h.severity || 'info')}</span>
+                    <strong>${EscapeHtmlTp(h.ruleName)}</strong>
+                    <div class="dev-repo-meta">${EscapeHtmlTp(h.message)}</div>
+                </div>
+                <span class="cw-settings-sub">${EscapeHtmlTp(h.timestamp || '')}</span>
+            </div>`;
+        }).join('') : '<div class="driver-text-node">No alerts triggered yet. Click "🧪 Test Toast" to verify notifications.</div>';
+    }
+}
+
+// =========================================================================
+// 2. UNIFIED UPDATE CENTER CONTROLLER
+// =========================================================================
+window._updatesLoaded = false;
+window._updatesState = null;
+
+function SetUpdateCenterStatus(msg, isErr = false) {
+    const el = document.getElementById('updateCenterStatus');
+    if (el && msg) { el.classList.toggle('sharing-error', !!isErr); el.textContent = msg; }
+    if (msg) AppendConsoleLogEntry(`[UPDATES] ${msg}`);
+}
+
+window.RequestUpdateCenterState = function(onlineWu = false) {
+    SetUpdateCenterStatus(onlineWu ? 'Running deep online Windows Update + WinGet + Runtime scan...' : 'Scanning WinGet, Windows Updates, PowerShell & CoreWatch...');
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'UPDATES_LOAD', onlineWindowsUpdate: !!onlineWu, forcePsCheck: !!onlineWu }));
+};
+
+window.TriggerToggleUpdatePin = function(packageId) {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'UPDATES_TOGGLE_PIN', packageId }));
+};
+
+window.ToggleSelectAllUpdates = function(checked) {
+    document.querySelectorAll('#updWinGetList input.upd-pkg-chk:not(:disabled)').forEach(c => { c.checked = !!checked; });
+};
+
+window.TriggerUpgradeSelectedWinGet = function() {
+    const ids = Array.from(document.querySelectorAll('#updWinGetList input.upd-pkg-chk:checked')).map(c => c.value);
+    if (!ids.length) { SetUpdateCenterStatus('Select at least one WinGet package to upgrade.', true); return; }
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'UPDATES_RUN_WINGET_BATCH', packageIds: ids }));
+};
+
+window.TriggerOpenWindowsUpdateSettings = function() {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'UPDATES_OPEN_WINUPDATE' }));
+};
+
+function RenderUpdateCenterState(data) {
+    if (!data) return;
+    window._updatesLoaded = true;
+    window._updatesState = data;
+    const sum = data.summary || {};
+    SetDomText('sumUpdWinget', sum.wingetPending ?? 0);
+    SetDomText('sumUpdPinned', sum.wingetPinned ?? 0);
+    SetDomText('sumUpdWin', sum.windowsCount ?? 0);
+    SetDomText('sumUpdPs', sum.psMissed > 0 ? `${sum.psMissed} behind` : 'Up to date');
+    SetDomText('sumUpdCw', sum.cwHasUpdate ? 'Update Avail' : 'Up to date');
+    SetUpdateCenterStatus(data.notice || `Unified scan completed at ${data.scannedAt || '--'}.`, !!data.noticeError);
+
+    const wgHost = document.getElementById('updWinGetList');
+    if (wgHost) {
+        const items = data.winget?.items || [];
+        wgHost.innerHTML = items.length ? items.map(it => {
+            const safeId = String(it.id || '').replace(/'/g, "\\'");
+            return `<div class="new-tab-row-item" style="${it.pinned ? 'opacity:0.6;' : ''}">
+                <label class="org-checkbox-label" style="flex:1 1 auto;">
+                    <input type="checkbox" class="upd-pkg-chk" value="${EscapeHtmlTp(it.id)}" ${it.pinned ? 'disabled' : 'checked'}>
+                    <span><strong>${EscapeHtmlTp(it.name)}</strong> <span class="dev-repo-meta">(${EscapeHtmlTp(it.id)}) · ${EscapeHtmlTp(it.installed)} → <strong>${EscapeHtmlTp(it.available)}</strong></span></span>
+                </label>
+                <button type="button" class="console-clear-btn" onclick="TriggerToggleUpdatePin('${safeId}')" title="Pin/Ignore this package from batch upgrades">${it.pinned ? '📌 Unpin' : '📌 Pin'}</button>
+            </div>`;
+        }).join('') : `<div class="driver-text-node">${EscapeHtmlTp(data.winget?.error || 'All WinGet packages are up to date!')}</div>`;
+    }
+
+    const wuHost = document.getElementById('updWindowsList');
+    if (wuHost) {
+        const items = data.windowsUpdates?.items || [];
+        wuHost.innerHTML = items.length ? items.map(u => `<div class="new-tab-row-item">
+            <div><strong>${EscapeHtmlTp(u.title)}</strong><div class="dev-repo-meta">${EscapeHtmlTp(u.kb || 'OS Update')} · ${u.sizeMB} MB${u.rebootReq ? ' · Reboot Req' : ''}</div></div>
+            <span class="sharing-badge ${u.isMandatory ? 'ver-update' : 'badge-info'}">${EscapeHtmlTp(u.category || 'Update')}</span>
+        </div>`).join('') : '<div class="driver-text-node">No pending cached Windows Updates found. Click "🌐 Deep Online Scan" to check Microsoft Update servers.</div>';
+    }
+
+    const rtHost = document.getElementById('updRuntimeCard');
+    if (rtHost) {
+        const ps = data.powershell || {};
+        const cw = data.corewatch || {};
+        const safeUrl = String(cw.releaseUrl || '').replace(/'/g, "\\'");
+        rtHost.innerHTML = `
+            <div class="new-tab-row-item">
+                <div><strong>PowerShell ${EscapeHtmlTp(ps.current || '--')} (${EscapeHtmlTp(ps.channel || 'msi')})</strong><div class="dev-repo-meta">${EscapeHtmlTp(ps.detail || '')}</div></div>
+                <span class="sharing-badge ${ps.missed > 0 ? 'ver-update' : 'ver-uptodate'}">${ps.missed > 0 ? 'Update' : 'Current'}</span>
+            </div>
+            <div class="new-tab-row-item">
+                <div><strong>CoreWatch v${EscapeHtmlTp(cw.currentVersion || '--')}</strong><div class="dev-repo-meta">${EscapeHtmlTp(cw.message || '')}</div></div>
+                ${cw.hasUpdate && safeUrl ? `<button type="button" class="console-clear-btn btn-accent-action" onclick="OpenExternalHttpsUrl('${safeUrl}')">Download ↗</button>` : '<span class="sharing-badge ver-uptodate">Current</span>'}
+            </div>`;
+    }
+}
+
+// =========================================================================
+// 3. SYSTEM SNAPSHOTS & DIFF CONTROLLER
+// =========================================================================
+function SetSnapshotsStatus(msg, isErr = false) {
+    const el = document.getElementById('snapshotsStatus');
+    if (el && msg) { el.classList.toggle('sharing-error', !!isErr); el.textContent = msg; }
+    if (msg) AppendConsoleLogEntry(`[SNAPSHOTS] ${msg}`);
+}
+
+window.RequestSnapshotsState = function() {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'SNAP_LOAD' }));
+};
+
+window.TriggerCreateSnapshot = function() {
+    const name = (document.getElementById('inpSnapName')?.value || '').trim();
+    const notes = (document.getElementById('inpSnapNotes')?.value || '').trim();
+    const createRestorePoint = !!document.getElementById('chkSnapRestorePoint')?.checked;
+    SetSnapshotsStatus('Capturing system snapshot (apps, startup, services, drivers, hosts, network)...');
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'SNAP_CREATE', name, notes, createRestorePoint }));
+    const inp = document.getElementById('inpSnapName');
+    if (inp) inp.value = '';
+};
+
+window.TriggerCompareSnapshots = function() {
+    const beforeId = document.getElementById('selSnapBefore')?.value || '';
+    const afterId  = document.getElementById('selSnapAfter')?.value || 'LIVE';
+    if (!beforeId) { SetSnapshotsStatus('Capture at least one snapshot first to compare.', true); return; }
+    SetSnapshotsStatus('Computing Before vs. After system diff...');
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'SNAP_DIFF', beforeId, afterId }));
+};
+
+window.TriggerDeleteSnapshot = function(snapshotId) {
+    if (!ConfirmDestructiveAction('Delete this saved system snapshot?')) return;
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'SNAP_DELETE', snapshotId }));
+};
+
+window.TriggerOpenWindowsRestoreUi = function() {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'SNAP_OPEN_RESTORE_UI' }));
+};
+
+function RenderSnapshotsState(data) {
+    if (!data) return;
+    if (data.notice) SetSnapshotsStatus(data.notice, !!data.noticeError);
+    const list = Array.isArray(data.snapshots) ? data.snapshots : [];
+
+    const selB = document.getElementById('selSnapBefore');
+    const selA = document.getElementById('selSnapAfter');
+    if (selB) {
+        selB.innerHTML = list.length
+            ? list.map(s => `<option value="${EscapeHtmlTp(s.id)}">${EscapeHtmlTp(s.name)} (${EscapeHtmlTp(s.createdAt)})</option>`).join('')
+            : '<option value="">No snapshots saved yet</option>';
+    }
+    if (selA) {
+        selA.innerHTML = `<option value="LIVE">⚡ Live Current PC State</option>` +
+            list.map(s => `<option value="${EscapeHtmlTp(s.id)}">${EscapeHtmlTp(s.name)} (${EscapeHtmlTp(s.createdAt)})</option>`).join('');
+    }
+
+    const host = document.getElementById('snapshotsList');
+    if (host) {
+        host.innerHTML = list.length ? list.map(s => {
+            const safeId = String(s.id || '').replace(/'/g, "\\'");
+            const c = s.counts || {};
+            return `<article class="dev-repo-card">
+                <div class="dev-repo-head">
+                    <span class="dev-repo-name">📸 ${EscapeHtmlTp(s.name)}</span>
+                    ${s.restorePoint ? '<span class="sharing-badge ver-uptodate">+Restore Pt</span>' : ''}
+                </div>
+                <div class="dev-repo-meta">${EscapeHtmlTp(s.createdAt)} · ${s.sizeKB} KB</div>
+                <div class="dev-repo-meta">Apps: ${c.apps||0} · Startup: ${c.startup||0} · Svcs: ${c.services||0} · Drivers: ${c.drivers||0}</div>
+                ${s.notes ? `<div class="profile-card-desc">${EscapeHtmlTp(s.notes)}</div>` : ''}
+                <div class="dev-repo-actions">
+                    <button type="button" class="btn-vscode" onclick="document.getElementById('selSnapBefore').value='${safeId}'; document.getElementById('selSnapAfter').value='LIVE'; TriggerCompareSnapshots()">🔍 Diff vs Live PC</button>
+                    <button type="button" class="wsl-btn-danger" onclick="TriggerDeleteSnapshot('${safeId}')">🗑️ Delete</button>
+                </div>
+            </article>`;
+        }).join('') : '<div class="driver-text-node">No snapshots saved yet. Click "📸 Capture Snapshot" above to save a baseline.</div>';
+    }
+}
+
+function RenderSnapshotsDiffResult(data) {
+    if (!data) return;
+    SetSnapshotsStatus(data.notice || 'Diff complete.', !data.ok);
+    const host = document.getElementById('snapDiffOutput');
+    if (!host) return;
+    const cats = (data.categories || []).filter(c => c.total > 0);
+    if (!cats.length) {
+        host.innerHTML = `<div class="new-tab-row-item"><strong>✓ Zero differences detected</strong><span class="cw-settings-sub">${EscapeHtmlTp(data.beforeLabel)} vs ${EscapeHtmlTp(data.afterLabel)}</span></div>`;
+        return;
+    }
+    host.innerHTML = cats.map(c => {
+        const adds = (c.added || []).map(x => `<div class="new-tab-row-item snap-diff-add"><span><strong>➕ ${EscapeHtmlTp(x.key)}</strong></span><span class="dev-repo-meta">${EscapeHtmlTp(x.value)}</span></div>`).join('');
+        const rems = (c.removed || []).map(x => `<div class="new-tab-row-item snap-diff-rem"><span><strong>➖ ${EscapeHtmlTp(x.key)}</strong></span><span class="dev-repo-meta">${EscapeHtmlTp(x.value)}</span></div>`).join('');
+        const mods = (c.modified || []).map(x => `<div class="new-tab-row-item snap-diff-mod"><div><strong>✏️ ${EscapeHtmlTp(x.key)}</strong><div class="dev-repo-meta">Before: ${EscapeHtmlTp(x.before)} → After: ${EscapeHtmlTp(x.after)}</div></div></div>`).join('');
+        return `<div class="cw-set-card"><div class="cw-set-sec-title">${EscapeHtmlTp(c.category)} (${c.total} change${c.total===1?'':'s'})</div><div class="new-tab-stack">${adds}${rems}${mods}</div></div>`;
+    }).join('');
+}
+
+// =========================================================================
+// 4. BATTERY HEALTH & WIRELESS PERIPHERALS CONTROLLER
+// =========================================================================
+function SetBatteryStatus(msg, isErr = false) {
+    const el = document.getElementById('batteryStatus');
+    if (el && msg) { el.classList.toggle('sharing-error', !!isErr); el.textContent = msg; }
+    if (msg) AppendConsoleLogEntry(`[BATTERY] ${msg}`);
+}
+
+window.RequestBatteryState = function() {
+    SetBatteryStatus('Scanning internal batteries and Bluetooth peripherals...');
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'BATTERY_LOAD' }));
+};
+
+window.TriggerOpenBatteryReport = function() {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'BATTERY_OPEN_REPORT' }));
+};
+
+window.TriggerOpenSleepStudy = function() {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'BATTERY_OPEN_SLEEPSTUDY' }));
+};
+
+function RenderBatteryPeripheralsState(data) {
+    if (!data) return;
+    SetDomText('sumBatPowerPlan', data.activePowerPlan || '--');
+    SetDomText('sumBatInternal', (data.batteries || []).length);
+    SetDomText('sumBatPeripherals', (data.peripherals || []).length);
+    SetDomText('sumBatLow', data.lowPeripheralCount ?? 0);
+    SetBatteryStatus(data.notice || `Battery & peripheral telemetry refreshed at ${data.scannedAt || '--'}.`, !!data.noticeError);
+
+    const intHost = document.getElementById('batteryInternalGrid');
+    if (intHost) {
+        const bats = data.batteries || [];
+        intHost.innerHTML = bats.length ? bats.map(b => `<article class="dev-repo-card">
+            <div class="dev-repo-head"><span class="dev-repo-name">🔋 ${EscapeHtmlTp(b.name)} (${EscapeHtmlTp(b.chemistry)})</span><span class="sharing-badge ${b.chargePct <= 20 ? 'badge-danger' : 'ver-uptodate'}">${b.chargePct}% · ${EscapeHtmlTp(b.state)}</span></div>
+            <div class="track-bg"><div class="track-fill" style="width:${b.chargePct}%;"></div></div>
+            <div class="dev-repo-meta">Health: <strong>${b.healthPct > 0 ? b.healthPct + '%' : 'N/A'}</strong> (Wear: ${b.wearPct}%) · Cycles: ${b.cycleCount >= 0 ? b.cycleCount : 'N/A'}</div>
+            <div class="dev-repo-meta">Design: ${b.designMwh} mWh · Full Charge: ${b.fullMwh} mWh${b.rateMw ? ` · Rate: ${b.rateMw} mW` : ''}</div>
+        </article>`).join('') : '<div class="driver-text-node">Desktop / AC Power Only — No internal laptop battery detected. Wireless Bluetooth devices are monitored below.</div>';
+    }
+
+    const perHost = document.getElementById('batteryPeripheralsGrid');
+    if (perHost) {
+        const list = data.peripherals || [];
+        perHost.innerHTML = list.length ? list.map(p => `<article class="dev-repo-card">
+            <div class="dev-repo-head"><span class="dev-repo-name">🎧 ${EscapeHtmlTp(p.name)}</span><span class="sharing-badge ${p.lowBattery ? 'badge-danger' : 'ver-uptodate'}">${p.batteryPct}%</span></div>
+            <div class="track-bg"><div class="track-fill" style="width:${p.batteryPct}%;"></div></div>
+            <div class="dev-repo-meta">Type: ${EscapeHtmlTp(p.kind)} · Status: ${EscapeHtmlTp(p.status)}${p.lowBattery ? ' · ⚠️ Low Battery!' : ''}</div>
+        </article>`).join('') : '<div class="driver-text-node">No Bluetooth peripherals reporting Windows battery telemetry (DEVPKEY_Bluetooth_Battery) right now.</div>';
+    }
+}
+
+// =========================================================================
+// 5. BACKUP & FOLDER SYNC CONTROLLER
+// =========================================================================
+function SetBackupStatus(msg, isErr = false) {
+    const el = document.getElementById('backupSyncStatus');
+    if (el && msg) { el.classList.toggle('sharing-error', !!isErr); el.textContent = msg; }
+    if (msg) AppendConsoleLogEntry(`[BACKUP] ${msg}`);
+}
+
+window.BrowseBackupFolder = function(targetKey) {
+    window.chrome?.webview?.postMessage(`Browse-Folder:${targetKey}`);
+};
+
+window.RequestBackupSyncState = function() {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'BACKUP_LOAD' }));
+};
+
+window.TriggerSaveBackupJob = function() {
+    const job = {
+        name: (document.getElementById('inpBkpName')?.value || '').trim(),
+        source: (document.getElementById('inpBkpSource')?.value || '').trim(),
+        destination: (document.getElementById('inpBkpDest')?.value || '').trim(),
+        mode: document.getElementById('selBkpMode')?.value || 'incremental',
+        schedule: document.getElementById('selBkpSchedule')?.value || 'manual',
+        excludeDirs: (document.getElementById('inpBkpExDirs')?.value || '').trim(),
+        excludeFiles: (document.getElementById('inpBkpExFiles')?.value || '').trim()
+    };
+    if (!job.source || !job.destination) { SetBackupStatus('Select both Source and Destination folders first.', true); return; }
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'BACKUP_SAVE_JOB', job }));
+};
+
+window.TriggerBackupDryRun = function(jobId) {
+    SetBackupStatus('Running robocopy Dry-Run preview (/L)...');
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'BACKUP_DRY_RUN', jobId }));
+};
+
+window.TriggerBackupRun = function(jobId, mode) {
+    if (mode === 'mirror' && !ConfirmDestructiveAction('Mirror mode (/MIR) deletes files in Destination that no longer exist in Source. Proceed?')) return;
+    SetBackupStatus('Running robocopy folder sync...');
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'BACKUP_RUN_JOB', jobId }));
+};
+
+window.TriggerDeleteBackupJob = function(jobId) {
+    if (!ConfirmDestructiveAction('Delete this saved backup job and any scheduled Windows task?')) return;
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'BACKUP_DELETE_JOB', jobId }));
+};
+
+function RenderBackupSyncState(data) {
+    if (!data) return;
+    if (data.notice) SetBackupStatus(data.notice, !!data.noticeError);
+    const grid = document.getElementById('backupJobsGrid');
+    if (grid) {
+        const jobs = data.jobs || [];
+        grid.innerHTML = jobs.length ? jobs.map(j => {
+            const safeId = String(j.id || '').replace(/'/g, "\\'");
+            const safeMode = String(j.mode || 'incremental').replace(/'/g, "\\'");
+            return `<article class="dev-repo-card">
+                <div class="dev-repo-head"><span class="dev-repo-name">💾 ${EscapeHtmlTp(j.name)}</span><div class="card-badge-group"><span class="sharing-badge ${j.mode==='mirror'?'ver-update':'badge-info'}">${EscapeHtmlTp(j.mode)}</span><span class="sharing-badge badge-purple">${EscapeHtmlTp(j.schedule||'manual')}</span></div></div>
+                <div class="dev-repo-meta" title="${EscapeHtmlTp(j.source)}">From: ${EscapeHtmlTp(j.source)}</div>
+                <div class="dev-repo-meta" title="${EscapeHtmlTp(j.destination)}">To: ${EscapeHtmlTp(j.destination)}</div>
+                <div class="dev-repo-meta">Last: ${EscapeHtmlTp(j.lastRun || 'Never')} · ${EscapeHtmlTp(j.lastStatus || '')}</div>
+                <div class="dev-repo-actions">
+                    <button type="button" onclick="TriggerBackupDryRun('${safeId}')">🔍 Dry-Run</button>
+                    <button type="button" class="btn-vscode" onclick="TriggerBackupRun('${safeId}', '${safeMode}')">▶️ Run Sync</button>
+                    <button type="button" class="wsl-btn-danger" onclick="TriggerDeleteBackupJob('${safeId}')">🗑️ Delete</button>
+                </div>
+            </article>`;
+        }).join('') : '<div class="driver-text-node">No backup sync jobs saved yet. Create one above!</div>';
+    }
+    const hist = document.getElementById('backupHistoryList');
+    if (hist) {
+        const list = data.history || [];
+        hist.innerHTML = list.length ? list.map(h => `<div class="new-tab-row-item">
+            <div><span class="sharing-badge ${h.ok?'ver-uptodate':'badge-danger'}">Exit ${h.exitCode}</span> <strong>${EscapeHtmlTp(h.jobName)}</strong><div class="dev-repo-meta">${EscapeHtmlTp(h.summary)} (${EscapeHtmlTp(h.duration)})</div></div>
+            <span class="cw-settings-sub">${EscapeHtmlTp(h.timestamp)}</span>
+        </div>`).join('') : '<div class="driver-text-node">No backup runs recorded yet.</div>';
+    }
+}
+
+function RenderBackupRunOutput(data) {
+    if (!data) return;
+    SetBackupStatus(data.summary || 'Robocopy finished.', !data.ok);
+    const pre = document.getElementById('backupRunOutputBox');
+    if (pre) pre.textContent = `${data.summary}\n\n${data.outputText || '(No output)'}`;
+    if (data.jobs) RenderBackupSyncState({ jobs: data.jobs, history: data.history || [] });
+}
+
+// =========================================================================
+// 6. DOCKER / CONTAINERS & LOCAL DEV SERVICES CONTROLLER
+// =========================================================================
+function SetDockerStatus(msg, isErr = false) {
+    const el = document.getElementById('dockerStatus');
+    if (el && msg) { el.classList.toggle('sharing-error', !!isErr); el.textContent = msg; }
+    if (msg) AppendConsoleLogEntry(`[DOCKER] ${msg}`);
+}
+
+window.RequestDockerState = function() {
+    SetDockerStatus('Querying Docker/Podman containers, images & local dev services...');
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'DOCKER_LOAD' }));
+};
+
+window.TriggerDockerContainerOp = function(containerId, op) {
+    if (op === 'rm' && !ConfirmDestructiveAction(`Force remove container '${containerId}'?`)) return;
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'DOCKER_CONTAINER_ACTION', containerId, op }));
+};
+
+window.TriggerDockerLogs = function(containerId, containerName) {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'DOCKER_CONTAINER_LOGS', containerId, containerName }));
+};
+
+window.TriggerDockerShell = function(containerId) {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'DOCKER_CONTAINER_SHELL', containerId }));
+};
+
+window.TriggerDockerPrune = function() {
+    if (!ConfirmDestructiveAction('Prune all stopped containers, unused networks, and dangling images?')) return;
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'DOCKER_PRUNE' }));
+};
+
+window.TriggerDockerDevServiceOp = function(serviceName, op) {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'DOCKER_SERVICE_TOGGLE', serviceName, op }));
+};
+
+window.JumpDockerPortToTasksPorts = function(portNum) {
+    SwitchAppLayoutView('tasksports');
+    if (typeof SetTasksPortsSubView === 'function') SetTasksPortsSubView('sockets');
+    const srch = document.getElementById('tpSearchInput');
+    if (srch) { srch.value = String(portNum); if (typeof RenderTasksPortsActiveView === 'function') RenderTasksPortsActiveView(); }
+};
+
+function RenderDockerState(data) {
+    if (!data) return;
+    const badge = document.getElementById('lblDockerEngineBadge');
+    if (badge) badge.innerHTML = `Engine: <strong>${EscapeHtmlTp(data.engine || 'None')} (${data.daemonRunning ? 'Running' : 'Stopped/Missing'})</strong>`;
+    SetDomText('sumDockerRunning', data.runningCount ?? 0);
+    SetDomText('sumDockerTotal', (data.containers || []).length);
+    SetDomText('sumDockerImages', (data.images || []).length);
+    SetDomText('sumDockerDevSvcs', (data.devServices || []).length);
+    SetDockerStatus(data.notice || data.engineError || `Loaded ${(data.containers||[]).length} container(s) & ${(data.devServices||[]).length} local dev service(s).`, !!data.noticeError || !!data.engineError);
+
+    const cGrid = document.getElementById('dockerContainersGrid');
+    if (cGrid) {
+        const list = data.containers || [];
+        cGrid.innerHTML = list.length ? list.map(c => {
+            const sId = String(c.id || '').replace(/'/g, "\\'");
+            const sName = String(c.name || '').replace(/'/g, "\\'");
+            const portBtns = (c.hostPorts || []).map(p => `<button type="button" class="docker-port-chip" onclick="JumpDockerPortToTasksPorts(${p})" title="Inspect port ${p} in Tasks &amp; Ports">:${p} ↗</button>`).join(' ');
+            return `<article class="dev-repo-card">
+                <div class="dev-repo-head"><span class="dev-repo-name">🐳 ${EscapeHtmlTp(c.name)}</span><span class="sharing-badge ${c.state==='running'?'ver-uptodate':'badge-neutral'}">${EscapeHtmlTp(c.state)}</span></div>
+                <div class="dev-repo-meta">${EscapeHtmlTp(c.image)} · ${EscapeHtmlTp(c.status)}</div>
+                ${portBtns ? `<div style="display:flex;gap:4px;flex-wrap:wrap;">${portBtns}</div>` : ''}
+                <div class="dev-repo-actions">
+                    ${c.state==='running'
+                        ? `<button type="button" onclick="TriggerDockerContainerOp('${sId}','stop')">⏹ Stop</button><button type="button" onclick="TriggerDockerContainerOp('${sId}','restart')">🔄 Restart</button><button type="button" class="btn-vscode" onclick="TriggerDockerShell('${sId}')">🐚 Shell</button>`
+                        : `<button type="button" class="btn-vscode" onclick="TriggerDockerContainerOp('${sId}','start')">▶️ Start</button>`}
+                    <button type="button" onclick="TriggerDockerLogs('${sId}','${sName}')">📜 Logs</button>
+                    <button type="button" class="wsl-btn-danger" onclick="TriggerDockerContainerOp('${sId}','rm')">🗑️ Rm</button>
+                </div>
+            </article>`;
+        }).join('') : `<div class="driver-text-node">${data.engine === 'none' ? 'No Docker or Podman CLI found on PATH. Install Docker Desktop or Podman (or use WSL Manager).' : 'No containers found.'}</div>`;
+    }
+
+    const dfStrip = document.getElementById('dockerDiskStrip');
+    if (dfStrip) {
+        dfStrip.innerHTML = (data.diskUsage || []).map(d => `<span class="summary-chip">${EscapeHtmlTp(d.type)}: <strong>${EscapeHtmlTp(d.size)}</strong> (${EscapeHtmlTp(d.reclaimable)} reclaimable)</span>`).join('');
+    }
+    const imgHost = document.getElementById('dockerImagesList');
+    if (imgHost) {
+        const imgs = data.images || [];
+        imgHost.innerHTML = imgs.length ? imgs.map(im => `<div class="new-tab-row-item"><strong>${EscapeHtmlTp(im.repository)}:${EscapeHtmlTp(im.tag)}</strong><span class="dev-repo-meta">${EscapeHtmlTp(im.size)} · ${EscapeHtmlTp(im.created)}</span></div>`).join('') : '<div class="driver-text-node">No container images listed.</div>';
+    }
+    const svcHost = document.getElementById('dockerDevServicesList');
+    if (svcHost) {
+        const svcs = data.devServices || [];
+        svcHost.innerHTML = svcs.length ? svcs.map(s => {
+            const sn = String(s.name || '').replace(/'/g, "\\'");
+            const isRun = s.status === 'Running';
+            return `<div class="new-tab-row-item">
+                <div><strong>${EscapeHtmlTp(s.displayName)}</strong><div class="dev-repo-meta">${EscapeHtmlTp(s.name)} · ${EscapeHtmlTp(s.startType)}</div></div>
+                <div style="display:flex;gap:4px;align-items:center;">
+                    <span class="sharing-badge ${isRun?'ver-uptodate':'badge-neutral'}">${EscapeHtmlTp(s.status)}</span>
+                    <button type="button" class="console-clear-btn" onclick="TriggerDockerDevServiceOp('${sn}','${isRun?'stop':'start'}')">${isRun?'Stop':'Start'}</button>
+                </div>
+            </div>`;
+        }).join('') : '<div class="driver-text-node">No local database/web dev Windows services detected.</div>';
+    }
+}
+
+function RenderDockerLogs(data) {
+    const card = document.getElementById('dockerLogsCard');
+    const pre = document.getElementById('dockerLogsPre');
+    if (card) card.style.display = 'flex';
+    SetDomText('lblDockerLogsTitle', `📜 Container Logs — ${data.containerName || ''}`);
+    if (pre) pre.textContent = data.logs || '(No log output)';
+}
+
+// =========================================================================
+// 7. SSH HOST LAUNCHER & CERTIFICATE INSPECTOR CONTROLLER
+// =========================================================================
+function SetSshCertsStatus(msg, isErr = false) {
+    const el = document.getElementById('sshCertsStatus');
+    if (el && msg) { el.classList.toggle('sharing-error', !!isErr); el.textContent = msg; }
+    if (msg) AppendConsoleLogEntry(`[SSH/CERTS] ${msg}`);
+}
+
+window.SetSshSubView = function(sub) {
+    document.querySelectorAll('#sshSubViewPills .filter-pill').forEach(b => b.classList.toggle('active', b.dataset.sub === sub));
+    const map = { hosts: 'sshPaneHosts', keys: 'sshPaneKeys', certs: 'sshPaneCerts' };
+    Object.entries(map).forEach(([k, id]) => { const el = document.getElementById(id); if (el) el.classList.toggle('active', k === sub); });
+};
+
+window.RequestSshCertsState = function() {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'SSH_LOAD' }));
+};
+
+window.TriggerLaunchSshHost = function(alias) {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'SSH_LAUNCH_HOST', alias }));
+};
+
+window.TriggerSaveSshHost = function() {
+    const host = {
+        alias: (document.getElementById('inpSshAlias')?.value || '').trim(),
+        hostName: (document.getElementById('inpSshHostName')?.value || '').trim(),
+        user: (document.getElementById('inpSshUser')?.value || '').trim(),
+        port: (document.getElementById('inpSshPort')?.value || '22').trim(),
+        identityFile: (document.getElementById('inpSshIdentity')?.value || '').trim(),
+        proxyJump: (document.getElementById('inpSshProxyJump')?.value || '').trim()
+    };
+    if (!host.alias || !host.hostName) { SetSshCertsStatus('Alias and HostName are required.', true); return; }
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'SSH_SAVE_HOST', host }));
+};
+
+window.TriggerDeleteSshHost = function(alias) {
+    if (!ConfirmDestructiveAction(`Remove Host '${alias}' from ~/.ssh/config?`)) return;
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'SSH_DELETE_HOST', alias }));
+};
+
+window.TriggerGenerateSshKey = function() {
+    const name = (document.getElementById('inpSshNewKeyName')?.value || '').trim();
+    const comment = (document.getElementById('inpSshNewKeyComment')?.value || '').trim();
+    if (!name) { SetSshCertsStatus('Enter a key filename (e.g. id_ed25519_work).', true); return; }
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'SSH_GEN_KEY', name, comment }));
+};
+
+window.TriggerOpenSshConfigFile = function() {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'SSH_OPEN_CONFIG' }));
+};
+
+function RenderSshCertsState(data) {
+    if (!data) return;
+    SetDomText('sumSshHosts', (data.hosts || []).length);
+    SetDomText('sumSshKeys', (data.keys || []).length);
+    SetDomText('sumSshCerts', (data.certs || []).length);
+    SetDomText('sumSshExpiring', data.expiringCount ?? 0);
+    SetSshCertsStatus(data.notice || `Loaded ${(data.hosts||[]).length} SSH host(s), ${(data.keys||[]).length} key(s), and ${(data.certs||[]).length} certificate(s).`, !!data.noticeError);
+
+    const hGrid = document.getElementById('sshHostsGrid');
+    if (hGrid) {
+        const list = data.hosts || [];
+        hGrid.innerHTML = list.length ? list.map(h => {
+            const sa = String(h.alias || '').replace(/'/g, "\\'");
+            const cmdStr = `ssh ${h.alias}`.replace(/'/g, "\\'");
+            return `<article class="dev-repo-card">
+                <div class="dev-repo-head"><span class="dev-repo-name">🖥️ ${EscapeHtmlTp(h.alias)}</span><span class="sharing-badge badge-info">:${EscapeHtmlTp(h.port || '22')}</span></div>
+                <div class="dev-repo-meta">${h.user ? EscapeHtmlTp(h.user) + '@' : ''}${EscapeHtmlTp(h.hostName)}</div>
+                ${h.identityFile ? `<div class="dev-repo-meta">Key: ${EscapeHtmlTp(h.identityFile)}</div>` : ''}
+                <div class="dev-repo-actions">
+                    <button type="button" class="btn-vscode" onclick="TriggerLaunchSshHost('${sa}')">🚀 Connect</button>
+                    <button type="button" onclick="CopyRawText('${cmdStr}', 'SSH command')">📋 Copy</button>
+                    <button type="button" class="wsl-btn-danger" onclick="TriggerDeleteSshHost('${sa}')">🗑️ Delete</button>
+                </div>
+            </article>`;
+        }).join('') : '<div class="driver-text-node">No SSH hosts configured in ~/.ssh/config yet. Add one above!</div>';
+    }
+
+    const kGrid = document.getElementById('sshKeysGrid');
+    if (kGrid) {
+        const keys = data.keys || [];
+        kGrid.innerHTML = keys.length ? keys.map(k => {
+            const pubEsc = String(k.publicKey || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+            return `<article class="dev-repo-card">
+                <div class="dev-repo-head"><span class="dev-repo-name">🔑 ${EscapeHtmlTp(k.name)}</span><span class="sharing-badge badge-purple">${EscapeHtmlTp(k.type)}</span></div>
+                <div class="dev-repo-meta" title="${EscapeHtmlTp(k.fingerprint)}">${EscapeHtmlTp(k.fingerprint || k.path)}</div>
+                <div class="dev-repo-actions">
+                    <button type="button" class="btn-vscode" onclick="CopyRawText('${pubEsc}', 'SSH public key')">📋 Copy Public Key (.pub)</button>
+                </div>
+            </article>`;
+        }).join('') : '<div class="driver-text-node">No .pub SSH keys found in ~/.ssh/. Generate an ed25519 key above!</div>';
+    }
+
+    const cHost = document.getElementById('sshCertsList');
+    if (cHost) {
+        const certs = data.certs || [];
+        cHost.innerHTML = certs.length ? certs.map(c => {
+            const cls = c.status === 'expired' ? 'badge-danger' : (c.status === 'expiring' ? 'ver-update' : 'ver-uptodate');
+            const daysTxt = c.daysLeft < 0 ? `Expired ${Math.abs(c.daysLeft)}d ago` : `${c.daysLeft}d left`;
+            return `<div class="new-tab-row-item">
+                <div><strong>${EscapeHtmlTp(c.subject)}</strong> <span class="dev-repo-meta">(${EscapeHtmlTp(c.store)})</span><div class="dev-repo-meta">Issuer: ${EscapeHtmlTp(c.issuer)} · Expires: ${EscapeHtmlTp(c.notAfter)} · ${EscapeHtmlTp(c.thumbprint)}</div></div>
+                <span class="sharing-badge ${cls}">${daysTxt}</span>
+            </div>`;
+        }).join('') : '<div class="driver-text-node">No personal TLS or code-signing certificates found in LocalMachine\\My or CurrentUser\\My.</div>';
+    }
+}
+
+// =========================================================================
+// 8. MULTI-PC / HOMELAB MONITOR CONTROLLER
+// =========================================================================
+window._homelabTimer = null;
+
+function SetHomelabStatus(msg, isErr = false) {
+    const el = document.getElementById('homelabStatus');
+    if (el && msg) { el.classList.toggle('sharing-error', !!isErr); el.textContent = msg; }
+    if (msg) AppendConsoleLogEntry(`[HOMELAB] ${msg}`);
+}
+
+window.RequestHomelabState = function(pollNow = false) {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'HOMELAB_LOAD', pollNow: !!pollNow }));
+};
+
+window.TriggerPollHomelabAll = function() {
+    SetHomelabStatus('Polling all configured homelab & remote PC nodes...');
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'HOMELAB_POLL_ALL' }));
+};
+
+window.OnHomelabAutoRefreshChange = function() {
+    if (window._homelabTimer) { clearInterval(window._homelabTimer); window._homelabTimer = null; }
+    const sec = Number(document.getElementById('selHomelabAutoRefresh')?.value || 0);
+    if (sec > 0 && window._activeViewKey === 'homelab') {
+        window._homelabTimer = setInterval(() => {
+            if (window._activeViewKey === 'homelab') TriggerPollHomelabAll();
+        }, sec * 1000);
+    }
+};
+
+window.TriggerSaveHomelabNode = function() {
+    const node = {
+        name: (document.getElementById('inpLabName')?.value || '').trim(),
+        mode: document.getElementById('selLabMode')?.value || 'ssh',
+        host: (document.getElementById('inpLabHost')?.value || '').trim(),
+        port: Number(document.getElementById('inpLabPort')?.value || 22),
+        user: (document.getElementById('inpLabUser')?.value || '').trim(),
+        webUrl: (document.getElementById('inpLabWebUrl')?.value || '').trim()
+    };
+    if (!node.host) { SetHomelabStatus('Enter a Host IP, hostname, or URL.', true); return; }
+    SetHomelabStatus(`Adding & polling ${node.name || node.host}...`);
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'HOMELAB_SAVE_NODE', node }));
+};
+
+window.TriggerDeleteHomelabNode = function(nodeId) {
+    if (!ConfirmDestructiveAction('Remove this remote node from Homelab Monitor?')) return;
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'HOMELAB_DELETE_NODE', nodeId }));
+};
+
+window.TriggerHomelabSsh = function(host, user, port) {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'HOMELAB_LAUNCH_SSH', host, user, port }));
+};
+
+window.TriggerHomelabRdp = function(host) {
+    window.chrome?.webview?.postMessage(JSON.stringify({ command: 'HOMELAB_LAUNCH_RDP', host }));
+};
+
+function RenderHomelabState(data) {
+    if (!data) return;
+    SetDomText('sumHomelabOnline', data.onlineCount ?? 0);
+    SetDomText('sumHomelabTotal', data.totalCount ?? 0);
+    if (data.notice) SetHomelabStatus(data.notice, !!data.noticeError);
+
+    const grid = document.getElementById('homelabNodesGrid');
+    if (!grid) return;
+    const nodes = data.nodes || [];
+    grid.innerHTML = nodes.length ? nodes.map(n => {
+        const sId = String(n.id || '').replace(/'/g, "\\'");
+        const sHost = String(n.host || '').replace(/'/g, "\\'");
+        const sUser = String(n.user || '').replace(/'/g, "\\'");
+        const sUrl = String(n.webUrl || '').replace(/'/g, "\\'");
+        const latTxt = n.latencyMs >= 0 ? `${n.latencyMs} ms` : '--';
+        return `<article class="dev-repo-card">
+            <div class="dev-repo-head">
+                <span class="dev-repo-name">🌐 ${EscapeHtmlTp(n.name)}</span>
+                <div class="card-badge-group">
+                    <span class="sharing-badge badge-purple">${EscapeHtmlTp(n.mode.toUpperCase())}</span>
+                    <span class="sharing-badge ${n.online ? 'ver-uptodate' : 'badge-danger'}">${n.online ? 'Online · ' + latTxt : 'Offline'}</span>
+                </div>
+            </div>
+            <div class="dev-repo-meta">${EscapeHtmlTp(n.host)}${n.osInfo ? ' · ' + EscapeHtmlTp(n.osInfo) : ''}${n.uptime ? ' · Up: ' + EscapeHtmlTp(n.uptime) : ''}</div>
+            ${n.ramPct >= 0 ? `<div class="dev-repo-meta">RAM: ${EscapeHtmlTp(n.ramText)} (${n.ramPct}%) ${n.diskPct >= 0 ? `· Disk /: ${n.diskPct}%` : ''} ${n.cpuPct >= 0 ? `· CPU: ${n.cpuPct}%` : ''}</div>` : ''}
+            <div class="dev-repo-meta">${EscapeHtmlTp(n.detail || '')} · Checked ${EscapeHtmlTp(n.checkedAt || '--')}</div>
+            <div class="dev-repo-actions">
+                ${n.mode === 'ssh' ? `<button type="button" class="btn-vscode" onclick="TriggerHomelabSsh('${sHost}','${sUser}',${n.port||22})">🐚 SSH</button>` : ''}
+                ${n.mode === 'winrm' ? `<button type="button" class="btn-vscode" onclick="TriggerHomelabRdp('${sHost}')">🖥️ RDP</button>` : ''}
+                ${sUrl ? `<button type="button" onclick="OpenExternalHttpsUrl('${sUrl}')">🌐 Web UI ↗</button>` : ''}
+                <button type="button" class="wsl-btn-danger" onclick="TriggerDeleteHomelabNode('${sId}')">🗑️ Remove</button>
+            </div>
+        </article>`;
+    }).join('') : '<div class="driver-text-node">No remote PCs or servers added yet. Add a Linux server (SSH), Windows PC (WinRM), or Proxmox/NAS/Router (HTTP) above!</div>';
 }

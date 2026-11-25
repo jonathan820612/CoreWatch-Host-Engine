@@ -23,7 +23,7 @@ function Get-CuratedAppCatalog {
         @{ id='Nlitesoft.NTLite'; name='NTLite'; category='SysAdmin & Network'; requested=$true; essential=$false; desc='Windows ISO image customization, slipstreaming & live OS tweaking tool.'; url='https://www.ntlite.com/download/'; launchExe='NTLite.exe'; launchHints=@('NTLite') }
         @{ id='OpenRGB.OpenRGB'; name='OpenRGB'; category='Gaming & RGB'; requested=$true; essential=$false; desc='Open-source unified RGB lighting control without bloated vendor suites.'; url='https://openrgb.org/'; launchExe='OpenRGB.exe'; launchHints=@('OpenRGB') }
         @{ id='Opera.OperaGX'; name='Opera GX'; category='Browsers & Comms'; requested=$true; essential=$false; desc='Gaming-focused browser with RAM/CPU/network limiters.'; url='https://www.opera.com/gx'; launchExe='opera.exe'; launchHints=@('Opera GX Browser','Opera GX') }
-        @{ id='Microsoft.PowerShell'; name='PowerShell 7 (Core)'; category='Dev & Languages'; requested=$true; essential=$true; desc='Modern cross-platform PowerShell 7 shell & automation engine.'; url='https://github.com/PowerShell/PowerShell/releases'; launchExe='pwsh.exe'; launchHints=@('PowerShell 7') }
+        @{ id='Microsoft.PowerShell'; name='PowerShell 7 (Core)'; category='Dev & Languages'; requested=$true; essential=$true; desc='Modern PowerShell 7 shell. Updates existing MSI installs via official .msi; installs MSIX via WinGet if PowerShell Core is not yet installed (note: MSIX locks WindowsApps install folder permissions).'; url='https://github.com/PowerShell/PowerShell/releases'; launchExe='pwsh.exe'; launchHints=@('PowerShell 7') }
         @{ id='PrismLauncher.PrismLauncher'; name='Prism Launcher'; category='Gaming & RGB'; requested=$true; essential=$false; desc='Open-source multi-instance Minecraft launcher with Java & modpack management.'; url='https://prismlauncher.org/download/'; launchExe='prismlauncher.exe'; launchHints=@('Prism Launcher') }
         @{ id='Python.Python.3.13'; name='Python 3 (3.13)'; category='Dev & Languages'; requested=$true; essential=$true; launchable=$false; desc='Python 3 runtime, pip package manager & standard library.'; url='https://www.python.org/downloads/' }
         @{ id='Roblox.Roblox'; name='Roblox'; category='Gaming & RGB'; requested=$true; essential=$false; desc='Roblox player client & online game platform.'; url='https://www.roblox.com/download'; launchHints=@('Roblox Player','Roblox') }
@@ -475,33 +475,37 @@ function Start-WingetTerminalBatch {
                 continue
             }
             if ($pkg -ieq 'Microsoft.PowerShell') {
-                # Always deploy latest PowerShell 7 to C:\Program Files\PowerShell\7 (MSI if present, else official ZIP — never WindowsApps!)
+                # Existing MSI install -> upgrade via latest official GitHub .msi.
+                # No existing PowerShell Core (or already on MSIX) -> install/upgrade MSIX via WinGet (noting WindowsApps folder restrictions).
                 [void]$sb.AppendLine('try {')
                 [void]$sb.AppendLine('  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12')
                 [void]$sb.AppendLine('  $psArch = if ($env:PROCESSOR_ARCHITECTURE -match "ARM64") { "arm64" } elseif ([Environment]::Is64BitOperatingSystem) { "x64" } else { "x86" }')
                 [void]$sb.AppendLine('  $psDir = "C:\Program Files\PowerShell\7"')
-                [void]$sb.AppendLine('  $psRel = Invoke-RestMethod -Uri "https://api.github.com/repos/PowerShell/PowerShell/releases/latest" -Headers @{"User-Agent"="CoreWatch"} -TimeoutSec 20 -ErrorAction Stop')
-                [void]$sb.AppendLine('  $psMsiAsset = $psRel.assets | Where-Object { $_.name -match "^PowerShell-.*-win-$psArch\.msi$" } | Select-Object -First 1')
-                [void]$sb.AppendLine('  $psZipAsset = $psRel.assets | Where-Object { $_.name -match "^PowerShell-.*-win-$psArch\.zip$" } | Select-Object -First 1')
-                [void]$sb.AppendLine('  if ($psMsiAsset) {')
-                [void]$sb.AppendLine('    $psMsi = Join-Path $env:TEMP $psMsiAsset.name')
-                [void]$sb.AppendLine('    Write-Host "  Downloading $($psMsiAsset.name) ($($psRel.tag_name))..." -ForegroundColor Cyan')
-                [void]$sb.AppendLine('    Invoke-WebRequest -Uri $psMsiAsset.browser_download_url -OutFile $psMsi -UseBasicParsing -ErrorAction Stop')
-                [void]$sb.AppendLine('    $p = Start-Process -FilePath "msiexec.exe" -ArgumentList @("/i", "`"$psMsi`"", "/qb", "ADD_PATH=1", "REGISTER_MANIFEST=1", "USE_MU=1", "ENABLE_MU=1") -Wait -PassThru')
-                [void]$sb.AppendLine('    Remove-Item -LiteralPath $psMsi -Force -ErrorAction SilentlyContinue')
-                [void]$sb.AppendLine('    Write-Host "  -> Installed PowerShell $($psRel.tag_name) MSI into $psDir (exit $($p.ExitCode))" -ForegroundColor Cyan')
-                [void]$sb.AppendLine('  } elseif ($psZipAsset) {')
-                [void]$sb.AppendLine('    Write-Host "  NOTE: $($psRel.tag_name) has no .msi — downloading official ZIP -> $psDir..." -ForegroundColor Yellow')
-                [void]$sb.AppendLine('    $psZip = Join-Path $env:TEMP $psZipAsset.name')
-                [void]$sb.AppendLine('    $psStage = Join-Path $env:TEMP ("CoreWatch-PsStage-" + [guid]::NewGuid().ToString("N").Substring(0,8))')
-                [void]$sb.AppendLine('    Invoke-WebRequest -Uri $psZipAsset.browser_download_url -OutFile $psZip -UseBasicParsing -ErrorAction Stop')
-                [void]$sb.AppendLine('    $null = New-Item -ItemType Directory -Path $psStage -Force')
-                [void]$sb.AppendLine('    Expand-Archive -LiteralPath $psZip -DestinationPath $psStage -Force')
-                [void]$sb.AppendLine('    Remove-Item -LiteralPath $psZip -Force -ErrorAction SilentlyContinue')
-                [void]$sb.AppendLine('    if (-not (Test-Path -LiteralPath $psDir)) { $null = New-Item -ItemType Directory -Path $psDir -Force }')
-                [void]$sb.AppendLine('    & robocopy "$psStage" "$psDir" /E /IS /IT /R:3 /W:1 /NFL /NDL /NJH /NJS | Out-Null')
-                [void]$sb.AppendLine('    Remove-Item -LiteralPath $psStage -Recurse -Force -ErrorAction SilentlyContinue')
-                [void]$sb.AppendLine('    Write-Host "  -> Deployed PowerShell $($psRel.tag_name) ZIP to $psDir" -ForegroundColor Cyan')
+                [void]$sb.AppendLine('  $hasMsiPs = Test-Path -LiteralPath (Join-Path $psDir "pwsh.exe") -PathType Leaf')
+                [void]$sb.AppendLine('  if ($hasMsiPs) {')
+                [void]$sb.AppendLine('    Write-Host "  Existing MSI PowerShell 7 found in $psDir — checking latest official .MSI..." -ForegroundColor Cyan')
+                [void]$sb.AppendLine('    $psRels = @(Invoke-RestMethod -Uri "https://api.github.com/repos/PowerShell/PowerShell/releases?per_page=30" -Headers @{"User-Agent"="CoreWatch"} -TimeoutSec 20 -ErrorAction Stop)')
+                [void]$sb.AppendLine('    $bestMsi = $null; $bestVer = [version]"0.0.0"; $bestTag = ""')
+                [void]$sb.AppendLine('    foreach ($r in $psRels) {')
+                [void]$sb.AppendLine('      if ($r.prerelease -or $r.draft) { continue }')
+                [void]$sb.AppendLine('      if ([string]$r.tag_name -notmatch "^v(\d+\.\d+\.\d+)$") { continue }')
+                [void]$sb.AppendLine('      $v = [version]$Matches[1]')
+                [void]$sb.AppendLine('      $mA = $r.assets | Where-Object { $_.name -match "^PowerShell-.*-win-$psArch\.msi$" } | Select-Object -First 1')
+                [void]$sb.AppendLine('      if ($mA -and $v -gt $bestVer) { $bestVer = $v; $bestTag = [string]$r.tag_name; $bestMsi = $mA }')
+                [void]$sb.AppendLine('    }')
+                [void]$sb.AppendLine('    if ($bestMsi) {')
+                [void]$sb.AppendLine('      $psMsi = Join-Path $env:TEMP $bestMsi.name')
+                [void]$sb.AppendLine('      Write-Host "  Downloading official MSI $($bestMsi.name) ($bestTag)..." -ForegroundColor Cyan')
+                [void]$sb.AppendLine('      Invoke-WebRequest -Uri $bestMsi.browser_download_url -OutFile $psMsi -UseBasicParsing -ErrorAction Stop')
+                [void]$sb.AppendLine('      $p = Start-Process -FilePath "msiexec.exe" -ArgumentList @("/i", "`"$psMsi`"", "/qb", "ADD_PATH=1", "REGISTER_MANIFEST=1", "USE_MU=1", "ENABLE_MU=1") -Wait -PassThru')
+                [void]$sb.AppendLine('      Remove-Item -LiteralPath $psMsi -Force -ErrorAction SilentlyContinue')
+                [void]$sb.AppendLine('      Write-Host "  -> Installed PowerShell $bestTag MSI into $psDir (exit $($p.ExitCode))" -ForegroundColor Cyan')
+                [void]$sb.AppendLine('    }')
+                [void]$sb.AppendLine('  } else {')
+                [void]$sb.AppendLine('    Write-Host "  No MSI PowerShell Core found — installing/upgrading MSIX via WinGet..." -ForegroundColor Cyan')
+                [void]$sb.AppendLine('    Write-Host "  NOTE: MSIX installs inside C:\Program Files\WindowsApps where Windows restricts direct folder edits." -ForegroundColor Yellow')
+                [void]$sb.AppendLine("    & winget $wgVerb --id 'Microsoft.PowerShell' -e --source winget --accept-package-agreements --accept-source-agreements")
+                [void]$sb.AppendLine('    Write-Host "  -> WinGet exit code: $LASTEXITCODE" -ForegroundColor Cyan')
                 [void]$sb.AppendLine('  }')
                 [void]$sb.AppendLine('} catch { Write-Host "  PowerShell update error: $($_.Exception.Message)" -ForegroundColor Red }')
                 continue
@@ -556,7 +560,14 @@ function Start-WingetTerminalBatch {
 
     Set-Content -LiteralPath $runnerPath -Value $sb.ToString() -Encoding UTF8
 
-    $shellExe = if (Get-Command pwsh -ErrorAction SilentlyContinue) { "pwsh.exe" } else { "powershell.exe" }
+    $containsPs = ($PackageIds | Where-Object { $_ -ieq 'Microsoft.PowerShell' }).Count -gt 0
+    $shellExe = if ($containsPs) {
+        Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+    } elseif (Get-Command pwsh -ErrorAction SilentlyContinue) {
+        "pwsh.exe"
+    } else {
+        "powershell.exe"
+    }
     Start-Process -FilePath $shellExe -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$runnerPath`"") -ErrorAction Stop
 }
 

@@ -291,15 +291,33 @@ function Get-InstalledJavaRuntimes {
 # =========================================================================
 # POWERSHELL RELEASE CHECKER (3-TIER: GREEN=CURRENT, PURPLE=1-5, RED=>5)
 # =========================================================================
+function Get-PowerShellInstallChannel {
+    $curMajor = [int]$global:PSVersionTable.PSVersion.Major
+    $psHomeStr = [string]$PSHOME
+    $msiExe = "C:\Program Files\PowerShell\7\pwsh.exe"
+    $msixAlias = Join-Path $env:LOCALAPPDATA "Microsoft\WindowsApps\pwsh.exe"
+
+    if ($psHomeStr -like "*\WindowsApps\*") { return "msix" }
+    if ($psHomeStr -like "*\Program Files\PowerShell\*") { return "msi" }
+    if ($curMajor -lt 7) {
+        if (Test-Path -LiteralPath $msiExe -PathType Leaf) { return "msi" }
+        if (Test-Path -LiteralPath $msixAlias -PathType Leaf) { return "msix" }
+        return "none"
+    }
+    return "portable"
+}
+
 function Get-PowerShellUpdateStatus {
     param([switch]$Force)
 
+    $channel = Get-PowerShellInstallChannel
     if (-not $Force -and $script:LastPsUpdateCheck -ne [datetime]::MinValue -and (([datetime]::Now - $script:LastPsUpdateCheck).TotalHours -lt 6)) {
         return @{
             latest  = $script:CachedPsLatest
             missed  = $script:CachedPsMissed
             tier    = $script:CachedPsVerTier
             hasMsi  = $script:CachedPsHasMsi
+            channel = $channel
             detail  = $script:CachedPsUpdateDetail
             url     = $script:CachedPsReleaseUrl
         }
@@ -329,26 +347,51 @@ function Get-PowerShellUpdateStatus {
 
         if ($stableEntries.Count -gt 0) {
             $sortedEntries = @($stableEntries | Sort-Object ver -Descending)
-            $topEntry   = $sortedEntries[0]
-            $latestVer  = $topEntry.ver
-            $latestUrl  = $topEntry.url
-            $latestMsi  = [bool]$topEntry.hasMsi
-            $uniqueVers = @($sortedEntries | ForEach-Object { $_.ver } | Select-Object -Unique)
-            $newerList  = @($uniqueVers | Where-Object { $_ -gt $curSem })
-            $missed = $newerList.Count
+            $msiEntries    = @($sortedEntries | Where-Object { $_.hasMsi })
+            $topAnyEntry   = $sortedEntries[0]
+            $topMsiEntry   = if ($msiEntries.Count -gt 0) { $msiEntries[0] } else { $null }
 
-            # If running PS 5.1 or very old 7.x where >30 releases passed, mark critical (>5 missed)
+            # MSI installs track latest official MSI; MSIX / none / newer portable track latest overall
+            $trackMsiOnly = ($channel -eq "msi" -and $null -ne $topMsiEntry -and $curSem -le $topMsiEntry.ver)
+            $targetEntry  = if ($trackMsiOnly) { $topMsiEntry } else { $topAnyEntry }
+
+            $latestVer   = $targetEntry.ver
+            $latestUrl   = $targetEntry.url
+            $latestMsi   = [bool]$targetEntry.hasMsi
+            $comparePool = if ($trackMsiOnly) { $msiEntries } else { $sortedEntries }
+            $uniqueVers  = @($comparePool | ForEach-Object { $_.ver } | Select-Object -Unique)
+            $newerList   = @($uniqueVers | Where-Object { $_ -gt $curSem })
+            $missed      = $newerList.Count
+
             if ($curSem.Major -lt $latestVer.Major) { $missed = [math]::Max($missed, 6) }
             elseif (($latestVer.Minor - $curSem.Minor) -ge 2 -and $missed -lt 6) { $missed = [math]::Max($missed, 6) }
 
-            $msiNote = if ($latestMsi) { "Official .msi available" } else { "No .msi available — uses official .zip -> C:\Program Files\PowerShell\7" }
+            $msixDirWarning = "Note: MSIX installs into C:\Program Files\WindowsApps where Windows restricts direct folder browsing, file edits, and manual overrides."
             $tier = if ($missed -eq 0) { "uptodate" } elseif ($missed -le 5) { "update" } else { "critical" }
-            $detail = if ($missed -eq 0) {
-                "PowerShell $curSem is up to date (latest: $latestVer) — Click to re-check"
-            } elseif ($missed -le 5) {
-                "PowerShell update available: $curSem -> $latestVer ($missed release(s) behind · $msiNote) — Click to install"
+
+            if ($channel -eq "none") {
+                $detail = "PowerShell Core 7 is not installed (running legacy $curSem). Click to install v$latestVer via WinGet (MSIX). $msixDirWarning"
+            } elseif ($channel -eq "msix") {
+                $detail = if ($missed -eq 0) {
+                    "PowerShell $curSem (MSIX / WindowsApps) is up to date (latest: $latestVer). $msixDirWarning Click to re-check."
+                } else {
+                    "PowerShell MSIX update available: $curSem -> $latestVer ($missed release(s) behind). Click to upgrade via WinGet. $msixDirWarning"
+                }
+            } elseif ($channel -eq "msi") {
+                $nonMsiNote = if ($topMsiEntry -and $topAnyEntry.ver -gt $topMsiEntry.ver) {
+                    " (v$($topAnyEntry.ver) has no .msi — staying on MSI keeps C:\Program Files\PowerShell\7 unlocked; MSIX locks WindowsApps)"
+                } else { "" }
+                $detail = if ($missed -eq 0) {
+                    "PowerShell $curSem (MSI · C:\Program Files\PowerShell\7) is up to date (latest MSI: $latestVer)$nonMsiNote — Click to re-check"
+                } else {
+                    "PowerShell MSI update available: $curSem -> $latestVer ($missed MSI release(s) behind · full C:\Program Files\PowerShell\7 access) — Click to install"
+                }
             } else {
-                "PowerShell severely outdated: $curSem -> $latestVer ($missed+ releases missed · $msiNote) — Click to install"
+                $detail = if ($missed -eq 0) {
+                    "PowerShell $curSem (Portable) is up to date (latest: $latestVer) — Click to re-check"
+                } else {
+                    "PowerShell update available: $curSem -> $latestVer ($missed release(s) behind) — Click to update"
+                }
             }
 
             $script:CachedPsLatest       = $latestVer.ToString()
@@ -372,6 +415,7 @@ function Get-PowerShellUpdateStatus {
         missed  = $script:CachedPsMissed
         tier    = $script:CachedPsVerTier
         hasMsi  = $script:CachedPsHasMsi
+        channel = $channel
         detail  = $script:CachedPsUpdateDetail
         url     = $script:CachedPsReleaseUrl
     }
@@ -508,6 +552,7 @@ function Get-InfraMetrics {
         PsMissedUpdates     = [int]$script:CachedPsMissed
         PsVersionTier       = [string]$script:CachedPsVerTier
         PsLatestHasMsi      = [bool]$script:CachedPsHasMsi
+        PsInstallChannel    = (Get-PowerShellInstallChannel)
         PsUpdateDetail      = [string]$script:CachedPsUpdateDetail
         PsReleaseUrl        = [string]$script:CachedPsReleaseUrl
         JavaPrimaryText     = [string]$script:CachedJavaPrimary
