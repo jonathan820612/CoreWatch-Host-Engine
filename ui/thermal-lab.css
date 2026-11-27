@@ -4,6 +4,49 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
+    overflow-y: auto !important;
+    padding-bottom: 18px;
+}
+.thermal-panel > * {
+    flex-shrink: 0;
+}
+
+.thermal-providers-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    background: var(--cw-bg-inset);
+    border: 1px solid var(--cw-border);
+    border-radius: 4px;
+}
+.thermal-provider-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
+    cursor: default;
+}
+.thermal-alias-editor {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 7px;
+    background: var(--cw-bg-surface);
+    border: 1px solid var(--cw-border-strong);
+    border-radius: 4px;
+}
+.thermal-alias-editor input {
+    flex: 1 1 130px;
+    min-width: 0;
+    padding: 3px 6px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
+}
+.thermal-alias-editor select {
+    padding: 3px 5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
 }
 
 .thermal-presets-bar {

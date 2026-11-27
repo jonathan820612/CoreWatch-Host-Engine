@@ -10,6 +10,7 @@ function createThermalLab(invoke) {
     let tempUnit = "C";
     let lastSnap = null;
     const expandedCurveId = new Set();
+    const expandedAliasId = new Set();
 
     function fmtTemp(c) {
         if (c == null || Number.isNaN(c)) return "—";
@@ -146,15 +147,40 @@ function createThermalLab(invoke) {
             checkBtn.textContent = snap.healthCheckRunning ? "🩺 Running Health Sweep…" : "🩺 Run Fan & Pump Health Check";
         }
 
+        // Hybrid hardware provider badges
+        const provBar = byId("thermal-providers-bar");
+        if (provBar && Array.isArray(snap.providers)) {
+            const labelNode = element("span", "thermal-preset-label", "Backends");
+            const stateMap = {
+                active: ["diag-ok", "●"],
+                admin_required: ["diag-warn", "🔒"],
+                standby: ["diag-neutral", "○"],
+                unavailable: ["diag-neutral", "×"]
+            };
+            const pills = snap.providers.map((p) => {
+                const [cls, icon] = stateMap[p.state] || ["diag-neutral", "○"];
+                const statusWord = p.state === "active" ? "Active"
+                    : p.state === "admin_required" ? "Admin Req"
+                    : p.state === "standby" ? "Standby" : "Off";
+                const el = element("span", `diag-pill thermal-provider-pill ${cls}`, `${icon} ${p.name}: ${statusWord}`);
+                el.title = p.detail || "";
+                return el;
+            });
+            provBar.replaceChildren(labelNode, ...pills);
+        }
+
         // Info / elevation / health-check banner
         const banner = byId("thermal-banner");
         const bannerText = byId("thermal-banner-text");
         const elevateBtn = byId("thermal-banner-elevate");
+        const alwaysAdminBtn = byId("thermal-banner-always-admin");
         const bannerMsg = snap.lastCheckSummary || snap.note || "";
         if (banner && bannerText) {
             banner.hidden = !bannerMsg;
             bannerText.textContent = bannerMsg;
-            if (elevateBtn) elevateBtn.hidden = Boolean(snap.elevated || !snap.helperAvailable);
+            const showElev = !snap.elevated && (snap.helperAvailable || snap.pawnIo === "Running");
+            if (elevateBtn) elevateBtn.hidden = !showElev;
+            if (alwaysAdminBtn) alwaysAdminBtn.hidden = !showElev;
         }
 
         // KPI Grid
@@ -306,11 +332,23 @@ function createThermalLab(invoke) {
 
         const head = element("div", "thermal-fan-head");
         const title = element("div", "thermal-fan-title");
-        title.append(element("strong", "", fan.name), element("small", "", fan.hardware));
+        const subText = fan.rawName && fan.rawName !== fan.name
+            ? `${fan.hardware} · ${fan.rawName}`
+            : fan.hardware;
+        title.append(element("strong", "", fan.name), element("small", "", subText));
         const badges = element("div", "panel-actions");
+        const tagBtn = actionButton("🏷️", () => {
+            if (expandedAliasId.has(fan.id)) expandedAliasId.delete(fan.id);
+            else expandedAliasId.add(fan.id);
+            render(lastSnap);
+        });
+        tagBtn.className = "card-ctrl-btn";
+        tagBtn.title = "Rename header & assign role (e.g. Arctic AIO Pump, Radiator, Intake)";
+        tagBtn.setAttribute("aria-label", `Rename or tag ${fan.name}`);
         badges.append(
             element("span", `diag-pill ${rCls}`, rLabel),
-            element("span", `diag-pill ${healthPillClass(fan.healthStatus)}`, fan.healthStatus)
+            element("span", `diag-pill ${healthPillClass(fan.healthStatus)}`, fan.healthStatus),
+            tagBtn
         );
         head.append(title, badges);
 
@@ -344,6 +382,52 @@ function createThermalLab(invoke) {
         healthRow.append(healthMeta, track);
 
         card.append(head, readout, healthRow);
+
+        // Inline channel label & AIO/fan role editor (for motherboard headers like Arctic AIO Pump)
+        if (expandedAliasId.has(fan.id)) {
+            const editor = element("div", "thermal-alias-editor");
+            const nameIn = document.createElement("input");
+            nameIn.type = "text";
+            nameIn.className = "tab-search-input";
+            nameIn.maxLength = 48;
+            nameIn.placeholder = "e.g. Arctic AIO Pump";
+            nameIn.value = fan.name !== fan.rawName ? fan.name : "";
+            const roleSel = document.createElement("select");
+            roleSel.className = "tab-sort-select";
+            for (const [val, txt] of [
+                ["", "Auto role"],
+                ["pump", "💧 AIO Pump (35% floor)"],
+                ["cooler", "❄️ Radiator Fan"],
+                ["cpu", "🔥 CPU Fan"],
+                ["chassis", "🌀 Chassis Fan"],
+                ["gpu", "🎮 GPU Fan"],
+                ["vrm", "⚡ VRM Fan"]
+            ]) {
+                roleSel.append(new Option(txt, val, false, (fan.customRole || "") === val));
+            }
+            const saveBtn = actionButton("Save", () => {
+                expandedAliasId.delete(fan.id);
+                void runAction({
+                    kind: "configure_channel",
+                    channel_id: fan.id,
+                    label: nameIn.value.trim() || null,
+                    role: roleSel.value || null
+                }, `Updated header tag for ${nameIn.value.trim() || fan.rawName}`);
+            });
+            saveBtn.className = "card-ctrl-btn btn-accent-action";
+            const clearBtn = actionButton("Reset", () => {
+                expandedAliasId.delete(fan.id);
+                void runAction({
+                    kind: "configure_channel",
+                    channel_id: fan.id,
+                    label: null,
+                    role: null
+                }, `Reset label for ${fan.rawName}`);
+            });
+            clearBtn.className = "card-ctrl-btn";
+            editor.append(nameIn, roleSel, saveBtn, clearBtn);
+            card.append(editor);
+        }
 
         // Inline channel issues if any
         for (const issue of fan.issues) {
@@ -493,8 +577,18 @@ function createThermalLab(invoke) {
     byId("thermal-reset-baselines")?.addEventListener("click", () =>
         void runAction({ kind: "reset_baselines" }, "Learned fan/pump baselines cleared"));
     byId("thermal-banner-elevate")?.addEventListener("click", async () => {
-        if (await askDashboard("Restart as Administrator", "Restart RustCoreWatch as Administrator to unlock CPU die, Motherboard SuperIO/VRM, AIO/Pump, and chassis fan sensors?")) {
+        if (await askDashboard("Restart as Administrator", "Restart RustCoreWatch as Administrator to unlock CPU die, Motherboard SuperIO/VRM, Arctic/PWM AIO headers, and fan control?")) {
             await invoke("elevate").catch((e) => window.cwApp?.showToast?.(String(e), "warn"));
+        }
+    });
+    byId("thermal-banner-always-admin")?.addEventListener("click", async () => {
+        if (await askDashboard("Always Start as Administrator?", "Save Administrator Launch Mode in Settings and restart RustCoreWatch elevated now so motherboard fans, AIO headers, and CPU die sensors are always active?", null, 0, "Save & Elevate")) {
+            try {
+                await invoke("save_dashboard_preferences", { changes: { runAsAdmin: true } });
+                await invoke("elevate");
+            } catch (e) {
+                window.cwApp?.showToast?.(String(e), "warn");
+            }
         }
     });
 

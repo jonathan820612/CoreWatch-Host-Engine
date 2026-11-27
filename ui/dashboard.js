@@ -1785,13 +1785,17 @@ async function start() {
                     if (!byId("rgb-presets-list").querySelector(".rgb-preset-chip") || !byId("rgb-effects-grid").querySelector(".rgb-effect-btn")) {
                         throw new Error("RGB Studio did not render its effects and lighting presets.");
                     }
-                    if (!byId("thermal-overall-pill") || !byId("thermal-aio-strip").textContent.includes("AIO")) {
-                        throw new Error("Thermal & Cooling Lab did not render its health and AIO sections.");
+                    if (!byId("thermal-overall-pill") || !byId("thermal-aio-strip").textContent.includes("AIO")
+                        || byId("thermal-providers-bar").querySelectorAll(".thermal-provider-pill").length !== 6) {
+                        throw new Error("Thermal & Cooling Lab did not render its health, AIO, and 6 hybrid provider badges.");
                     }
                     await selectView("dashboard");
-                    // Verify Network MAC cell & Live System Console toggle ON/OFF
-                    if (!byId("lblMacAddress") || byId("lblDnsServers").closest(".net-node")?.classList.contains("net-node-span2")) {
-                        throw new Error("Network Profile balanced MAC cell was not rendered cleanly.");
+                    // Verify vertical-only resize handles on all 6 frames, Network sub-sections & MAC cell, and Live System Console toggle
+                    if (document.querySelectorAll("#viewDashboardGrid > .dashboard-card > .card-resize-handle").length !== 6) {
+                        throw new Error("Vertical resize handles were not attached to all 6 dashboard cards.");
+                    }
+                    if (!byId("lblMacAddress") || document.querySelectorAll('[data-card-id="network"] .net-subsection-header').length !== 2) {
+                        throw new Error("Network Profile reorganized sub-sections and MAC cell did not render cleanly.");
                     }
                     await setLiveSystemConsole(true, false);
                     if (!byId("console-live-toggle").classList.contains("is-on") || !byId("console-box").querySelector(".log-sys")) {

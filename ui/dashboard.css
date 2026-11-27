@@ -81,8 +81,65 @@ html[data-card-blur="on"] .cw-toast { backdrop-filter: blur(8px); }
     color: var(--cw-text-muted); flex-shrink: 0;
 }
 .cmdk-empty { padding: 14px 8px; text-align: center; color: var(--cw-text-muted); font-size: calc(11px * var(--cw-font-scale, 1)); }
-.dashboard-card { transition: border-color 0.16s ease, box-shadow 0.16s ease; }
+.dashboard-card { position: relative; transition: border-color 0.16s ease, box-shadow 0.16s ease; padding-bottom: 14px !important; }
 .dashboard-card:hover { border-color: var(--cw-border-strong); }
+.dashboard-card.is-resizing-v { border-color: var(--cw-accent-light); box-shadow: 0 0 0 1px var(--cw-accent); user-select: none; }
+.card-resize-handle {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 10px;
+    cursor: ns-resize;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    touch-action: none;
+    z-index: 4;
+}
+.card-resize-grip {
+    width: 34px;
+    height: 3px;
+    border-radius: 999px;
+    background: var(--cw-border-strong);
+    opacity: 0.32;
+    transition: opacity 0.15s ease, width 0.15s ease, background-color 0.15s ease;
+}
+.card-resize-handle:hover .card-resize-grip,
+.dashboard-card.is-resizing-v .card-resize-grip {
+    opacity: 0.95;
+    width: 52px;
+    background: var(--cw-accent-soft);
+}
+.dashboard-card.card-collapsed .card-resize-handle,
+#dock-cards .card-resize-handle { display: none; }
+.net-subsection-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 9px 0 6px;
+    padding-top: 7px;
+    border-top: 1px dashed var(--cw-border);
+    font-size: calc(9.5px * var(--cw-font-scale, 1));
+    font-weight: 700;
+    letter-spacing: 0.65px;
+    text-transform: uppercase;
+    color: var(--cw-accent-soft);
+    text-align: left;
+}
+.net-subsection-header span {
+    white-space: nowrap;
+}
+.net-drivers-section {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    text-align: left;
+}
+.net-drivers-section .multi-driver-row {
+    margin-top: 0 !important;
+    padding-top: 0 !important;
+}
 .hardware-cpu-footer { justify-content: flex-end; margin-top: 4px; }
 /* Tabular numerals on all live telemetry readouts to eliminate layout jitter */
 #lblCpuLoad, #lblCpuClock, #lblCpuTemp,
@@ -132,7 +189,7 @@ html[data-card-blur="on"] .cw-toast { backdrop-filter: blur(8px); }
 .dashboard-grid .wide-sub-console h2 { text-align: left; }
 .dashboard-grid .adapter-status-row { align-items: center; }
 .dashboard-grid .console-box {
-    min-height: 100px; max-height: 360px; white-space: pre-wrap; user-select: text;
+    min-height: 96px; max-height: none; white-space: pre-wrap; user-select: text;
     background: rgba(var(--cw-bg-inset-rgb), var(--cw-inset-alpha));
     border: 1px solid var(--cw-border); border-radius: 3px;
     color: var(--cw-text-secondary);

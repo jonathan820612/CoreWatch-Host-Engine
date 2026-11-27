@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, HashSet},
     fs::{self, File},
     io::{self, Read, Write},
     path::{Path, PathBuf},
@@ -95,6 +95,8 @@ pub struct Layout {
     hidden_metrics: Vec<String>,
     #[serde(alias = "dockedCards")]
     docked: Vec<String>,
+    #[serde(default)]
+    heights: BTreeMap<String, u32>,
 }
 
 impl Default for Layout {
@@ -106,6 +108,7 @@ impl Default for Layout {
             collapsed: Vec::new(),
             hidden_metrics: Vec::new(),
             docked: Vec::new(),
+            heights: BTreeMap::new(),
         }
     }
 }
@@ -124,6 +127,11 @@ impl Layout {
         retain_unique(&mut self.hidden_metrics, METRICS);
         retain_unique(&mut self.docked, CARDS);
         self.docked.retain(|id| !self.hidden.contains(id));
+        self.heights
+            .retain(|id, _| CARDS.contains(&id.as_str()));
+        for h in self.heights.values_mut() {
+            *h = (*h).clamp(110, 1400);
+        }
     }
 }
 

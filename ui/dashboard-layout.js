@@ -6,7 +6,8 @@ const fullDashboardLayout = {
     hidden: [],
     docked: [],
     collapsed: [],
-    hiddenMetrics: []
+    hiddenMetrics: [],
+    heights: {}
 };
 
 const dashboardPresets = {
@@ -222,9 +223,31 @@ function createDashboardLayout(save) {
         }
     }
 
+    function applyCardHeight(card, id, heightsMap) {
+        const custom = heightsMap && Number.isFinite(heightsMap[id]) ? Math.round(heightsMap[id]) : null;
+        if (custom && custom >= 110) {
+            card.classList.add("has-custom-height");
+            if (id === "console") {
+                card.style.height = custom + "px";
+                card.style.minHeight = custom + "px";
+            } else {
+                card.style.minHeight = custom + "px";
+                card.style.height = "auto";
+            }
+        } else {
+            card.classList.remove("has-custom-height");
+            card.style.minHeight = "";
+            card.style.height = "";
+        }
+    }
+
     function apply(next) {
         const orderChanged = layout.order.join() !== next.order.join() || layout.docked.join() !== (next.docked ?? []).join();
-        layout = next.docked ? next : { ...next, docked: [] };
+        layout = {
+            ...next,
+            docked: next.docked ?? [],
+            heights: next.heights ? { ...next.heights } : {}
+        };
         for (const [id, card] of cards) {
             const visible = !layout.hidden.includes(id);
             const wide = layout.wide.includes(id);
@@ -236,6 +259,12 @@ function createDashboardLayout(save) {
             card.classList.toggle("card-wide", wide);
             card.classList.toggle("card-half", !wide);
             card.classList.toggle("card-collapsed", collapsed);
+            if (!collapsed && !inDock) applyCardHeight(card, id, layout.heights);
+            else {
+                card.classList.remove("has-custom-height");
+                card.style.minHeight = "";
+                card.style.height = "";
+            }
             for (const [placement, button] of control.placements) {
                 const selected = placement === (!visible ? "hide" : inDock ? "dock" : "grid");
                 button.classList.toggle("active", selected);
@@ -274,8 +303,9 @@ function createDashboardLayout(save) {
             for (const node of card.querySelectorAll("[data-metric-key]")) node.classList.toggle("metric-hidden", layout.hiddenMetrics.includes(node.dataset.metricKey));
         }
         for (const [key, checkbox] of metricChecks) checkbox.checked = !layout.hiddenMetrics.includes(key);
+        const presetKeys = ["order", "wide", "hidden", "docked", "collapsed", "hiddenMetrics"];
         for (const [preset, button] of presetButtons) {
-            const active = Object.keys(preset).every((key) => preset[key].join() === layout[key].join());
+            const active = presetKeys.every((key) => (preset[key] || []).join() === (layout[key] || []).join());
             button.classList.toggle("active", active);
             button.setAttribute("aria-pressed", String(active));
         }
@@ -339,6 +369,78 @@ function createDashboardLayout(save) {
         const dockCollapse = controlButton("−", "Collapse " + title, () => toggle("collapsed", id));
         dockCtrls.append(dockReturn, dockCollapse);
         header.append(dockCtrls, edits);
+
+        // Vertical-only resize handle at bottom of each frame (zero scrollbars, double-click resets to auto-fit)
+        const resizeHandle = element("div", "card-resize-handle");
+        resizeHandle.setAttribute("role", "separator");
+        resizeHandle.setAttribute("aria-orientation", "horizontal");
+        resizeHandle.setAttribute("aria-label", "Adjust " + title + " height vertically");
+        resizeHandle.title = "Drag up/down to resize frame vertically · Double-click to auto-fit";
+        resizeHandle.append(element("span", "card-resize-grip"));
+        let resizeState = null;
+        resizeHandle.addEventListener("pointerdown", (ev) => {
+            if (ev.button !== 0 || card.classList.contains("card-collapsed") || layout.docked.includes(id)) return;
+            ev.preventDefault();
+            ev.stopPropagation();
+            const startRect = card.getBoundingClientRect();
+            // Measure natural minimum content height (temporarily clearing minHeight for non-console cards)
+            let naturalMin = 120;
+            if (id !== "console") {
+                const prevMin = card.style.minHeight;
+                const prevH = card.style.height;
+                card.style.minHeight = "";
+                card.style.height = "auto";
+                naturalMin = Math.max(120, Math.ceil(card.getBoundingClientRect().height));
+                card.style.minHeight = prevMin;
+                card.style.height = prevH;
+            }
+            resizeState = {
+                startY: ev.clientY,
+                startHeight: Math.round(startRect.height),
+                minHeight: naturalMin,
+                currentHeight: Math.round(startRect.height),
+                moved: false
+            };
+            card.classList.add("is-resizing-v");
+            try { resizeHandle.setPointerCapture(ev.pointerId); } catch {}
+        });
+        resizeHandle.addEventListener("pointermove", (ev) => {
+            if (!resizeState) return;
+            const dy = ev.clientY - resizeState.startY;
+            if (!resizeState.moved && Math.abs(dy) < 3) return;
+            resizeState.moved = true;
+            const nextH = Math.max(resizeState.minHeight, Math.min(1400, Math.round(resizeState.startHeight + dy)));
+            resizeState.currentHeight = nextH;
+            applyCardHeight(card, id, { [id]: nextH });
+        });
+        const finishResize = () => {
+            if (!resizeState) return;
+            const finalH = resizeState.currentHeight;
+            const moved = resizeState.moved;
+            const minH = resizeState.minHeight;
+            resizeState = null;
+            card.classList.remove("is-resizing-v");
+            if (!moved) return;
+            const nextHeights = { ...(layout.heights || {}) };
+            if (id !== "console" && finalH <= minH + 4) {
+                delete nextHeights[id];
+            } else {
+                nextHeights[id] = finalH;
+            }
+            void change({ ...layout, heights: nextHeights });
+        };
+        resizeHandle.addEventListener("lostpointercapture", finishResize);
+        window.addEventListener("pointerup", finishResize);
+        window.addEventListener("pointercancel", finishResize);
+        resizeHandle.addEventListener("dblclick", (ev) => {
+            ev.stopPropagation();
+            if (!layout.heights || !(id in layout.heights)) return;
+            const nextHeights = { ...layout.heights };
+            delete nextHeights[id];
+            void change({ ...layout, heights: nextHeights });
+            window.showToast?.(`${title} height reset to auto-fit`, "info", 1800);
+        });
+        card.append(resizeHandle);
         const startDrag = (event) => {
             if (!isEditing && event.currentTarget === header) {
                 event.preventDefault();

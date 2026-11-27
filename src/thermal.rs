@@ -53,9 +53,17 @@ pub enum ControlMode {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default, rename_all = "camelCase")]
+pub struct ChannelAlias {
+    pub label: Option<String>,
+    pub role: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
 pub struct ThermalConfig {
     pub active_preset: String,
     pub channels: HashMap<String, ControlMode>,
+    pub aliases: HashMap<String, ChannelAlias>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -97,9 +105,11 @@ pub struct TempSensor {
 pub struct FanChannel {
     pub id: String,
     pub name: String,
+    pub raw_name: String,
     pub hardware: String,
     pub category: String,
     pub role: &'static str, // "pump" | "cpu" | "gpu" | "chassis" | "vrm" | "cooler"
+    pub custom_role: Option<String>,
     pub rpm: Option<u32>,
     pub rpm_min: Option<u32>,
     pub rpm_max: Option<u32>,
@@ -170,6 +180,7 @@ pub struct ThermalSnapshot {
     pub gpu_throttle_reason: Option<String>,
     pub health_check_running: bool,
     pub last_check_summary: Option<String>,
+    pub providers: Vec<crate::thermal_providers::ProviderStatus>,
     pub note: Option<String>,
 }
 
@@ -181,6 +192,11 @@ pub enum ThermalAction {
     SetManual { control_id: String, percent: u8 },
     SetAuto { control_id: String },
     SetCurve { control_id: String, curve: FanCurve },
+    ConfigureChannel {
+        channel_id: String,
+        label: Option<String>,
+        role: Option<String>,
+    },
     ApplyPreset { preset: String },
     ResetAllAuto,
     RunHealthCheck,
@@ -489,6 +505,18 @@ impl Drop for HelperSession {
 // =========================================================================
 // PURE HEALTH ANALYSIS, CLASSIFICATION & FAN CURVE LOGIC
 // =========================================================================
+
+pub fn parse_role_override(raw: &str) -> Option<&'static str> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "pump" => Some("pump"),
+        "cpu" => Some("cpu"),
+        "gpu" => Some("gpu"),
+        "cooler" | "radiator" => Some("cooler"),
+        "vrm" => Some("vrm"),
+        "chassis" => Some("chassis"),
+        _ => None,
+    }
+}
 
 pub fn classify_fan_role(name: &str, hardware: &str, category: &str) -> &'static str {
     let n = name.to_ascii_lowercase();
@@ -853,6 +881,7 @@ impl ThermalEngine {
             .unwrap_or_else(|| ThermalConfig {
                 active_preset: "auto".into(),
                 channels: HashMap::new(),
+                aliases: HashMap::new(),
             });
         let baselines = dir
             .as_ref()
@@ -977,7 +1006,32 @@ impl ThermalEngine {
     }
 
     fn tick_once(&self) -> ThermalSnapshot {
+        use crate::thermal_providers::{
+            ProviderStatus, read_acpi_thermal_zones, read_hwinfo_shared_memory, read_lhm_ohm_wmi,
+            read_pawnio_superio,
+        };
+        let elevated = crate::native::elevated();
         let nvml_gpu = crate::sensors::nvml_gpu_thermal();
+        let hwinfo_frame = if self.smoke_test {
+            None
+        } else {
+            read_hwinfo_shared_memory()
+        };
+        let wmi_frame = if self.smoke_test {
+            None
+        } else {
+            read_lhm_ohm_wmi()
+        };
+        let pawnio_sio = if self.smoke_test || !elevated {
+            Ok(None)
+        } else {
+            read_pawnio_superio()
+        };
+        let acpi_temps = if self.smoke_test {
+            Vec::new()
+        } else {
+            read_acpi_thermal_zones()
+        };
         let storage_vols = if self.smoke_test {
             Vec::new()
         } else {
@@ -990,6 +1044,92 @@ impl ThermalEngine {
             Self::ensure_session_and_poll(&mut guard);
         }
 
+        // Track active hybrid providers (displayed as status pills at top of Thermal Lab)
+        let helper_available = crate::sensors::helper_executable().is_some();
+        let pawn_io_srv = crate::sensors::pawn_io_state();
+        let helper_mobo_count = guard
+            .last_frame
+            .as_ref()
+            .map_or(0, |f| f.fans.iter().filter(|x| x.category != "gpu").count());
+        let mut providers = vec![
+            ProviderStatus {
+                id: "nvml",
+                name: "NVML (GPU)",
+                state: if nvml_gpu.is_some() { "active" } else { "unavailable" },
+                detail: nvml_gpu
+                    .as_ref()
+                    .map_or_else(|| "No NVIDIA NVML GPU detected".into(), |g| g.name.clone()),
+            },
+            ProviderStatus {
+                id: "pawnio_sio",
+                name: "PawnIO SuperIO",
+                state: match &pawnio_sio {
+                    Ok(Some(_)) => "active",
+                    Ok(None) if !elevated => "admin_required",
+                    Ok(None) => "standby",
+                    Err(_) if !elevated => "admin_required",
+                    Err(_) => "unavailable",
+                },
+                detail: match &pawnio_sio {
+                    Ok(Some(fr)) => fr.detail.clone(),
+                    Ok(None) if !elevated => {
+                        format!("Restart as Admin to read motherboard SuperIO & AIO headers (PawnIO: {pawn_io_srv})")
+                    }
+                    Ok(None) => "No direct ITE SuperIO chip reported on LPC slots".into(),
+                    Err(e) => e.clone(),
+                },
+            },
+            ProviderStatus {
+                id: "lhm_helper",
+                name: "LHM Helper",
+                state: if !helper_available {
+                    "unavailable"
+                } else if guard.session.is_some() && (elevated || helper_mobo_count > 0) {
+                    "active"
+                } else if guard.session.is_some() {
+                    "admin_required"
+                } else {
+                    "standby"
+                },
+                detail: if !helper_available {
+                    "Optional CoreWatchSensorHelper.exe not staged".into()
+                } else if !elevated {
+                    "GPU sensors active; Admin required for CPU die, Motherboard EC, AIO & PWM control".into()
+                } else {
+                    "Full CPU, GPU, Motherboard SuperIO/EC, AIO & PWM control active".into()
+                },
+            },
+            ProviderStatus {
+                id: "hwinfo",
+                name: "HWiNFO64 SM2",
+                state: if hwinfo_frame.is_some() { "active" } else { "standby" },
+                detail: hwinfo_frame.as_ref().map_or_else(
+                    || "Standby — enable Shared Memory in HWiNFO64 to stream sensors in Standard User mode".into(),
+                    |f| f.detail.clone(),
+                ),
+            },
+            ProviderStatus {
+                id: "wmi_hw",
+                name: "LHM / OHM WMI",
+                state: if wmi_frame.is_some() { "active" } else { "standby" },
+                detail: wmi_frame.as_ref().map_or_else(
+                    || "Standby — auto-connects when LibreHardwareMonitor or OpenHardwareMonitor WMI is running".into(),
+                    |(_, f)| f.detail.clone(),
+                ),
+            },
+        ];
+        let smart_count = storage_vols.iter().filter(|v| v.temperature_c.is_some()).count();
+        providers.push(ProviderStatus {
+            id: "smart_acpi",
+            name: "SMART / ACPI",
+            state: if smart_count > 0 || !acpi_temps.is_empty() {
+                "active"
+            } else {
+                "standby"
+            },
+            detail: format!("{smart_count} drive temp(s), {} ACPI zone(s)", acpi_temps.len()),
+        });
+
         struct TempCandidate {
             name: String,
             hardware: String,
@@ -998,7 +1138,7 @@ impl ThermalEngine {
             min: Option<f64>,
             max: Option<f64>,
         }
-        // Build temperature list from Helper + NVML + Storage SMART
+        // Build temperature list from LHM Helper + HWiNFO64 SM2 + LHM/OHM WMI + PawnIO SuperIO + NVML + SMART + ACPI
         let mut temp_map: HashMap<String, TempCandidate> = HashMap::new();
         if let Some(ref frame) = guard.last_frame {
             for t in &frame.temperatures {
@@ -1018,6 +1158,41 @@ impl ThermalEngine {
                 }
             }
         }
+        fn merge_external_temps(
+            temp_map: &mut HashMap<String, TempCandidate>,
+            temps: &[crate::thermal_providers::ProviderTemp],
+        ) {
+            for t in temps {
+                let dup = temp_map.values().any(|e| {
+                    e.category == t.category && e.name.eq_ignore_ascii_case(&t.name)
+                });
+                if !dup {
+                    temp_map.insert(
+                        t.id.clone(),
+                        TempCandidate {
+                            name: t.name.clone(),
+                            hardware: t.hardware.clone(),
+                            category: t.category.clone(),
+                            value: t.value_c,
+                            min: t.min_c,
+                            max: t.max_c,
+                        },
+                    );
+                }
+            }
+        }
+        if let Some(ref hw) = hwinfo_frame {
+            merge_external_temps(&mut temp_map, &hw.temperatures);
+        }
+        if let Some((_, ref wf)) = wmi_frame {
+            merge_external_temps(&mut temp_map, &wf.temperatures);
+        }
+        if let Ok(Some(ref pio)) = pawnio_sio
+            && !temp_map.values().any(|t| t.category == "motherboard")
+        {
+            merge_external_temps(&mut temp_map, &pio.temperatures);
+        }
+        merge_external_temps(&mut temp_map, &acpi_temps);
         if let Some(ref gpu) = nvml_gpu
             && let Some(c) = gpu.temp_c
             && !temp_map
@@ -1191,6 +1366,54 @@ impl ThermalEngine {
                 });
             }
         }
+        // Merge fans from HWiNFO64 SM2, LHM/OHM WMI, and native PawnIO SuperIO (avoiding duplicates with LHM Helper)
+        #[allow(clippy::type_complexity)]
+        fn append_ext_fans(
+            raw_fans: &mut Vec<(String, String, String, String, i32, Option<u32>)>,
+            raw_controls: &mut Vec<ControlCandidate>,
+            ext_fans: &[crate::thermal_providers::ProviderFan],
+        ) {
+            for f in ext_fans {
+                let dup = raw_fans.iter().any(|existing| {
+                    existing.3 == f.category && existing.1.eq_ignore_ascii_case(&f.name)
+                });
+                if !dup {
+                    raw_fans.push((
+                        f.id.clone(),
+                        f.name.clone(),
+                        f.hardware.clone(),
+                        f.category.clone(),
+                        -1,
+                        Some(f.rpm),
+                    ));
+                    if let Some(pwm) = f.pwm_pct {
+                        raw_controls.push(ControlCandidate {
+                            id: format!("{}:pwm", f.id),
+                            name: f.name.clone(),
+                            hardware: f.hardware.clone(),
+                            category: f.category.clone(),
+                            index: -1,
+                            percent: Some(pwm),
+                            controllable: false,
+                            min_pct: 0,
+                            max_pct: 100,
+                        });
+                    }
+                }
+            }
+        }
+        if let Some(ref hw) = hwinfo_frame {
+            append_ext_fans(&mut raw_fans, &mut raw_controls, &hw.fans);
+        }
+        if let Some((_, ref wf)) = wmi_frame {
+            append_ext_fans(&mut raw_fans, &mut raw_controls, &wf.fans);
+        }
+        if let Ok(Some(ref pio)) = pawnio_sio
+            && !raw_fans.iter().any(|f| f.3 == "motherboard")
+        {
+            append_ext_fans(&mut raw_fans, &mut raw_controls, &pio.fans);
+        }
+
         // Fallback to native NVML fan percentages if helper didn't report GPU fans
         if let Some(ref gpu) = nvml_gpu
             && !raw_fans.iter().any(|f| f.3 == "gpu")
@@ -1275,7 +1498,7 @@ impl ThermalEngine {
 
         for FusedChannel {
             id,
-            name,
+            name: raw_name,
             hardware,
             category,
             rpm,
@@ -1286,7 +1509,22 @@ impl ThermalEngine {
             max_pct,
         } in fused
         {
-            let role = classify_fan_role(&name, &hardware, &category);
+            let alias = guard.config.aliases.get(&id).cloned();
+            let name = alias
+                .as_ref()
+                .and_then(|a| a.label.as_deref())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map_or_else(|| raw_name.clone(), str::to_owned);
+            let custom_role = alias
+                .as_ref()
+                .and_then(|a| a.role.as_deref())
+                .and_then(parse_role_override)
+                .map(str::to_owned);
+            let role = custom_role
+                .as_deref()
+                .and_then(parse_role_override)
+                .unwrap_or_else(|| classify_fan_role(&name, &hardware, &category));
             let effective_min = if role == "pump" {
                 min_pct.max(PUMP_MIN_SAFETY_PCT)
             } else {
@@ -1414,9 +1652,11 @@ impl ThermalEngine {
             fans_out.push(FanChannel {
                 id,
                 name,
+                raw_name,
                 hardware,
                 category,
                 role,
+                custom_role,
                 rpm,
                 rpm_min,
                 rpm_max,
@@ -1496,6 +1736,28 @@ impl ThermalEngine {
                     .collect()
             })
             .unwrap_or_default();
+        for ext_powers in [
+            hwinfo_frame.as_ref().map(|h| h.powers.as_slice()),
+            wmi_frame.as_ref().map(|(_, w)| w.powers.as_slice()),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            for p in ext_powers {
+                if !powers
+                    .iter()
+                    .any(|e| e.category == p.category && e.name.eq_ignore_ascii_case(&p.name))
+                {
+                    powers.push(PowerSensor {
+                        id: p.id.clone(),
+                        name: p.name.clone(),
+                        hardware: p.hardware.clone(),
+                        category: p.category.clone(),
+                        watts: p.watts,
+                    });
+                }
+            }
+        }
         if let Some(ref gpu) = nvml_gpu
             && let Some(w) = gpu.power_w
             && !powers.iter().any(|p| p.category == "gpu")
@@ -1621,14 +1883,13 @@ impl ThermalEngine {
             .max_by(|a, b| a.value_c.total_cmp(&b.value_c))
             .cloned();
 
-        let helper_available = crate::sensors::helper_executable().is_some();
-        let elevated = crate::native::elevated();
+        let has_mobo_fans = fans_out.iter().any(|f| f.category != "gpu");
         let note = if let Some(ref err) = guard.last_error {
             Some(err.clone())
-        } else if !helper_available {
-            Some("Optional Hardware Sensor Helper is not installed — showing native NVIDIA NVML & Storage SMART sensors only.".into())
-        } else if !elevated {
-            Some("Standard User mode: GPU thermals, Hot Spot, VRAM & GPU fans are live. Restart as Administrator (PawnIO) to unlock CPU die, Motherboard VRM/SuperIO, AIO/Pump & chassis fan control.".into())
+        } else if !elevated && !has_mobo_fans {
+            Some("Standard User mode: GPU thermals & fans are live, but Windows blocks direct motherboard SuperIO & Arctic/PWM AIO headers without elevation. Click Restart as Administrator (PawnIO is ready), OR enable Shared Memory in HWiNFO64 / WMI in LibreHardwareMonitor to read them in Standard User mode.".into())
+        } else if !helper_available && pawnio_sio.as_ref().ok().and_then(|o| o.as_ref()).is_none() && hwinfo_frame.is_none() && wmi_frame.is_none() {
+            Some("Optional Hardware Sensor Helper is not installed — showing native NVIDIA NVML, SMART & ACPI sensors.".into())
         } else {
             None
         };
@@ -1637,7 +1898,7 @@ impl ThermalEngine {
             elevated,
             helper_available,
             helper_active: guard.session.is_some(),
-            pawn_io: crate::sensors::pawn_io_state(),
+            pawn_io: pawn_io_srv,
             active_preset: if guard.config.active_preset.is_empty() {
                 "auto".into()
             } else {
@@ -1655,6 +1916,7 @@ impl ThermalEngine {
             gpu_throttle_reason,
             health_check_running: self.check_running.load(Ordering::Acquire),
             last_check_summary: guard.last_check_summary.clone(),
+            providers,
             note,
         }
     }
@@ -1753,6 +2015,35 @@ impl ThermalEngine {
                     .config
                     .channels
                     .insert(control_id, ControlMode::Curve(curve));
+                let cfg = guard.config.clone();
+                self.save_config_locked(&cfg);
+                drop(guard);
+                Ok(self.tick_once())
+            }
+            ThermalAction::ConfigureChannel {
+                channel_id,
+                label,
+                role,
+            } => {
+                let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+                let clean_label = label
+                    .map(|s| s.trim().chars().take(48).collect::<String>())
+                    .filter(|s| !s.is_empty());
+                let clean_role = role
+                    .as_deref()
+                    .and_then(parse_role_override)
+                    .map(str::to_owned);
+                if clean_label.is_none() && clean_role.is_none() {
+                    guard.config.aliases.remove(&channel_id);
+                } else {
+                    guard.config.aliases.insert(
+                        channel_id,
+                        ChannelAlias {
+                            label: clean_label,
+                            role: clean_role,
+                        },
+                    );
+                }
                 let cfg = guard.config.clone();
                 self.save_config_locked(&cfg);
                 drop(guard);

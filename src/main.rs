@@ -45,6 +45,7 @@ mod system_controls;
 mod system_log;
 mod tasks;
 mod thermal;
+mod thermal_providers;
 mod update_center;
 mod wsl;
 

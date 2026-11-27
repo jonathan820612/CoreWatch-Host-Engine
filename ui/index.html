@@ -287,34 +287,43 @@
         <!-- NETWORK PROFILE SYSTEM -->
         <div class="dashboard-card wide-sub-console" data-card-id="network" data-card-title="📡 Network Profile System">
             <h2>📡 NETWORK PROFILE SYSTEM</h2>
+            <!-- Section 1: Addressing & Connectivity Text Telemetry (8 cells: 2x4 wide / 4x2 medium) -->
             <div class="network-matrix-grid">
                 <div class="net-node"><span>🏠</span> Int IPv4: <button id="lblIntIPv4" class="value-action clickable-value" type="button" title="Copy internal IPv4">—</button></div>
                 <div class="net-node"><span>🔏</span> Subnet Mask: <strong id="lblSubnetMask">—</strong></div>
                 <div class="net-node"><span>🚪</span> Gateway: <button id="lblGateway" class="value-action clickable-value" type="button" title="Copy gateway">—</button></div>
+                <div class="net-node"><span>🌍</span> Ext IPv4: <button id="lblExtIPv4" class="value-action clickable-value" type="button" title="Click to copy External IPv4 (or resolve if unavailable)">—</button><button id="btnRefreshExtIpv4" class="ext-ip-refresh-btn" type="button" title="Refresh External IPv4" aria-label="Refresh External IPv4">↻</button></div>
+                <div class="net-node dashboard-dns-node" data-metric-key="net-dnsarp"><span>🔎</span> DNS Servers: <button id="lblDnsServers" class="value-action clickable-value" type="button" title="View or configure active adapter DNS">—</button></div>
+                <div class="net-node" data-metric-key="net-dnsarp"><span>🪪</span> MAC Address: <button id="lblMacAddress" class="value-action clickable-value" type="button" title="Copy active adapter physical MAC address">—</button></div>
+                <div class="net-node"><span>📶</span> WLAN SSID: <strong id="lblWlanSsid">—</strong></div>
+                <div class="net-node"><span>🚀</span> Link Capacity: <strong id="lblLinkCap">—</strong></div>
+            </div>
+
+            <!-- Section 2: Interactive Network Controls, Firewall & Protection (12 cells: 3x4 wide / 6x2 medium) -->
+            <div class="net-subsection-header"><span>🛡️ Network Controls &amp; Protection</span></div>
+            <div class="network-matrix-grid">
                 <div class="net-node"><span>⚙️</span> IP Assignment: <button id="lblNetAssignment" class="toggle-pill-btn state-purple" type="button" title="Open Adapters &amp; IP">—</button></div>
                 <div class="net-node"><span>🛡️</span> Profile Status: <button id="lblNetworkStatus" class="diag-pill diag-neutral clickable-pill" type="button" disabled>—</button></div>
-                <div class="net-node"><span>📶</span> WLAN SSID: <strong id="lblWlanSsid">—</strong></div>
-                <div class="net-node"><span>🌍</span> Ext IPv4: <button id="lblExtIPv4" class="value-action clickable-value" type="button" title="Click to copy External IPv4 (or resolve if unavailable)">—</button><button id="btnRefreshExtIpv4" class="ext-ip-refresh-btn" type="button" title="Refresh External IPv4" aria-label="Refresh External IPv4">↻</button></div>
-                <div class="net-node"><span>🚀</span> Link Capacity: <strong id="lblLinkCap">—</strong></div>
-                <div class="net-node"><span>🧱</span> Firewall: <button id="lblFirewall" class="diag-pill diag-neutral clickable-pill" type="button" aria-label="Windows Firewall" disabled>—</button></div>
-                <div class="net-node"><span>👁️</span> Realtime Protection: <button id="lblRealtime" class="diag-pill diag-neutral clickable-pill" type="button" aria-label="Real-time Protection" disabled>—</button></div>
                 <div class="net-node"><span>📣</span> Discovery: <button id="lblDiscovery" class="diag-pill diag-neutral clickable-pill" type="button" aria-label="Network Discovery" disabled>—</button></div>
                 <div class="net-node"><span>📂</span> Sharing: <button id="lblSharing" class="diag-pill diag-neutral clickable-pill" type="button" aria-label="File and Printer Sharing" disabled>—</button></div>
-                <!-- [DEFENDER TAMPER-GATED CONTROLS] T. Protection + Dependent Defender Protections -->
+                <div class="net-node"><span>🧱</span> Firewall: <button id="lblFirewall" class="diag-pill diag-neutral clickable-pill" type="button" aria-label="Windows Firewall" disabled>—</button></div>
+                <div class="net-node" data-metric-key="net-dnsarp"><span>🌐</span> DNS Check: <button id="lblDnsStatus" class="diag-pill diag-neutral clickable-pill" type="button" title="Flush the Windows DNS cache and run a live lookup">Test</button></div>
+                <div class="net-node" data-metric-key="net-dnsarp"><span>🔗</span> ARP GW: <button id="lblArpStatus" class="diag-pill diag-neutral clickable-pill" type="button" title="Resolve the active IPv4 gateway again">—</button></div>
                 <div class="net-node" data-metric-key="net-defender"><span>🛡️</span> T. Protection: <button id="lblTamperProtection" class="diag-pill diag-neutral clickable-pill" type="button" aria-label="Tamper Protection policy" disabled>—</button></div>
+                <div class="net-node"><span>👁️</span> Realtime Protection: <button id="lblRealtime" class="diag-pill diag-neutral clickable-pill" type="button" aria-label="Real-time Protection" disabled>—</button></div>
                 <div class="net-node" data-metric-key="net-defender"><span>🧠</span> Behavior Mon: <button id="lblBehaviorMonitor" class="diag-pill diag-neutral clickable-pill" type="button" aria-label="Behavior Monitoring" disabled>—</button></div>
                 <div class="net-node" data-metric-key="net-defender"><span>☁️</span> Cloud Protect: <button id="lblCloudProtection" class="diag-pill diag-neutral clickable-pill" type="button" aria-label="Cloud-delivered Protection" disabled>—</button></div>
                 <div class="net-node" data-metric-key="net-defender"><span>📥</span> IOAV Scan: <button id="lblIoavProtection" class="diag-pill diag-neutral clickable-pill" type="button" aria-label="Download and Attachment Scanning" disabled>—</button></div>
-                <!-- [DIAGNOSTIC ADDITION] DNS servers, active MAC address, DNS resolution check, and gateway ARP status -->
-                <div class="net-node dashboard-dns-node" data-metric-key="net-dnsarp"><span>🔎</span> DNS Servers: <button id="lblDnsServers" class="value-action clickable-value" type="button" title="View or configure active adapter DNS">—</button></div>
-                <div class="net-node" data-metric-key="net-dnsarp"><span>🪪</span> MAC Address: <button id="lblMacAddress" class="value-action clickable-value" type="button" title="Copy active adapter physical MAC address">—</button></div>
-                <div class="net-node" data-metric-key="net-dnsarp"><span>🌐</span> DNS Check: <button id="lblDnsStatus" class="diag-pill diag-neutral clickable-pill" type="button" title="Flush the Windows DNS cache and run a live lookup">Test</button></div>
-                <div class="net-node" data-metric-key="net-dnsarp"><span>🔗</span> ARP GW: <button id="lblArpStatus" class="diag-pill diag-neutral clickable-pill" type="button" title="Resolve the active IPv4 gateway again">—</button></div>
-                <div class="net-node multi-driver-row" data-metric-key="net-drivers">
+            </div>
+
+            <!-- Section 3: Network Drivers & Adapters Sub-Section -->
+            <div class="net-subsection-header" data-metric-key="net-drivers"><span>🔌 Network Drivers &amp; Adapters</span></div>
+            <div class="net-drivers-section" data-metric-key="net-drivers">
+                <div class="net-node multi-driver-row">
                     <span class="driver-inline-group"><span>🌐</span> Ethernet: <strong id="lblEthernet">—</strong></span>
                     <span class="driver-inline-group"><span>📶</span> Wi-Fi: <strong id="lblWifi">—</strong></span>
                 </div>
-                <div class="net-node multi-driver-row adapter-status-row" data-metric-key="net-drivers">
+                <div class="net-node multi-driver-row adapter-status-row">
                     <span>🔌</span> Adapter Status:
                     <div id="adapterStatusContainer" class="adapter-status-deck">
                         <span class="adapter-status-item">—</span>
@@ -1304,9 +1313,13 @@
             </div>
             <button id="thermal-reset-baselines" type="button" class="console-clear-btn" title="Clear learned healthy RPM-vs-PWM baselines and recalibrate">Reset Baselines</button>
         </div>
+        <div id="thermal-providers-bar" class="thermal-providers-bar" aria-label="Hybrid thermal hardware providers"></div>
         <div id="thermal-banner" class="thermal-banner" hidden>
             <span id="thermal-banner-text"></span>
-            <button id="thermal-banner-elevate" type="button" class="console-clear-btn btn-accent-action" hidden>🛡️ Restart as Administrator</button>
+            <div class="panel-actions">
+                <button id="thermal-banner-elevate" type="button" class="console-clear-btn btn-accent-action" hidden>🛡️ Restart as Administrator</button>
+                <button id="thermal-banner-always-admin" type="button" class="console-clear-btn" hidden title="Save Administrator Launch Mode in Settings and elevate now">⚙️ Always Start as Admin</button>
+            </div>
         </div>
         <div class="thermal-kpi-grid">
             <div class="thermal-kpi-card"><span class="thermal-kpi-label">Hottest Sensor</span><span id="thermal-kpi-hot" class="thermal-kpi-value">—</span><span id="thermal-kpi-hot-sub" class="thermal-kpi-sub">Sampling…</span></div>
