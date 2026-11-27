@@ -215,7 +215,7 @@
                 <div class="data-field"><span>🔲</span> Virtualization: <strong id="lblVirtualization">—</strong> <span class="id-inline-sep">·</span> Secure Boot: <strong id="lblSecureBoot">--</strong></div>
                 <div class="data-field"><span>❯_</span> PowerShell: <button id="lblPsVersion" class="diag-pill diag-neutral clickable-pill" type="button" aria-label="Check for PowerShell updates">—</button></div>
             </div>
-            <div class="data-field" data-metric-key="id-java"><span>☕</span> Java: <button id="lblJavaVersion" class="diag-pill diag-neutral clickable-pill" type="button" aria-haspopup="dialog" aria-label="Choose or install a Java runtime">—</button></div>
+            <div class="data-field" data-metric-key="id-java"><span>☕</span> Java: <button id="lblJavaVersion" class="diag-pill diag-neutral clickable-pill" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Choose or install a Java runtime">—</button></div>
             <div class="data-field" data-metric-key="id-telemetry"><span>📡</span> Telemetry: <button id="lblTelemetry" class="diag-pill diag-neutral clickable-pill" type="button" aria-label="Windows telemetry" disabled>—</button></div>
             <!-- [DIAGNOSTIC ADDITION] Elevation, pending reboot, and last unexpected shutdown -->
             <div class="identity-diag-group" data-metric-key="id-stability">
@@ -245,7 +245,7 @@
                 <div class="data-field-split"><span>🧬 BIOS Version:</span> <strong id="lblBiosVersion">—</strong></div>
             </div>
             <div class="metric-group" data-metric-key="infra-power">
-                <div class="data-field-split"><span>⚡ Power Plan:</span> <button id="lblPowerPlan" class="value-action clickable-value" type="button" title="Choose a Windows power plan">—</button></div>
+                <div class="data-field-split"><span>⚡ Power Plan:</span> <button id="lblPowerPlan" class="value-action clickable-value power-plan-dropdown" type="button" aria-haspopup="menu" aria-expanded="false" title="Choose a Windows power plan">—</button></div>
                 <div class="data-field-split"><span>🕒 System Uptime:</span> <strong id="lblUptime">—</strong></div>
             </div>
             <div class="audio-sub-deck" data-metric-key="infra-audio">
@@ -264,10 +264,10 @@
                 </div>
                 <div class="video-metrics-grid">
                     <div class="video-metric-item"><span>Resolution:</span> <strong id="lblMonResolution">--</strong></div>
-                    <div class="video-metric-item"><span>Refresh Rate:</span> <button id="lblMonRefresh" class="infra-refresh-select display-setting" type="button" title="Choose a driver-supported refresh rate">—</button></div>
+                    <div class="video-metric-item"><span>Refresh Rate:</span> <button id="lblMonRefresh" class="infra-refresh-select display-setting" type="button" aria-haspopup="menu" aria-expanded="false" title="Choose a driver-supported refresh rate">—</button></div>
                     <div class="video-metric-item"><span>Connection:</span> <strong id="lblMonConnection">--</strong></div>
-                    <div class="video-metric-item"><span>Scale:</span> <button id="lblMonScale" class="infra-refresh-select display-setting" type="button" title="Change the selected display scale">—</button></div>
-                    <div class="video-metric-item"><span>Orientation:</span> <button id="lblMonOrientation" class="infra-refresh-select display-setting" type="button" title="Choose display orientation">—</button></div>
+                    <div class="video-metric-item"><span>Scale:</span> <button id="lblMonScale" class="infra-refresh-select display-setting" type="button" aria-haspopup="menu" aria-expanded="false" title="Change the selected display scale">—</button></div>
+                    <div class="video-metric-item"><span>Orientation:</span> <button id="lblMonOrientation" class="infra-refresh-select display-setting" type="button" aria-haspopup="menu" aria-expanded="false" title="Choose display orientation">—</button></div>
                     <div class="video-metric-item"><span>HDR Status:</span> <button id="lblMonHdr" class="diag-pill diag-neutral clickable-pill" type="button" title="Change Windows Advanced Color">—</button></div>
                     <div class="video-metric-item"><span>Night Light:</span> <button id="night-light-settings" class="diag-pill diag-neutral clickable-pill" type="button" aria-label="Night Light" disabled>—</button></div>
                     <div class="video-metric-item"><span>Color Profile:</span> <strong id="lblMonColorProfile" class="video-truncate">--</strong></div>
@@ -1513,6 +1513,7 @@
             <span id="preferences-save-status" class="dashboard-hint" role="status"></span>
         </footer>
     </section>
+    <div id="cwInlineDropdown" class="cw-inline-dropdown" popover="manual" role="menu" aria-label="Options"></div>
     <div id="cwToastStack" class="cw-toast-stack" aria-live="polite" aria-atomic="false"></div>
 </body>
 </html>

@@ -168,25 +168,47 @@ function createDashboardControls() {
         show("night-warmth-value", caption);
     }
 
-    byId("lblJavaVersion").addEventListener("click", () => run("java", async () => {
-        const runtimes = await dashboardCommand("java_runtimes");
-        if (!runtimes) return;
-        const options = runtimes.map((runtime, index) => ({ id: `runtime-${index}`, name: runtime.label, active: runtime.active }));
-        for (const major of [21, 25, 27]) options.push({ id: `install-${major}`, name: `Install Eclipse Temurin JDK ${major}` });
-        const selected = await askDashboard("Java runtime", "Choose an installed runtime or install a JDK from the CoreWatch App Installer catalog.", { options });
+    byId("lblJavaVersion").addEventListener("click", async () => {
+        if (busy.has("java")) return;
+        const anchor = byId("lblJavaVersion");
+        let runtimes = [];
+        const selected = await openInlineDropdown(anchor, async () => {
+            const loaded = await dashboardCommand("java_runtimes");
+            if (!loaded) return null;
+            runtimes = loaded;
+            const options = runtimes.map((runtime, index) => ({
+                id: `runtime-${index}`,
+                name: runtime.label,
+                detail: runtime.home,
+                title: runtime.home,
+                active: runtime.active,
+                group: "Installed Runtimes"
+            }));
+            for (const major of [21, 25, 27]) {
+                options.push({
+                    id: `install-${major}`,
+                    name: `⬇ Install Eclipse Temurin JDK ${major}`,
+                    detail: "Via WinGet (Adoptium)",
+                    group: "Install JDK"
+                });
+            }
+            return options;
+        }, { minWidth: 250, label: "Java runtime", loadingText: "Detecting Java runtimes…" });
         if (!selected) return;
-        const [action, choice] = selected.split("-");
-        if (action === "install") {
-            if (await askDashboard(`Install Eclipse Temurin JDK ${choice}?`, "WinGet will download and run the Eclipse Adoptium installer.", null, 0, "Install")) {
-                await apply({ kind: "install_java", major: Number(choice) }, "Java installed. Open the Java picker again to choose the active version.");
+        await run("java", async () => {
+            const [action, choice] = selected.split("-");
+            if (action === "install") {
+                if (await askDashboard(`Install Eclipse Temurin JDK ${choice}?`, "WinGet will download and run the Eclipse Adoptium installer.", null, 0, "Install")) {
+                    await apply({ kind: "install_java", major: Number(choice) }, "Java installed. Open the Java dropdown again to choose the active version.");
+                }
+            } else {
+                const runtime = runtimes[Number(choice)];
+                if (runtime && !runtime.active && await ensureAdmin() && await askDashboard("Switch Java runtime", `${runtime.label}\n${runtime.home}\nThis updates JAVA_HOME and PATH for new terminals.`)) {
+                    await apply({ kind: "select_java", home: runtime.home }, `Java switched to ${runtime.label}.`);
+                }
             }
-        } else {
-            const runtime = runtimes[Number(choice)];
-            if (runtime && !runtime.active && await ensureAdmin() && await askDashboard("Switch Java runtime", `${runtime.label}\n${runtime.home}\nThis updates JAVA_HOME and PATH for new terminals.`)) {
-                await apply({ kind: "select_java", home: runtime.home }, `Java switched to ${runtime.label}.`);
-            }
-        }
-    }));
+        });
+    });
 
     byId("lblPsVersion").addEventListener("click", () => run("powershell", async () => {
         const version = fields.powershell;

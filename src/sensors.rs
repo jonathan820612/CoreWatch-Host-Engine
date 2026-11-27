@@ -614,6 +614,7 @@ fn helper_present(path: &Path) -> bool {
 
 fn helper_path_from_dir(root: &Path) -> Option<PathBuf> {
     let filename = "CoreWatchSensorHelper.exe";
+    #[cfg_attr(not(any(debug_assertions, test)), allow(unused_mut))]
     let mut candidates = vec![root.join("sensors").join(filename), root.join(filename)];
     #[cfg(any(debug_assertions, test))]
     {

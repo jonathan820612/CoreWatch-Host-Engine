@@ -613,6 +613,195 @@ function askDashboard(title, message, field, timeout = 0, confirmLabel = "Apply"
     });
 }
 
+let inlineDropdownSession = null;
+let inlineDropdownSeq = 0;
+
+function closeInlineDropdown(restoreFocus = false) {
+    const session = inlineDropdownSession;
+    if (!session) return;
+    inlineDropdownSession = null;
+    session.cleanup();
+    try {
+        if (session.menu.matches(":popover-open")) session.menu.hidePopover();
+    } catch { /* ignore */ }
+    session.anchor?.setAttribute("aria-expanded", "false");
+    if (restoreFocus && session.anchor?.isConnected) {
+        session.anchor.focus({ preventScroll: true });
+    }
+    session.resolve(null);
+}
+
+function positionInlineDropdown(menu, anchor, options = {}) {
+    const rect = anchor.getBoundingClientRect();
+    const minW = Math.max(Math.round(rect.width), options.minWidth || 156);
+    menu.style.minWidth = minW + "px";
+    menu.style.left = "0px";
+    menu.style.top = "0px";
+    const mw = menu.offsetWidth || minW;
+    const mh = menu.offsetHeight || 120;
+    const spaceBelow = window.innerHeight - rect.bottom - 10;
+    const spaceAbove = rect.top - 10;
+    let top;
+    if (mh <= spaceBelow || spaceBelow >= spaceAbove) {
+        top = Math.min(window.innerHeight - mh - 8, rect.bottom + 4);
+        menu.style.maxHeight = Math.max(96, Math.min(320, spaceBelow)) + "px";
+    } else {
+        const clampedH = Math.max(96, Math.min(320, spaceAbove));
+        menu.style.maxHeight = clampedH + "px";
+        top = Math.max(8, rect.top - Math.min(mh, clampedH) - 4);
+    }
+    const rawLeft = options.align === "right" ? rect.right - mw : rect.left;
+    const left = Math.max(8, Math.min(window.innerWidth - mw - 8, rawLeft));
+    menu.style.left = Math.round(left) + "px";
+    menu.style.top = Math.round(Math.max(8, top)) + "px";
+}
+
+function openInlineDropdown(anchor, itemsOrLoader, options = {}) {
+    const menu = byId("cwInlineDropdown");
+    if (!menu || !anchor) return Promise.resolve(null);
+    if (inlineDropdownSession && inlineDropdownSession.anchor === anchor) {
+        closeInlineDropdown(true);
+        return Promise.resolve(null);
+    }
+    closeInlineDropdown(false);
+    window.dispatchEvent(new CustomEvent("cw-close-overlays", { detail: { source: "inline-dropdown" } }));
+
+    const seq = ++inlineDropdownSeq;
+    menu.setAttribute("aria-label", options.label || "Options");
+
+    return new Promise((resolve) => {
+        let settled = false;
+        const finish = (value, restoreFocus = false) => {
+            if (settled) return;
+            settled = true;
+            if (inlineDropdownSession?.seq === seq) inlineDropdownSession = null;
+            cleanup();
+            try {
+                if (menu.matches(":popover-open")) menu.hidePopover();
+            } catch { /* ignore */ }
+            anchor.setAttribute("aria-expanded", "false");
+            if (restoreFocus && anchor.isConnected) anchor.focus({ preventScroll: true });
+            resolve(value);
+        };
+
+        const onPointerDown = (ev) => {
+            if (menu.contains(ev.target) || anchor.contains(ev.target)) return;
+            finish(null, false);
+        };
+        const onKeyDown = (ev) => {
+            const buttons = [...menu.querySelectorAll(".cw-dd-item:not(:disabled)")];
+            if (ev.key === "Escape") {
+                ev.preventDefault();
+                ev.stopPropagation();
+                finish(null, true);
+                return;
+            }
+            if (ev.key === "Tab") {
+                finish(null, false);
+                return;
+            }
+            if (!buttons.length) return;
+            const current = buttons.indexOf(document.activeElement);
+            if (ev.key === "ArrowDown") {
+                ev.preventDefault();
+                buttons[(current + 1 + buttons.length) % buttons.length].focus();
+            } else if (ev.key === "ArrowUp") {
+                ev.preventDefault();
+                buttons[(current - 1 + buttons.length) % buttons.length].focus();
+            } else if (ev.key === "Home") {
+                ev.preventDefault();
+                buttons[0].focus();
+            } else if (ev.key === "End") {
+                ev.preventDefault();
+                buttons[buttons.length - 1].focus();
+            }
+        };
+        const onCloseOverlay = (ev) => {
+            if (ev.detail?.source !== "inline-dropdown") finish(null, false);
+        };
+        const onViewportChange = () => finish(null, false);
+        const onScroll = (ev) => {
+            if (ev.target === menu || menu.contains(ev.target)) return;
+            finish(null, false);
+        };
+
+        const cleanup = () => {
+            document.removeEventListener("pointerdown", onPointerDown, true);
+            document.removeEventListener("keydown", onKeyDown, true);
+            window.removeEventListener("cw-close-overlays", onCloseOverlay);
+            window.removeEventListener("resize", onViewportChange);
+            window.removeEventListener("scroll", onScroll, true);
+        };
+
+        inlineDropdownSession = { seq, menu, anchor, cleanup, resolve: (v) => finish(v, false) };
+        anchor.setAttribute("aria-expanded", "true");
+        document.addEventListener("pointerdown", onPointerDown, true);
+        document.addEventListener("keydown", onKeyDown, true);
+        window.addEventListener("cw-close-overlays", onCloseOverlay);
+        window.addEventListener("resize", onViewportChange);
+        window.addEventListener("scroll", onScroll, true);
+
+        const renderItems = (items) => {
+            if (settled || seq !== inlineDropdownSeq) return;
+            menu.replaceChildren();
+            if (!items || !items.length) {
+                menu.append(element("div", "cw-dd-status", options.emptyText || "No options available."));
+                positionInlineDropdown(menu, anchor, options);
+                return;
+            }
+            let lastGroup = null;
+            for (const item of items) {
+                if (item.group && item.group !== lastGroup) {
+                    if (lastGroup !== null) menu.append(element("div", "cw-dd-sep"));
+                    menu.append(element("div", "cw-dd-header", item.group));
+                    lastGroup = item.group;
+                }
+                const btn = document.createElement("button");
+                btn.type = "button";
+                btn.className = "cw-dd-item" + (item.active ? " is-active" : "");
+                btn.setAttribute("role", "menuitemradio");
+                btn.setAttribute("aria-checked", String(Boolean(item.active)));
+                btn.dataset.dropdownValue = String(item.id);
+                if (item.disabled) btn.disabled = true;
+                if (item.title) btn.title = item.title;
+                const check = element("span", "cw-dd-check", item.active ? "✓" : "");
+                check.setAttribute("aria-hidden", "true");
+                const body = element("span", "cw-dd-body");
+                body.append(element("span", "cw-dd-label", item.name));
+                if (item.detail) body.append(element("span", "cw-dd-detail", item.detail));
+                btn.append(check, body);
+                btn.addEventListener("click", () => finish(String(item.id), true));
+                menu.append(btn);
+            }
+            positionInlineDropdown(menu, anchor, options);
+            const focusTarget = menu.querySelector(".cw-dd-item.is-active:not(:disabled)")
+                || menu.querySelector(".cw-dd-item:not(:disabled)");
+            focusTarget?.focus({ preventScroll: true });
+        };
+
+        menu.replaceChildren(element("div", "cw-dd-status", options.loadingText || "Loading…"));
+        menu.showPopover();
+        positionInlineDropdown(menu, anchor, options);
+
+        if (typeof itemsOrLoader === "function") {
+            Promise.resolve()
+                .then(() => itemsOrLoader())
+                .then((items) => {
+                    if (!items) finish(null, false);
+                    else renderItems(items);
+                })
+                .catch((err) => {
+                    if (!settled && seq === inlineDropdownSeq) {
+                        menu.replaceChildren(element("div", "cw-dd-status", String(err)));
+                        positionInlineDropdown(menu, anchor, options);
+                    }
+                });
+        } else {
+            renderItems(itemsOrLoader);
+        }
+    });
+}
+
 function selectedDisplay() {
     return displays.find((display) => display.id === byId("selMonitorPicker").value);
 }
@@ -621,25 +810,36 @@ async function changeDisplay(kind) {
     const display = selectedDisplay();
     if (!display) return;
     if (kind === "scale") {
-        const scale = await dashboardCommand("display_scale_options", { id: display.id });
-        if (!scale) return;
-        const options = scale.available.map((percent) => ({ id: percent, name: `${percent}%`, active: percent === scale.current }));
-        const choice = await askDashboard("Display scale", display.name, { options });
-        if (choice && Number(choice) !== scale.current) {
+        const anchor = byId("lblMonScale");
+        let scaleData = null;
+        const choice = await openInlineDropdown(anchor, async () => {
+            scaleData = await dashboardCommand("display_scale_options", { id: display.id });
+            if (!scaleData) return null;
+            return scaleData.available.map((percent) => ({
+                id: String(percent),
+                name: `${percent}%`,
+                active: percent === scaleData.current
+            }));
+        }, { align: "right", minWidth: 112, label: "Display scale", loadingText: "Loading scales…" });
+        if (choice && scaleData && Number(choice) !== scaleData.current) {
             await dashboardCommand("apply_dashboard_change", { change: { kind: "display_scale", id: display.id, percent: Number(choice) } }, "Display scale updated.");
         }
         return;
     }
-    const modes = await dashboardCommand("display_modes", { id: display.id });
     const refresh = kind === "refresh";
-    const options = !modes ? [] : refresh
-        ? modes.rates.map((hz) => ({ id: hz, name: hz + " Hz", active: hz === modes.current_rate }))
-        : ["Landscape", "Portrait", "Landscape (flipped)", "Portrait (flipped)"].map((name, index) => ({
-            id: index, name, active: index === modes.current_orientation
-        }));
-    if (!options.length) return;
-    const choice = await askDashboard(refresh ? "Display refresh rate" : "Display orientation", display.name, { options });
-    if (choice == null || choice === "") return;
+    const anchor = byId(refresh ? "lblMonRefresh" : "lblMonOrientation");
+    let currentVal = null;
+    const choice = await openInlineDropdown(anchor, async () => {
+        const modes = await dashboardCommand("display_modes", { id: display.id });
+        if (!modes) return null;
+        currentVal = refresh ? String(modes.current_rate) : String(modes.current_orientation);
+        return refresh
+            ? modes.rates.map((hz) => ({ id: String(hz), name: `${hz} Hz`, active: hz === modes.current_rate }))
+            : ["Landscape", "Portrait", "Landscape (flipped)", "Portrait (flipped)"].map((name, index) => ({
+                id: String(index), name, active: index === modes.current_orientation
+            }));
+    }, { align: "right", minWidth: refresh ? 124 : 168, label: refresh ? "Display refresh rate" : "Display orientation", loadingText: "Loading modes…" });
+    if (choice == null || choice === "" || choice === currentVal) return;
     const change = refresh ? { kind, hz: Number(choice) } : { kind, orientation: Number(choice) };
     const token = await dashboardCommand("preview_display", { id: display.id, change });
     if (token == null) return;
@@ -1133,10 +1333,17 @@ async function start() {
         }
     });
     byId("lblPowerPlan").addEventListener("click", async () => {
-        const plans = await dashboardCommand("power_plans");
-        if (!plans?.length) return;
-        const id = await askDashboard("Power plan", "Select the Windows power plan to activate.", { options: plans });
-        if (id) await dashboardCommand("set_power_plan", { id }, "Power plan updated.");
+        const anchor = byId("lblPowerPlan");
+        let activeId = null;
+        const id = await openInlineDropdown(anchor, async () => {
+            const plans = await dashboardCommand("power_plans");
+            if (!plans?.length) return null;
+            activeId = plans.find((p) => p.active)?.id ?? null;
+            return plans.map((plan) => ({ id: plan.id, name: plan.name, active: plan.active }));
+        }, { align: "right", minWidth: 190, label: "Windows power plan", loadingText: "Loading power plans…" });
+        if (id && id !== activeId) {
+            await dashboardCommand("set_power_plan", { id }, "Power plan updated.");
+        }
     });
     const maxBtn = byId("maximize");
     const syncMaxGlyph = async () => {
@@ -1341,14 +1548,15 @@ async function start() {
                         }
                         confirm.close("cancel");
                     }
+                    const inlineMenu = byId("cwInlineDropdown");
                     byId("lblJavaVersion").click();
-                    for (let i = 0; !confirm.open && i < 100; i++) {
+                    for (let i = 0; !inlineMenu.querySelector('[data-dropdown-value="install-25"]') && i < 100; i++) {
                         await new Promise((resolve) => setTimeout(resolve, 25));
                     }
-                    if (!confirm.open || !byId("dialog-select").querySelector('option[value="install-25"]')) {
-                        throw new Error("The Java picker did not load the App Installer catalog options.");
+                    if (!inlineMenu.matches(":popover-open") || confirm.open || !inlineMenu.querySelector('[data-dropdown-value="install-25"]')) {
+                        throw new Error("The Java inline dropdown did not open with the App Installer catalog options.");
                     }
-                    confirm.close("cancel");
+                    closeInlineDropdown(false);
                     const sensorStatus = await invoke("cpu_sensor_status");
                     if (typeof sensorStatus.helper_available !== "boolean" || typeof sensorStatus.pawn_io !== "string") {
                         throw new Error("CPU sensor diagnostic did not report helper and driver state.");
@@ -1359,7 +1567,41 @@ async function start() {
                         if (modes.current_orientation > 3) throw new Error("Invalid display mode");
                         const scale = await invoke("display_scale_options", { id: display.id }).catch(() => null);
                         if (scale && !scale.available.includes(scale.current)) throw new Error("Invalid display scale options");
+                        byId("lblMonOrientation").click();
+                        for (let i = 0; !inlineMenu.querySelector('[data-dropdown-value="0"]') && i < 80; i++) {
+                            await new Promise((resolve) => setTimeout(resolve, 25));
+                        }
+                        if (!inlineMenu.matches(":popover-open") || confirm.open) {
+                            throw new Error("Monitor orientation did not open as an inline dropdown.");
+                        }
+                        closeInlineDropdown(false);
+                        byId("lblMonRefresh").click();
+                        for (let i = 0; !inlineMenu.querySelector(".cw-dd-item") && i < 80; i++) {
+                            await new Promise((resolve) => setTimeout(resolve, 25));
+                        }
+                        if (!inlineMenu.matches(":popover-open") || confirm.open) {
+                            throw new Error("Monitor refresh rate did not open as an inline dropdown.");
+                        }
+                        closeInlineDropdown(false);
+                        if (scale) {
+                            byId("lblMonScale").click();
+                            for (let i = 0; !inlineMenu.querySelector(".cw-dd-item") && i < 80; i++) {
+                                await new Promise((resolve) => setTimeout(resolve, 25));
+                            }
+                            if (!inlineMenu.matches(":popover-open") || confirm.open) {
+                                throw new Error("Monitor scale did not open as an inline dropdown.");
+                            }
+                            closeInlineDropdown(false);
+                        }
                     }
+                    byId("lblPowerPlan").click();
+                    for (let i = 0; !inlineMenu.querySelector(".cw-dd-item") && i < 80; i++) {
+                        await new Promise((resolve) => setTimeout(resolve, 25));
+                    }
+                    if (!inlineMenu.matches(":popover-open") || confirm.open) {
+                        throw new Error("Power plan did not open as an inline dropdown.");
+                    }
+                    closeInlineDropdown(false);
                     await selectView("network", "adapters");
                     const adapters = byId("adapterInterfaceContainer");
                     if (!adapters.querySelector(".network-adapter-card, .driver-text-node")) {
