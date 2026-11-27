@@ -23,6 +23,12 @@ Built in **native Rust**, **Tauri v2**, **WebView2**, and direct **Win32 / USB H
 > The original PowerShell + WinForms edition reached **End-of-Life at [`v0.9.3`](https://github.com/jonathan820612/CoreWatch-Host-Engine/releases/tag/v0.9.3)** and is archived under [`legacy-powershell/`](legacy-powershell/) in **maintenance mode (bug fixes only — no new features)**.
 
 ---
+Hello and thanks for checking out my project! My name is Jonathan.
+This app is something I made from over a long time working with Powershell scripting and using them for work and home. 
+I wanted to do something more original with them so I started using AI to help develop something more user friendly organized and with lots of eye candy!
+The app is designed to be very modular and you can pick with modules you want or don't want. You can install everything and hide what you don't want later, or remove it completely. 
+Whoever decides to give this app a try please be brutally honest and report anything that is broken, I will fix it ASAP. 
+I want a lot of feedback so I can refine my app for any user type out there. 
 
 ## Quick Start & Building RustCoreWatch
 
