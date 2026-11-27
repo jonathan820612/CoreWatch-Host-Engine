@@ -540,16 +540,17 @@ impl Collector {
             let supplemental = [
                 ("gpuTemp", readings.gpu_temp, 120.0),
                 ("gpuPower", readings.gpu_power, 1000.0),
+                ("gpuLoad", readings.gpu_load, 100.0),
             ];
             for (field, value, limit) in supplemental {
-                if !f.contains_key(field) {
-                    put(
-                        f,
-                        field,
-                        value
-                            .filter(|value| (0.0..=limit).contains(value))
-                            .map(|value| format!("{value:.0}")),
-                    );
+                let needs_fill = !f.contains_key(field)
+                    || (field == "gpuLoad" && f.get("gpuLoad").map(String::as_str) == Some("0"));
+                if needs_fill
+                    && let Some(formatted) = value
+                        .filter(|value| (0.0..=limit).contains(value))
+                        .map(|value| format!("{value:.0}"))
+                {
+                    put(f, field, Some(formatted));
                 }
             }
         }

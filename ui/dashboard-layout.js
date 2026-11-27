@@ -92,24 +92,97 @@ function createDashboardLayout(save) {
         void change({ ...layout, hidden, docked });
     }
 
+    const snapRightBtn = byId("dock-snap-right");
+    if (typeof enablePanelDrag === "function") {
+        enablePanelDrag(dockPanel, {
+            storageKey: "cw-dock-pos-v1",
+            onFloatChange(floating) {
+                if (snapRightBtn) snapRightBtn.hidden = !floating;
+            }
+        });
+    }
+    snapRightBtn?.addEventListener("click", () => dockPanel._resetPosition?.());
+    dockPanel.querySelector(".draggable-panel-header")?.addEventListener("dblclick", (ev) => {
+        if (!ev.target.closest("button")) dockPanel._resetPosition?.();
+    });
+
+    // Vertically movable right-edge pull tab (clamped cleanly below header)
+    const TAB_Y_KEY = "cw-dock-tab-y-v1";
+    function clampPullTabY(y) {
+        const headerBottom = Math.ceil(document.querySelector(".app-header-deck")?.getBoundingClientRect().bottom || 92);
+        const tabH = sidePullTab?.offsetHeight || 48;
+        const minY = headerBottom + 12;
+        const maxY = Math.max(minY, window.innerHeight - tabH - 16);
+        return Math.round(Math.min(maxY, Math.max(minY, y)));
+    }
+    function applySavedPullTabY() {
+        if (!sidePullTab) return;
+        let saved = null;
+        try {
+            const raw = localStorage.getItem(TAB_Y_KEY);
+            if (raw != null && Number.isFinite(Number(raw))) saved = Number(raw);
+        } catch {}
+        if (saved != null) {
+            sidePullTab.style.top = clampPullTabY(saved) + "px";
+        } else {
+            sidePullTab.style.top = clampPullTabY(Math.round(window.innerHeight * 0.66)) + "px";
+        }
+    }
+    let tabDrag = null;
+    let suppressNextTabClick = false;
+    if (sidePullTab) {
+        sidePullTab.addEventListener("pointerdown", (ev) => {
+            if (ev.button !== 0) return;
+            const rect = sidePullTab.getBoundingClientRect();
+            tabDrag = { startY: ev.clientY, offsetY: ev.clientY - rect.top, moved: false };
+            try { sidePullTab.setPointerCapture(ev.pointerId); } catch {}
+        });
+        sidePullTab.addEventListener("pointermove", (ev) => {
+            if (!tabDrag) return;
+            if (!tabDrag.moved && Math.abs(ev.clientY - tabDrag.startY) < 5) return;
+            tabDrag.moved = true;
+            sidePullTab.style.top = clampPullTabY(ev.clientY - tabDrag.offsetY) + "px";
+        });
+        const finishTabDrag = () => {
+            if (!tabDrag) return;
+            if (tabDrag.moved) {
+                suppressNextTabClick = true;
+                try { localStorage.setItem(TAB_Y_KEY, String(parseFloat(sidePullTab.style.top) || 0)); } catch {}
+            }
+            tabDrag = null;
+        };
+        sidePullTab.addEventListener("lostpointercapture", finishTabDrag);
+        window.addEventListener("pointerup", finishTabDrag);
+        window.addEventListener("resize", () => {
+            if (!sidePullTab.hidden) applySavedPullTabY();
+        });
+    }
+
     function syncPullTab() {
         if (!sidePullTab) return;
         const dockOpen = dockPanel.matches(":popover-open");
         sidePullTab.hidden = !layout.docked.length || dockOpen;
         show("sideDockPullCount", layout.docked.length);
+        if (!sidePullTab.hidden) applySavedPullTabY();
     }
 
     function showDock(showIt) {
         if (showIt && !layout.docked.length) return;
         if (showIt) window.dispatchEvent(new CustomEvent("cw-close-overlays", { detail: { except: "dashboard-dock" } }));
-        if (showIt && !dockPanel.matches(":popover-open")) dockPanel.showPopover();
+        if (showIt && !dockPanel.matches(":popover-open")) {
+            dockPanel.showPopover();
+            dockPanel._clampPosition?.();
+        }
         if (!showIt && dockPanel.matches(":popover-open")) dockPanel.hidePopover();
         dockToggle.setAttribute("aria-expanded", String(showIt));
         dockToggle.classList.toggle("active", showIt);
         syncPullTab();
     }
     dockToggle.addEventListener("click", () => showDock(!dockPanel.matches(":popover-open")));
-    sidePullTab?.addEventListener("click", () => showDock(true));
+    sidePullTab?.addEventListener("click", () => {
+        if (suppressNextTabClick) { suppressNextTabClick = false; return; }
+        showDock(true);
+    });
     byId("dock-close").addEventListener("click", () => showDock(false));
     byId("dock-open-layout")?.addEventListener("click", () => {
         showDock(false);

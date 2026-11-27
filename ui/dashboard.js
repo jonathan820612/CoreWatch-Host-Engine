@@ -437,7 +437,11 @@ function renderTemperatures() {
         node.classList.add(celsius >= 85 ? "therm-hot" : celsius >= 65 ? "therm-warm" : "therm-cool");
         const source = reading === "cpuTemp" ? latestTemperature.cpuTempSource : null;
         node.title = available ? [Math.round(value) + " °" + temperatureUnit, source].filter(Boolean).join(" · ")
-            : reading === "cpuTemp" ? "Open CPU sensor status" : "Temperature is unavailable from the current sensor provider.";
+            : reading === "cpuTemp"
+                ? (latestTemperature.elevated === false
+                    ? "CPU die temperature requires Administrator (PawnIO driver) — click to check status or restart elevated"
+                    : "Click to inspect CPU temperature sensor status")
+                : "GPU temperature is unavailable from the current sensor provider.";
     }
 }
 
@@ -491,7 +495,12 @@ function renderDetails(details, isSmoke = false) {
     const throttleCrit = Boolean(fields.throttle && /thermal|prochot|critical/i.test(fields.throttle));
     tint("badgeThrottleState", fields.throttle === "None reported" ? "diag-ok" : throttleCrit ? "diag-crit" : fields.throttle ? "diag-warn" : "diag-neutral");
     byId("badgeThrottleState").title = fields.throttleDetail ?? (fields.throttle ? "Windows reported no active CPU limits." : "CPU limit counters are unavailable.");
-    latestTemperature = { cpuTemp: fields.cpuTemp, cpuTempSource: fields.cpuTempSource, gpuTemp: fields.gpuTemp };
+    latestTemperature = {
+        cpuTemp: fields.cpuTemp,
+        cpuTempSource: fields.cpuTempSource,
+        gpuTemp: fields.gpuTemp,
+        elevated: fields.elevation === "Administrator"
+    };
     renderTemperatures();
     rgbStudio?.updateThermal(
         fields.cpuTemp == null || fields.cpuTemp === "" ? null : Number(fields.cpuTemp),
@@ -733,8 +742,8 @@ async function start() {
     const headerDeck = document.querySelector(".app-header-deck");
     if (headerDeck && typeof ResizeObserver !== "undefined") {
         const syncHeaderHeight = () => {
-            const h = Math.ceil(headerDeck.getBoundingClientRect().height);
-            if (h > 0) document.documentElement.style.setProperty("--cw-header-height", h + "px");
+            const bottom = Math.ceil(headerDeck.getBoundingClientRect().bottom);
+            if (bottom > 0) document.documentElement.style.setProperty("--cw-header-height", bottom + "px");
         };
         syncHeaderHeight();
         new ResizeObserver(syncHeaderHeight).observe(headerDeck);
@@ -1086,7 +1095,7 @@ async function start() {
             show("cpu-sensor-source", latestTemperature.cpuTempSource
                 ?? (direct ? "LibreHardwareMonitor helper · " + (status.reading.sensor || "CPU die") : "No CPU reading"));
             const message = direct || latestTemperature.cpuTempSource ? "A CPU temperature reading is available."
-                : !status.helper_available ? "Run prepare-sensors.ps1 from RUST-rewrite to stage the helper and its libraries."
+                : !status.helper_available ? "Run .\\prepare-sensors.ps1 from the repository root to stage the sensor helper and its libraries."
                 : status.pawn_io !== "Running" ? "Check the PawnIO installation and driver status."
                 : !status.elevated ? "Try restarting CoreWatch as administrator to read the CPU die sensor."
                 : "The helper has not reported a CPU die temperature for this hardware.";

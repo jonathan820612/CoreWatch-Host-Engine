@@ -1308,11 +1308,12 @@
         <div id="cmdkResults" class="cmdk-list"></div>
         <div class="cmdk-footer-hint">↑↓ Navigate · ↵ Run · Ctrl+K / Esc Close</div>
     </dialog>
-    <button id="sideDockPullTab" class="side-dock-pull-tab" type="button" hidden title="Open Telemetry Dock" aria-label="Open Telemetry Dock">◫<span id="sideDockPullCount"></span></button>
+    <button id="sideDockPullTab" class="side-dock-pull-tab" type="button" hidden title="Click to open Telemetry Dock · Drag up/down to reposition" aria-label="Open Telemetry Dock">◫<span id="sideDockPullCount"></span></button>
     <aside id="dashboard-dock" class="dashboard-panel" popover="manual" aria-label="Telemetry dock">
-        <header class="dashboard-panel-header">
-            <div><h2>◫ Telemetry Dock</h2><p class="dashboard-hint">Live frames pinned off-grid</p></div>
+        <header class="dashboard-panel-header draggable-panel-header" title="Drag to move dock · Double-click to snap right">
+            <div><h2>⠿ ◫ Telemetry Dock</h2><p class="dashboard-hint">Drag header to move · Live frames off-grid</p></div>
             <div class="panel-actions">
+                <button id="dock-snap-right" type="button" class="console-clear-btn" title="Snap dock back to right edge" hidden>⇥ Snap</button>
                 <button id="dock-open-layout" type="button" class="console-clear-btn" title="Customize Dashboard Layout">✏️ Layout</button>
                 <button id="dock-close" type="button" class="console-clear-btn" aria-label="Close telemetry dock">✕</button>
             </div>

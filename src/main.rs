@@ -1630,7 +1630,8 @@ fn print_snapshot() {
     collector.sample(true, &mut sample);
     let _com = devices::ComApartment::enter();
     let mut details_collector = details::Collector::new();
-    let mut details = details_collector.sample(None);
+    let live_sensors = sensors::instant_readings();
+    let mut details = details_collector.sample(live_sensors.as_ref());
     thread::sleep(interval);
     collector.sample(true, &mut sample);
     details.volumes = details_collector.sample_volumes();

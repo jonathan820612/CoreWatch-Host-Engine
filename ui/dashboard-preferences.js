@@ -271,35 +271,76 @@ function createDashboardPreferences(core, nativeWindow, temperatureChanged, modu
     };
 }
 
-function enablePanelDrag(panel) {
+function enablePanelDrag(panel, options = {}) {
     const header = panel.querySelector(".draggable-panel-header");
+    if (!header) return;
+    const storageKey = options.storageKey || null;
     let drag = null;
-    function position(x, y) {
-        const maxX = Math.max(8, window.innerWidth - panel.offsetWidth - 8);
-        const maxY = Math.max(8, window.innerHeight - panel.offsetHeight - 8);
-        panel.style.left = Math.min(maxX, Math.max(8, x)) + "px";
-        panel.style.top = Math.min(maxY, Math.max(8, y)) + "px";
+    function setFloating(floating) {
+        panel.classList.toggle("is-floating", floating);
+        options.onFloatChange?.(floating);
+    }
+    function position(x, y, persist = false) {
+        const w = panel.offsetWidth || 400;
+        const h = panel.offsetHeight || 260;
+        const maxX = Math.max(8, window.innerWidth - w - 8);
+        const maxY = Math.max(8, window.innerHeight - h - 8);
+        const clampedX = Math.round(Math.min(maxX, Math.max(8, x)));
+        const clampedY = Math.round(Math.min(maxY, Math.max(8, y)));
+        panel.style.left = clampedX + "px";
+        panel.style.top = clampedY + "px";
         panel.style.right = "auto";
+        panel.style.bottom = "auto";
+        setFloating(true);
+        if (persist && storageKey) {
+            try { localStorage.setItem(storageKey, JSON.stringify({ x: clampedX, y: clampedY })); } catch {}
+        }
     }
     panel._clampPosition = () => {
-        if (panel.style.left) position(parseFloat(panel.style.left), parseFloat(panel.style.top));
+        if (panel.style.left) {
+            position(parseFloat(panel.style.left), parseFloat(panel.style.top), false);
+        } else if (storageKey) {
+            try {
+                const saved = JSON.parse(localStorage.getItem(storageKey) || "null");
+                if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) {
+                    position(saved.x, saved.y, false);
+                }
+            } catch {}
+        }
+    };
+    panel._resetPosition = () => {
+        panel.style.left = "";
+        panel.style.top = "";
+        panel.style.right = "";
+        panel.style.bottom = "";
+        setFloating(false);
+        if (storageKey) {
+            try { localStorage.removeItem(storageKey); } catch {}
+        }
     };
     header.addEventListener("pointerdown", (event) => {
         if (event.button !== 0 || event.target.closest("button")) return;
         const rect = panel.getBoundingClientRect();
-        drag = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+        drag = { x: event.clientX - rect.left, y: event.clientY - rect.top, moved: false };
         try { header.setPointerCapture(event.pointerId); } catch { /* Fallback to window pointerup. */ }
     });
     header.addEventListener("pointermove", (event) => {
-        if (drag) position(event.clientX - drag.x, event.clientY - drag.y);
+        if (!drag) return;
+        drag.moved = true;
+        position(event.clientX - drag.x, event.clientY - drag.y, false);
     });
-    const endDrag = () => { drag = null; };
+    const endDrag = () => {
+        if (drag?.moved && panel.style.left) {
+            position(parseFloat(panel.style.left), parseFloat(panel.style.top), true);
+        }
+        drag = null;
+    };
     header.addEventListener("lostpointercapture", endDrag);
     window.addEventListener("pointerup", endDrag);
     window.addEventListener("pointercancel", endDrag);
     window.addEventListener("resize", () => {
         if (panel.matches(":popover-open") && panel.style.left) {
-            position(parseFloat(panel.style.left), parseFloat(panel.style.top));
+            position(parseFloat(panel.style.left), parseFloat(panel.style.top), false);
         }
     });
 }
@@ -357,6 +398,19 @@ async function verifyDashboardPreferences(core, preferences) {
         "The frame did not move to the telemetry dock.");
     byId("dock-toggle").click();
     require(byId("dashboard-dock").matches(":popover-open"), "The telemetry dock did not open.");
+    require(Boolean(byId("dashboard-dock").querySelector(".draggable-panel-header")) && typeof byId("dashboard-dock")._resetPosition === "function",
+        "The telemetry dock header is not movable.");
+    byId("dock-close").click();
+    const pullTab = byId("sideDockPullTab");
+    if (pullTab && !pullTab.hidden) {
+        const ptRect = pullTab.getBoundingClientRect();
+        const hdrRect = header.getBoundingClientRect();
+        require(ptRect.top >= hdrRect.bottom - 1, "Telemetry dock pull tab overlapped the header.");
+        require(Number(getComputedStyle(pullTab).zIndex) > Number(getComputedStyle(header).zIndex),
+            "Telemetry dock pull tab z-index must exceed the header.");
+    }
+    byId("dock-toggle").click();
+    require(byId("dashboard-dock").matches(":popover-open"), "The telemetry dock did not reopen.");
     byId("dock-close").click();
     const opacity = byId("layout-opacity");
     opacity.value = "90";
