@@ -180,11 +180,11 @@ function createNetworkView(invoke) {
                     bar.append(
                         actionButton("Ping", () => {
                             byId("netDiagTargetInput").value = r.ip;
-                            void select("diagnostics").then(() => run("ping"));
+                            void select("diagnostics").then(() => run("ping")).catch(() => {});
                         }),
                         actionButton("Trace", () => {
                             byId("netDiagTargetInput").value = r.ip;
-                            void select("diagnostics").then(() => run("trace"));
+                            void select("diagnostics").then(() => run("trace")).catch(() => {});
                         })
                     );
                     probeCell.append(bar);

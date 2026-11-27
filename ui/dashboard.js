@@ -92,21 +92,27 @@ function renderNetSpark() {
     svg.title = `20s Peak RX ${rate(peakRx)} · TX ${rate(peakTx)}`;
 }
 
+let smokeModeActive = false;
+function recordSmokeError(msg) {
+    if (smokeErrors.length < 50) smokeErrors.push(msg);
+    if (smokeModeActive) {
+        window.__TAURI__?.core?.invoke("finish_dashboard_smoke", { error: msg }).catch(() => {});
+    }
+}
+
 (function installErrorCollectors() {
     const origConsoleError = console.error.bind(console);
     console.error = (...args) => {
-        smokeErrors.push("console.error: " + args.map((a) => (a instanceof Error ? a.message : String(a))).join(" "));
+        if (smokeErrors.length < 50) {
+            smokeErrors.push("console.error: " + args.map((a) => (a instanceof Error ? a.message : String(a))).join(" "));
+        }
         origConsoleError(...args);
     };
     window.addEventListener("error", (ev) => {
-        const msg = `JS error: ${ev.message} (${ev.filename}:${ev.lineno})`;
-        smokeErrors.push(msg);
-        window.__TAURI__?.core?.invoke("finish_dashboard_smoke", { error: msg }).catch(() => {});
+        recordSmokeError(`JS error: ${ev.message} (${ev.filename}:${ev.lineno})`);
     });
     window.addEventListener("unhandledrejection", (ev) => {
-        const msg = `Unhandled rejection: ${ev.reason instanceof Error ? ev.reason.message : String(ev.reason)}`;
-        smokeErrors.push(msg);
-        window.__TAURI__?.core?.invoke("finish_dashboard_smoke", { error: msg }).catch(() => {});
+        recordSmokeError(`Unhandled rejection: ${ev.reason instanceof Error ? ev.reason.message : String(ev.reason)}`);
     });
 })();
 
@@ -945,10 +951,17 @@ async function start() {
                 menu.classList.add("open");
                 trigger?.closest(".nav-dropdown")?.classList.add("open");
                 trigger?.setAttribute("aria-expanded", "true");
+                menu.classList.remove("align-left");
+                menu.style.transform = "";
                 const rect = menu.getBoundingClientRect();
                 if (rect.left < 8) menu.classList.add("align-left");
-                if (menu.getBoundingClientRect().right > window.innerWidth - 8) {
+                const afterLeft = menu.getBoundingClientRect();
+                if (afterLeft.right > window.innerWidth - 8) {
                     menu.classList.remove("align-left");
+                    const afterRight = menu.getBoundingClientRect();
+                    if (afterRight.left < 8) {
+                        menu.style.transform = `translateX(${Math.round(8 - afterRight.left)}px)`;
+                    }
                 }
             }
         });
@@ -1001,6 +1014,17 @@ async function start() {
             liveConsoleBusy = false;
         }
     }
+    function syncLiveConsoleTimer() {
+        clearInterval(liveConsoleTimer);
+        liveConsoleTimer = null;
+        if (liveConsoleActive && !document.hidden && currentView === "dashboard") {
+            liveConsoleTimer = setInterval(() => {
+                if (liveConsoleActive && !document.hidden && currentView === "dashboard") {
+                    void pollLiveConsole(false);
+                }
+            }, 2500);
+        }
+    }
     async function setLiveSystemConsole(enabled, persist = true) {
         const next = Boolean(enabled);
         const changed = next !== liveConsoleActive;
@@ -1016,17 +1040,13 @@ async function start() {
         liveConsoleTimer = null;
         if (next) {
             if (changed) await pollLiveConsole(true);
-            liveConsoleTimer = setInterval(() => {
-                if (liveConsoleActive && !document.hidden && currentView === "dashboard") {
-                    void pollLiveConsole(false);
-                }
-            }, 2500);
+            syncLiveConsoleTimer();
         } else if (changed) {
             void invoke("live_system_logs_reset").catch(() => {});
             log("Live System Console mode paused.");
         }
         if (persist && changed) {
-            void preferences.setLiveSystemConsole(next);
+            void preferences.setLiveSystemConsole(next).catch((e) => log(String(e)));
         }
     }
     const preferences = createDashboardPreferences(tauri.core, nativeWindow, (unit) => {
@@ -1090,6 +1110,7 @@ async function start() {
             extraModules.leave?.(prevView);
         }
         currentView = name;
+        syncLiveConsoleTimer();
         preferences.viewChanged(name === "dashboard");
         const activeDropdowns = new Set();
         for (const [view, button, panel, , parentDropdown] of views) {
@@ -1108,16 +1129,20 @@ async function start() {
             const labelEl = byId(labelId);
             if (labelEl) labelEl.textContent = active && shortMenuNames[name] ? shortMenuNames[name] : fallback;
         }
-        await Promise.all([tasks.show(name === "tasks"), diagnostics.show(name === "diagx", subview)]);
-        if (seq !== viewSeq) return;
-        if (name === "network") await networkView.select(subview ?? "adapters");
-        else if (name === "diskmap") await diskMap.show(subview);
-        else if (name === "rgbstudio") await rgbStudio.show(true);
-        else if (name === "thermal") await thermalLab.show();
-        else {
-            await modulesHub.show(name);
+        try {
+            await Promise.all([tasks.show(name === "tasks"), diagnostics.show(name === "diagx", subview)]);
             if (seq !== viewSeq) return;
-            await extraModules.show(name);
+            if (name === "network") await networkView.select(subview ?? "adapters");
+            else if (name === "diskmap") await diskMap.show(subview);
+            else if (name === "rgbstudio") await rgbStudio.show(true);
+            else if (name === "thermal") await thermalLab.show();
+            else {
+                await modulesHub.show(name);
+                if (seq !== viewSeq) return;
+                await extraModules.show(name);
+            }
+        } catch (error) {
+            log(`View switch (${name}): ${String(error)}`);
         }
     }
 
@@ -1434,10 +1459,16 @@ async function start() {
     };
     byId("minimize").title = "Minimize window";
     void syncMaxGlyph();
-    window.addEventListener("resize", () => void syncMaxGlyph());
+    let maxGlyphTimer = 0;
+    window.addEventListener("resize", () => {
+        clearTimeout(maxGlyphTimer);
+        maxGlyphTimer = setTimeout(() => void syncMaxGlyph(), 120);
+    });
     for (const [id, action] of [["minimize", "minimize"], ["maximize", "toggleMaximize"], ["exit", "close"]]) {
         byId(id).addEventListener("click", async () => {
-            if (id === "exit") await preferences.flush();
+            if (id === "exit") {
+                await preferences.flush().catch((error) => log(String(error)));
+            }
             try {
                 await nativeWindow[action]();
                 if (id === "maximize") setTimeout(() => void syncMaxGlyph(), 60);
@@ -1527,13 +1558,31 @@ async function start() {
     let notes = new Set();
     let smokeSent = false;
     let pollInterval = 500;
-    async function poll() {
-        if (document.hidden) {
-            setTimeout(poll, pollInterval);
-            return;
+    let pollTimer = 0;
+    function schedulePoll(delay = pollInterval) {
+        clearTimeout(pollTimer);
+        pollTimer = 0;
+        if (!document.hidden) {
+            pollTimer = setTimeout(() => {
+                pollTimer = 0;
+                void poll();
+            }, delay);
         }
+    }
+    document.addEventListener("visibilitychange", () => {
+        syncLiveConsoleTimer();
+        if (document.hidden) {
+            clearTimeout(pollTimer);
+            pollTimer = 0;
+        } else {
+            schedulePoll(0);
+        }
+    });
+    async function poll() {
+        if (document.hidden) return;
         try {
             const sample = await invoke("snapshot", { after: revision });
+            if (sample.smokeTest) smokeModeActive = true;
             pollInterval = sample.pollIntervalMs;
             modulesHub.updateAlertBell(sample.unreadAlerts || 0);
             if (sample.live) renderLive(sample.live);
@@ -1856,9 +1905,11 @@ async function start() {
             if (connected || byId("status").textContent !== "Telemetry connection error") log(String(error));
             connected = false;
             setStatus("Telemetry connection error");
-            invoke("finish_dashboard_smoke", { error: "poll() error: " + String(error) }).catch(() => {});
+            if (smokeModeActive) {
+                invoke("finish_dashboard_smoke", { error: "poll() error: " + String(error) }).catch(() => {});
+            }
         }
-        setTimeout(poll, pollInterval);
+        schedulePoll();
     }
     await poll();
 }

@@ -225,11 +225,6 @@ button, input, select {
     }
 }
 
-#navDevDropdown .nav-dropdown-menu {
-    left: 0;
-    right: auto;
-}
-
 /* Control buttons and tab handlers */
 .tab-btn {
     background: var(--cw-bg-control); border: 1px solid var(--cw-border-strong); color: var(--cw-text-muted);

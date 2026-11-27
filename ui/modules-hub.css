@@ -89,8 +89,14 @@
 .mod-form label {
     display: grid;
     gap: 3px;
+    min-width: 0;
     font-size: calc(10px * var(--cw-font-scale, 1));
     color: var(--cw-text-secondary);
+}
+.mod-form :is(input, select) {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
 }
 .mod-status {
     margin: 0;

@@ -1,5 +1,5 @@
 ; RustCoreWatch Modular Installer Script for Inno Setup 6.7+
-; Modern Windows 11 dynamic Light/Dark UI, grouped 24-tab modular selection,
+; Modern Windows 11 dynamic Light/Dark UI, grouped 25-tab modular selection,
 ; optional Hardware Sensor Helper & PawnIO, Low-Memory Mode, and Finish-page Start with Windows toggle.
 
 #ifndef MyAppName

@@ -214,6 +214,12 @@ function createThermalLab(invoke) {
             : "Motherboard PUMP_FAN / USB AIO auto-detected");
 
         // Findings / End-of-Life Diagnostic Alerts
+        const silencedList = Array.isArray(snap.silencedAlerts) ? snap.silencedAlerts : [];
+        const restoreSilencedBtn = byId("thermal-restore-silenced");
+        if (restoreSilencedBtn) {
+            restoreSilencedBtn.hidden = silencedList.length === 0;
+            restoreSilencedBtn.textContent = `🔔 Restore Silenced (${silencedList.length})`;
+        }
         const findingsWrap = byId("thermal-findings-wrap");
         const findingsBox = byId("thermal-findings");
         if (findingsWrap && findingsBox) {
@@ -221,9 +227,22 @@ function createThermalLab(invoke) {
             const nodes = snap.findings.map((f) => {
                 const row = element("div", "thermal-finding" + (f.severity === "crit" ? " is-crit" : ""));
                 const head = element("div", "thermal-finding-head");
+                const headRight = element("div", "panel-actions");
+                const silenceBtn = actionButton("🔇 Silence", () => {
+                    void runAction(
+                        { kind: "silence_alert", key: f.key },
+                        `Silenced false-positive alert: ${f.channel} (${f.code})`
+                    );
+                });
+                silenceBtn.className = "card-ctrl-btn";
+                silenceBtn.title = "Silence this alert permanently (restore anytime via Restore Silenced)";
+                headRight.append(
+                    element("span", "diag-pill " + (f.severity === "crit" ? "diag-crit" : "diag-warn"), f.code),
+                    silenceBtn
+                );
                 head.append(
                     element("strong", "", `${f.severity === "crit" ? "🚨" : "⚠️"} ${f.title}`),
-                    element("span", "diag-pill " + (f.severity === "crit" ? "diag-crit" : "diag-warn"), f.code)
+                    headRight
                 );
                 row.append(head, element("p", "", f.detail), element("small", "", `Recommended action: ${f.advice}`));
                 return row;
@@ -505,9 +524,22 @@ function createThermalLab(invoke) {
             card.append(editor);
         }
 
-        // Inline channel issues if any
+        // Inline channel issues if any (with 1-click Silence button)
         for (const issue of fan.issues) {
-            card.append(element("div", "dashboard-hint", `${issue.severity === "crit" ? "🚨" : "⚠️"} ${issue.title}`));
+            const issueRow = element("div", "dashboard-hint thermal-inline-issue");
+            const silenceInline = actionButton("🔇 Silence", () => {
+                void runAction(
+                    { kind: "silence_alert", key: issue.key },
+                    `Silenced alert: ${fan.name} (${issue.code})`
+                );
+            });
+            silenceInline.className = "card-ctrl-btn";
+            silenceInline.title = "Silence this false-positive alert";
+            issueRow.append(
+                element("span", "", `${issue.severity === "crit" ? "🚨" : "⚠️"} ${issue.title}`),
+                silenceInline
+            );
+            card.append(issueRow);
         }
 
         // PWM / Curve Controls (if controllable)
@@ -656,6 +688,8 @@ function createThermalLab(invoke) {
     });
     byId("thermal-reset-baselines")?.addEventListener("click", () =>
         void runAction({ kind: "reset_baselines" }, "Learned fan/pump baselines cleared"));
+    byId("thermal-restore-silenced")?.addEventListener("click", () =>
+        void runAction({ kind: "clear_silenced_alerts" }, "All silenced thermal & fan alerts restored"));
     byId("thermal-toggle-hidden-fans")?.addEventListener("click", () => {
         showHiddenFans = !showHiddenFans;
         if (lastSnap) render(lastSnap);
@@ -690,17 +724,38 @@ function createThermalLab(invoke) {
         }
     }
 
+    function startTimer() {
+        clearInterval(timer);
+        timer = setInterval(() => { if (visible && !document.hidden && !busy) void poll(); }, 2500);
+    }
+
+    document.addEventListener("visibilitychange", () => {
+        if (!visible) return;
+        if (document.hidden) {
+            clearInterval(timer);
+            timer = null;
+            void invoke("thermal_action", { action: { kind: "set_active", active: false } }).catch(() => {});
+        } else {
+            void invoke("thermal_action", { action: { kind: "set_active", active: true } })
+                .then((snap) => { if (visible && !document.hidden) render(snap); })
+                .catch(() => {});
+            startTimer();
+        }
+    });
+
     return {
         async show() {
             visible = true;
             try {
                 const snap = await invoke("thermal_action", { action: { kind: "set_active", active: true } });
+                if (!visible) return;
                 render(snap);
             } catch (err) {
+                if (!visible) return;
                 show("thermal-banner-text", String(err));
             }
-            clearInterval(timer);
-            timer = setInterval(() => { if (visible && !document.hidden && !busy) void poll(); }, 2500);
+            if (!visible || document.hidden) return;
+            startTimer();
         },
         leave() {
             visible = false;

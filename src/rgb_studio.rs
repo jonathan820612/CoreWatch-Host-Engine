@@ -1197,10 +1197,18 @@ pub struct RgbEngine {
     wake: Condvar,
     stop: AtomicBool,
     scanning: AtomicBool,
+    needs_thermal: AtomicBool,
     smoke_test: bool,
 }
 
 impl RgbEngine {
+    fn sync_thermal_flag(&self, effect: RgbEffect) {
+        self.needs_thermal.store(
+            matches!(effect, RgbEffect::ThermalCpu | RgbEffect::ThermalGpu),
+            Ordering::Release,
+        );
+    }
+
     fn lock_inner(&self) -> std::sync::MutexGuard<'_, RgbInner> {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
     }
@@ -1229,6 +1237,8 @@ impl RgbEngine {
         } else {
             "Standalone Rust RGB engine starting · scanning USB HID, GPU NVAPI, RAM SMBus, and Dynamic Lighting…".into()
         };
+        let initial_needs_thermal =
+            matches!(config.effect, RgbEffect::ThermalCpu | RgbEffect::ThermalGpu);
         let engine = Arc::new(Self {
             file,
             inner: Mutex::new(RgbInner {
@@ -1278,6 +1288,7 @@ impl RgbEngine {
             wake: Condvar::new(),
             stop: AtomicBool::new(false),
             scanning: AtomicBool::new(false),
+            needs_thermal: AtomicBool::new(initial_needs_thermal),
             smoke_test,
         });
         if !smoke_test {
@@ -1297,11 +1308,7 @@ impl RgbEngine {
     }
 
     pub fn needs_thermal_telemetry(&self) -> bool {
-        let guard = self.lock_inner();
-        matches!(
-            guard.config.effect,
-            RgbEffect::ThermalCpu | RgbEffect::ThermalGpu
-        )
+        self.needs_thermal.load(Ordering::Acquire)
     }
 
     pub fn trigger_alert_flash(&self) {
@@ -1371,6 +1378,17 @@ impl RgbEngine {
             + guard.direct_smbus.len()
             + guard.win11_devices.len()
             + guard.openrgb_devices.len();
+        let active_ids: std::collections::HashSet<String> = guard
+            .direct_hid
+            .iter()
+            .map(|d| d.id().to_owned())
+            .chain(guard.direct_nvapi.iter().map(|d| d.id.clone()))
+            .chain(guard.direct_smbus.iter().map(|d| d.id().to_owned()))
+            .chain(guard.win11_devices.iter().map(|d| d.id.clone()))
+            .chain(guard.openrgb_devices.iter().map(|d| format!("openrgb:{}", d.index)))
+            .collect();
+        guard.device_previews.retain(|k, _| active_ids.contains(k));
+        guard.device_modes.retain(|k, _| active_ids.contains(k));
         if restore_saved_effect && guard.config.restore_on_launch && total > 0 {
             guard.live_color = compute_master_color(&guard);
             push_frame_locked(&mut guard, true);
@@ -1587,6 +1605,7 @@ impl RgbEngine {
                     .ok_or("Secondary color must be a valid 6-digit hex color.")?;
                 let mut guard = self.lock_inner();
                 guard.config.effect = effect;
+                self.sync_thermal_flag(effect);
                 guard.config.primary_hex = primary.to_hex();
                 guard.config.secondary_hex = secondary.to_hex();
                 guard.config.brightness = brightness.min(100);
@@ -1614,6 +1633,7 @@ impl RgbEngine {
                 guard.config.theme_accent_hex = accent.to_hex();
                 guard.config.primary_hex = accent.to_hex();
                 guard.config.effect = RgbEffect::ThemeSync;
+                self.sync_thermal_flag(RgbEffect::ThemeSync);
                 if guard.config.brightness == 0 {
                     guard.config.brightness = 85;
                 }
@@ -1851,6 +1871,7 @@ impl RgbEngine {
             RgbAction::Blackout => {
                 let mut guard = self.lock_inner();
                 guard.config.effect = RgbEffect::Blackout;
+                self.sync_thermal_flag(RgbEffect::Blackout);
                 guard.config.pinned_devices.clear();
                 guard.live_color = RgbColor::BLACK;
                 guard.last_pushed_frame = None;
@@ -1913,6 +1934,7 @@ impl RgbEngine {
                     .find(|p| p.id == id)
                     .ok_or("Selected RGB preset was not found.")?;
                 guard.config.effect = preset.effect;
+                self.sync_thermal_flag(preset.effect);
                 if preset.effect != RgbEffect::ThemeSync {
                     guard.config.primary_hex = preset.primary_hex.clone();
                 } else {
@@ -2037,17 +2059,18 @@ impl RgbEngine {
                 last_tick = now;
                 let speed_factor = 0.25 + (guard.config.speed as f32 / 100.0) * 2.2;
                 guard.phase = (guard.phase + dt * speed_factor) % 1000.0;
-                let flashing = match guard.alert_flash_until {
-                    Some(until) if now < until => true,
+                let flash_remaining_ms = match guard.alert_flash_until {
+                    Some(until) if now < until => Some(until.saturating_duration_since(now).as_millis()),
                     Some(_) => {
                         guard.alert_flash_until = None;
                         guard.last_pushed_frame = None;
-                        false
+                        None
                     }
-                    None => false,
+                    None => None,
                 };
-                if flashing {
-                    let pulse_on = (now.elapsed().as_millis() / 220).is_multiple_of(2);
+                let flashing = flash_remaining_ms.is_some();
+                if let Some(rem_ms) = flash_remaining_ms {
+                    let pulse_on = (rem_ms / 220).is_multiple_of(2);
                     guard.live_color = if pulse_on {
                         RgbColor { r: 255, g: 40, b: 30 }
                     } else {

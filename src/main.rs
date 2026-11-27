@@ -424,7 +424,7 @@ fn set_telemetry_paused(
 }
 
 #[tauri::command]
-fn set_window_lock_mode(
+async fn set_window_lock_mode(
     window: tauri::WebviewWindow,
     state: State<'_, Arc<Dashboard>>,
     store: State<'_, Arc<preferences::Store>>,
@@ -443,12 +443,17 @@ fn set_window_lock_mode(
     }
     let resizable = !matches!(mode, preferences::WindowLockMode::All);
     let _ = window.set_resizable(resizable);
-    let mut changes = preferences::Changes::default();
-    changes.window_lock_mode = Some(mode);
-    store
-        .update(changes, |_| ())
-        .map_err(|e| e.to_string())?;
-    Ok(mode)
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut changes = preferences::Changes::default();
+        changes.window_lock_mode = Some(mode);
+        store
+            .update(changes, |_| ())
+            .map_err(|e| e.to_string())?;
+        Ok(mode)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -674,11 +679,14 @@ async fn disk_map_open(
 }
 
 #[tauri::command]
-fn disk_map_node(
+async fn disk_map_node(
     dashboard: State<'_, Arc<Dashboard>>,
     path: std::path::PathBuf,
 ) -> Result<Option<disk_map::Scan>, String> {
-    dashboard.disk_scan.node_view(&path)
+    let disk_scan = dashboard.disk_scan.clone();
+    tauri::async_runtime::spawn_blocking(move || disk_scan.node_view(&path))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -1254,8 +1262,13 @@ async fn live_system_logs(
 }
 
 #[tauri::command]
-fn live_system_logs_reset(tailer: State<'_, Arc<system_log::SystemLogTailer>>) {
-    tailer.reset();
+async fn live_system_logs_reset(
+    tailer: State<'_, Arc<system_log::SystemLogTailer>>,
+) -> Result<(), String> {
+    let tailer = tailer.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || tailer.reset())
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1645,7 +1658,7 @@ fn finish_dashboard_smoke(
             std::process::exit(1);
         } else {
             println!(
-                "WebView2 verified Dashboard, Settings, Font Size, Command Palette, Theme Studio, Disk Partitioner, RGB Studio, Network, Tasks & Ports, UltimaDiagX, Disk Map, and all 24 Rust Modules."
+                "WebView2 verified Dashboard, Settings, Font Size, Command Palette, Theme Studio, Disk Partitioner, RGB Studio, Thermal Lab, Network, Tasks & Ports, UltimaDiagX, Disk Map, and all 25 Rust Modules."
             );
             app.exit(0);
             std::process::exit(0);

@@ -658,12 +658,13 @@ function createDiskMap(invoke) {
     home.addEventListener("click", () => void navigateTo(root, false));
 
     let resizeRaf = 0;
+    const isPanelHidden = () => map.hidden || Boolean(byId("viewDiskMapPanel")?.hidden);
     new ResizeObserver(() => {
-        if (map.hidden || !result || mode !== "entries") return;
+        if (isPanelHidden() || !result || mode !== "entries") return;
         if (resizeRaf) cancelAnimationFrame(resizeRaf);
         resizeRaf = requestAnimationFrame(() => {
             resizeRaf = 0;
-            if (map.hidden || !result || mode !== "entries") return;
+            if (isPanelHidden() || !result || mode !== "entries") return;
             drawTreemap(currentItems().filter((item) => item.bytes > 0).slice(0, 40));
         });
     }).observe(map);
@@ -684,6 +685,10 @@ function createDiskMap(invoke) {
             else if (result && !scanning) render();
         },
         leave() {
+            if (resizeRaf) {
+                cancelAnimationFrame(resizeRaf);
+                resizeRaf = 0;
+            }
             // Release Canvas GPU/software backing surface immediately when tab is hidden.
             if (canvas) {
                 canvas.width = 0;

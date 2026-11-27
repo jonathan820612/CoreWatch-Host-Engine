@@ -66,6 +66,7 @@ pub struct ThermalConfig {
     pub aliases: HashMap<String, ChannelAlias>,
     pub hidden_fans: Vec<String>,
     pub hidden_temps: Vec<String>,
+    pub silenced_alerts: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -78,6 +79,7 @@ struct ChannelBaseline {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HealthFinding {
+    pub key: String,
     pub severity: &'static str, // "crit" | "warn" | "info"
     pub code: &'static str,
     pub channel: String,
@@ -185,6 +187,7 @@ pub struct ThermalSnapshot {
     pub health_check_running: bool,
     pub last_check_summary: Option<String>,
     pub providers: Vec<crate::thermal_providers::ProviderStatus>,
+    pub silenced_alerts: Vec<String>,
     pub note: Option<String>,
 }
 
@@ -209,6 +212,13 @@ pub enum ThermalAction {
         temp_id: String,
         hidden: bool,
     },
+    SilenceAlert {
+        key: String,
+    },
+    UnsilenceAlert {
+        key: String,
+    },
+    ClearSilencedAlerts,
     UnhideAll,
     ApplyPreset { preset: String },
     ResetAllAuto,
@@ -688,7 +698,13 @@ struct HealthEvaluation {
     issues: Vec<HealthFinding>,
 }
 
+fn is_silenced(silenced: &[String], key: &str) -> bool {
+    silenced.iter().any(|s| s == key)
+}
+
+#[allow(clippy::too_many_arguments)]
 fn evaluate_channel_health(
+    channel_id: &str,
     channel_name: &str,
     role: &'static str,
     rpm: Option<u32>,
@@ -696,6 +712,7 @@ fn evaluate_channel_health(
     host_temp_c: Option<f64>,
     tracker: &ChannelTracker,
     baseline: Option<&ChannelBaseline>,
+    silenced: &[String],
 ) -> HealthEvaluation {
     let mut score: i32 = 100;
     let mut issues = Vec::new();
@@ -738,46 +755,55 @@ fn evaluate_channel_health(
         || (role == "cpu" && host_temp_c.unwrap_or(0.0) >= 62.0)
         || (role == "gpu" && host_temp_c.unwrap_or(0.0) >= 65.0);
     if rpm == Some(0) && demanded && tracker.zero_streak >= 2 {
-        score -= 70;
         let is_pump = role == "pump";
-        issues.push(HealthFinding {
-            severity: "crit",
-            code: if is_pump { "PUMP_STALL" } else { "FAN_STALL" },
-            channel: channel_name.to_owned(),
-            title: if is_pump {
-                format!("{channel_name}: AIO Pump Stalled (0 RPM)")
-            } else {
-                format!("{channel_name}: Fan Stalled / Seized (0 RPM)")
-            },
-            detail: format!(
-                "Reporting 0 RPM despite {:.0}% PWM / {:.0}°C load for {} consecutive samples.",
-                pwm.unwrap_or(0.0),
-                host_temp_c.unwrap_or(0.0),
-                tracker.zero_streak
-            ),
-            advice: if is_pump {
-                "Inspect pump power/SATA/header cable immediately. A stalled AIO pump causes rapid CPU overheating — avoid heavy loads until resolved.".into()
-            } else {
-                "Check for cable obstruction, dust buildup, or seized fan bearing. Replace fan if it fails to spin at 75% PWM.".into()
-            },
-        });
+        let code = if is_pump { "PUMP_STALL" } else { "FAN_STALL" };
+        let key = format!("{code}::{channel_id}");
+        if !is_silenced(silenced, &key) {
+            score -= 70;
+            issues.push(HealthFinding {
+                key,
+                severity: "crit",
+                code,
+                channel: channel_name.to_owned(),
+                title: if is_pump {
+                    format!("{channel_name}: AIO Pump Stalled (0 RPM)")
+                } else {
+                    format!("{channel_name}: Fan Stalled / Seized (0 RPM)")
+                },
+                detail: format!(
+                    "Reporting 0 RPM despite {:.0}% PWM / {:.0}°C load for {} consecutive samples.",
+                    pwm.unwrap_or(0.0),
+                    host_temp_c.unwrap_or(0.0),
+                    tracker.zero_streak
+                ),
+                advice: if is_pump {
+                    "Inspect pump power/SATA/header cable immediately. A stalled AIO pump causes rapid CPU overheating — avoid heavy loads until resolved.".into()
+                } else {
+                    "Check for cable obstruction, dust buildup, or seized fan bearing. Replace fan if it fails to spin at 75% PWM.".into()
+                },
+            });
+        }
     }
 
-    // 3. AIO Pump Low-RPM Warning
+    // 3. AIO Pump Low-RPM Warning (quiet PWM AIOs like Arctic Liquid Freezer II/III normally run 800–2,000 RPM)
     if role == "pump"
         && let Some(r) = rpm
         && r > 0
-        && r < 1100
+        && r < 600
     {
-        score -= 45;
-        issues.push(HealthFinding {
-            severity: "crit",
-            code: "PUMP_LOW_RPM",
-            channel: channel_name.to_owned(),
-            title: format!("{channel_name}: Abnormally Low Pump Speed ({r} RPM)"),
-            detail: "AIO/liquid pumps normally operate between 1,800–3,200 RPM. Sub-1,100 RPM indicates impeller drag, failing motor, or severe BIOS throttling.".into(),
-            advice: "Set your motherboard AIO_PUMP header to full DC 12V / ≥75% PWM and listen for grinding or gurgling noises.".into(),
-        });
+        let key = format!("PUMP_LOW_RPM::{channel_id}");
+        if !is_silenced(silenced, &key) {
+            score -= 45;
+            issues.push(HealthFinding {
+                key,
+                severity: "crit",
+                code: "PUMP_LOW_RPM",
+                channel: channel_name.to_owned(),
+                title: format!("{channel_name}: Abnormally Low Pump Speed ({r} RPM)"),
+                detail: "AIO/liquid pumps normally operate at 800–3,200 RPM (e.g. Arctic Liquid Freezer 800–2,000 RPM). Sub-600 RPM indicates impeller drag, failing motor, or excessive throttling.".into(),
+                advice: "Check your motherboard pump header curve (keep >=40% PWM / 800+ RPM) and listen for grinding or gurgling noises.".into(),
+            });
+        }
     }
 
     // 4. Learned Baseline RPM Deficit (Bearing Drag / Dust Choke / End-of-Life)
@@ -798,33 +824,41 @@ fn evaluate_channel_health(
             expected_rpm = Some(exp.round() as u32);
             let deficit_pct = ((exp - f64::from(r)) / exp) * 100.0;
             if deficit_pct >= 35.0 {
-                score -= 45;
-                issues.push(HealthFinding {
-                    severity: "crit",
-                    code: "BEARING_SEVERE_DRAG",
-                    channel: channel_name.to_owned(),
-                    title: format!("{channel_name}: Severe RPM Deficit (-{deficit_pct:.0}% vs baseline)"),
-                    detail: format!(
-                        "Spinning at {r} RPM instead of expected ~{:.0} RPM{} — strong sign of failing bearing or clogged impeller.",
-                        exp,
-                        pwm.map_or(String::new(), |p| format!(" at {p:.0}% PWM"))
-                    ),
-                    advice: "Clean dust filters/blades and check for bearing friction or wobble. Plan fan/pump replacement soon.".into(),
-                });
+                let key = format!("BEARING_SEVERE_DRAG::{channel_id}");
+                if !is_silenced(silenced, &key) {
+                    score -= 45;
+                    issues.push(HealthFinding {
+                        key,
+                        severity: "crit",
+                        code: "BEARING_SEVERE_DRAG",
+                        channel: channel_name.to_owned(),
+                        title: format!("{channel_name}: Severe RPM Deficit (-{deficit_pct:.0}% vs baseline)"),
+                        detail: format!(
+                            "Spinning at {r} RPM instead of expected ~{:.0} RPM{} — strong sign of failing bearing or clogged impeller.",
+                            exp,
+                            pwm.map_or(String::new(), |p| format!(" at {p:.0}% PWM"))
+                        ),
+                        advice: "Clean dust filters/blades and check for bearing friction or wobble. Plan fan/pump replacement soon.".into(),
+                    });
+                }
             } else if deficit_pct >= 20.0 {
-                score -= 22;
-                issues.push(HealthFinding {
-                    severity: "warn",
-                    code: "BEARING_DRAG",
-                    channel: channel_name.to_owned(),
-                    title: format!("{channel_name}: Early Bearing Drag (-{deficit_pct:.0}% vs baseline)"),
-                    detail: format!(
-                        "Measured {r} RPM vs learned healthy baseline ~{:.0} RPM{}.",
-                        exp,
-                        pwm.map_or(String::new(), |p| format!(" at {p:.0}% PWM"))
-                    ),
-                    advice: "Inspect fan blades/radiator fins for dust resistance and monitor trend over coming sessions.".into(),
-                });
+                let key = format!("BEARING_DRAG::{channel_id}");
+                if !is_silenced(silenced, &key) {
+                    score -= 22;
+                    issues.push(HealthFinding {
+                        key,
+                        severity: "warn",
+                        code: "BEARING_DRAG",
+                        channel: channel_name.to_owned(),
+                        title: format!("{channel_name}: Early Bearing Drag (-{deficit_pct:.0}% vs baseline)"),
+                        detail: format!(
+                            "Measured {r} RPM vs learned healthy baseline ~{:.0} RPM{}.",
+                            exp,
+                            pwm.map_or(String::new(), |p| format!(" at {p:.0}% PWM"))
+                        ),
+                        advice: "Inspect fan blades/radiator fins for dust resistance and monitor trend over coming sessions.".into(),
+                    });
+                }
             }
         }
     }
@@ -863,40 +897,49 @@ fn evaluate_channel_health(
                 .fold(0.0_f64, f64::max);
             let cov_limit = if role == "pump" { 6.5 } else { 8.5 };
             if jitter_pct >= cov_limit || max_step >= 260.0 {
-                score -= if role == "pump" { 30 } else { 20 };
-                issues.push(HealthFinding {
-                    severity: "warn",
-                    code: if role == "pump" { "PUMP_CAVITATION" } else { "BEARING_WOBBLE" },
-                    channel: channel_name.to_owned(),
-                    title: if role == "pump" {
-                        format!("{channel_name}: Pump Cavitation / RPM Surging ({jitter_pct:.1}% jitter)")
-                    } else {
-                        format!("{channel_name}: Bearing Wobble / Tach Jitter ({jitter_pct:.1}% jitter)")
-                    },
-                    detail: format!(
-                        "RPM fluctuated by ±{std_dev:.0} RPM (peak jump {max_step:.0} RPM) while PWM stayed steady."
-                    ),
-                    advice: if role == "pump" {
-                        "Check AIO radiator orientation (ensure pump block is not the highest point in the loop) to bleed trapped air bubbles.".into()
-                    } else {
-                        "Erratic tachometer speed at steady PWM indicates worn fan bearings, unbalanced blades, or failing hall-effect sensor.".into()
-                    },
-                });
+                let code = if role == "pump" { "PUMP_CAVITATION" } else { "BEARING_WOBBLE" };
+                let key = format!("{code}::{channel_id}");
+                if !is_silenced(silenced, &key) {
+                    score -= if role == "pump" { 30 } else { 20 };
+                    issues.push(HealthFinding {
+                        key,
+                        severity: "warn",
+                        code,
+                        channel: channel_name.to_owned(),
+                        title: if role == "pump" {
+                            format!("{channel_name}: Pump Cavitation / RPM Surging ({jitter_pct:.1}% jitter)")
+                        } else {
+                            format!("{channel_name}: Bearing Wobble / Tach Jitter ({jitter_pct:.1}% jitter)")
+                        },
+                        detail: format!(
+                            "RPM fluctuated by ±{std_dev:.0} RPM (peak jump {max_step:.0} RPM) while PWM stayed steady."
+                        ),
+                        advice: if role == "pump" {
+                            "Check AIO radiator orientation (ensure pump block is not the highest point in the loop) to bleed trapped air bubbles.".into()
+                        } else {
+                            "Erratic tachometer speed at steady PWM indicates worn fan bearings, unbalanced blades, or failing hall-effect sensor.".into()
+                        },
+                    });
+                }
             }
         }
     }
 
     // 6. Unresponsive PWM Header
     if tracker.pwm_unresponsive {
-        score -= 15;
-        issues.push(HealthFinding {
-            severity: "warn",
-            code: "PWM_UNRESPONSIVE",
-            channel: channel_name.to_owned(),
-            title: format!("{channel_name}: PWM Control Unresponsive"),
-            detail: "Commanded duty cycle changed significantly, but fan RPM did not respond as expected.".into(),
-            advice: "Header may be a 3-pin DC fan on a PWM-only header, locked by motherboard BIOS/EC firmware, or driven by an external splitter.".into(),
-        });
+        let key = format!("PWM_UNRESPONSIVE::{channel_id}");
+        if !is_silenced(silenced, &key) {
+            score -= 15;
+            issues.push(HealthFinding {
+                key,
+                severity: "warn",
+                code: "PWM_UNRESPONSIVE",
+                channel: channel_name.to_owned(),
+                title: format!("{channel_name}: PWM Control Unresponsive"),
+                detail: "Commanded duty cycle changed significantly, but fan RPM did not respond as expected.".into(),
+                advice: "Header may be a 3-pin DC fan on a PWM-only header, locked by motherboard BIOS/EC firmware, or driven by an external splitter.".into(),
+            });
+        }
     }
 
     let final_score = score.clamp(0, 100) as u8;
@@ -930,6 +973,9 @@ struct EngineInner {
     session: Option<HelperSession>,
     last_frame: Option<RawThermalFrame>,
     last_error: Option<String>,
+    last_snapshot: Option<(Instant, ThermalSnapshot)>,
+    wmi_miss_until: Option<Instant>,
+    last_acpi: Option<(Instant, Vec<crate::thermal_providers::ProviderTemp>)>,
     config: ThermalConfig,
     baselines: HashMap<String, ChannelBaseline>,
     temp_history: HashMap<String, VecDeque<f64>>,
@@ -961,6 +1007,7 @@ impl ThermalEngine {
                 aliases: HashMap::new(),
                 hidden_fans: Vec::new(),
                 hidden_temps: Vec::new(),
+                silenced_alerts: Vec::new(),
             });
         let baselines = dir
             .as_ref()
@@ -978,6 +1025,9 @@ impl ThermalEngine {
                 session: None,
                 last_frame: None,
                 last_error: None,
+                last_snapshot: None,
+                wmi_miss_until: None,
+                last_acpi: None,
                 config,
                 baselines,
                 temp_history: HashMap::new(),
@@ -1096,24 +1146,43 @@ impl ThermalEngine {
         } else {
             read_hwinfo_shared_memory()
         };
-        let wmi_frame = if self.smoke_test {
+        let (should_probe_wmi, cached_acpi) = {
+            let guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+            let probe_wmi = guard
+                .wmi_miss_until
+                .is_none_or(|until| Instant::now() >= until);
+            let acpi = guard
+                .last_acpi
+                .as_ref()
+                .filter(|(at, _)| at.elapsed() < Duration::from_secs(15))
+                .map(|(_, v)| v.clone());
+            (probe_wmi, acpi)
+        };
+        let wmi_frame = if self.smoke_test || !should_probe_wmi {
             None
         } else {
             read_lhm_ohm_wmi()
         };
-        let acpi_temps = if self.smoke_test {
-            Vec::new()
+        let (acpi_temps, acpi_fresh) = if self.smoke_test {
+            (Vec::new(), false)
+        } else if let Some(cached) = cached_acpi {
+            (cached, false)
         } else {
-            read_acpi_thermal_zones()
-        };
-        let storage_vols = if self.smoke_test {
-            Vec::new()
-        } else {
-            crate::storage::volumes()
+            (read_acpi_thermal_zones(), true)
         };
 
         let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         guard.last_active = Instant::now();
+        if should_probe_wmi && !self.smoke_test {
+            guard.wmi_miss_until = if wmi_frame.is_some() {
+                None
+            } else {
+                Some(Instant::now() + Duration::from_secs(60))
+            };
+        }
+        if acpi_fresh {
+            guard.last_acpi = Some((Instant::now(), acpi_temps.clone()));
+        }
         if !self.smoke_test {
             Self::ensure_session_and_poll(&mut guard);
         }
@@ -1212,16 +1281,19 @@ impl ThermalEngine {
                 ),
             },
         ];
-        let smart_count = storage_vols.iter().filter(|v| v.temperature_c.is_some()).count();
+        let storage_temp_count = guard
+            .last_frame
+            .as_ref()
+            .map_or(0, |f| f.temperatures.iter().filter(|t| t.category == "storage" && !is_non_live_temp_sensor(&t.name)).count());
         providers.push(ProviderStatus {
             id: "smart_acpi",
             name: "SMART / ACPI",
-            state: if smart_count > 0 || !acpi_temps.is_empty() {
+            state: if storage_temp_count > 0 || !acpi_temps.is_empty() {
                 "active"
             } else {
                 "standby"
             },
-            detail: format!("{smart_count} drive temp(s), {} ACPI zone(s)", acpi_temps.len()),
+            detail: format!("{storage_temp_count} drive temp(s), {} ACPI zone(s)", acpi_temps.len()),
         });
 
         struct TempCandidate {
@@ -1322,33 +1394,6 @@ impl ThermalEngine {
                     max: None,
                 },
             );
-        }
-        for vol in &storage_vols {
-            if let Some(tc) = vol.temperature_c
-                && (10..=110).contains(&tc)
-            {
-                let id = format!("storage/{}/temp", vol.mount);
-                if !temp_map
-                    .values()
-                    .any(|t| t.category == "storage" && t.hardware.contains(&vol.mount))
-                {
-                    let hw = vol
-                        .disk_name
-                        .clone()
-                        .unwrap_or_else(|| format!("{} ({})", vol.kind, vol.drive_type));
-                    temp_map.insert(
-                        id,
-                        TempCandidate {
-                            name: format!("Drive {} ({})", vol.mount.trim_end_matches('\\'), vol.label),
-                            hardware: hw,
-                            category: "storage".into(),
-                            value: tc as f64,
-                            min: None,
-                            max: None,
-                        },
-                    );
-                }
-            }
         }
 
         let mut temperatures: Vec<TempSensor> = Vec::new();
@@ -1665,6 +1710,7 @@ impl ThermalEngine {
 
             // Update rolling tracker & evaluate health cleanly without overlapping MutexGuard borrows
             let baseline_snap = guard.baselines.get(&id).cloned();
+            let silenced_snap = guard.config.silenced_alerts.clone();
             let (eval, rpm_min, rpm_max, rpm_history) = {
                 let tracker = guard.trackers.entry(id.clone()).or_default();
                 if let Some(r) = rpm {
@@ -1742,6 +1788,7 @@ impl ThermalEngine {
                 }
 
                 let eval = evaluate_channel_health(
+                    &id,
                     &name,
                     role,
                     rpm,
@@ -1749,6 +1796,7 @@ impl ThermalEngine {
                     host_temp,
                     tracker,
                     baseline_snap.as_ref(),
+                    &silenced_snap,
                 );
                 let rpm_min = tracker.rpm_min;
                 let rpm_max = tracker.rpm_max;
@@ -1850,20 +1898,25 @@ impl ThermalEngine {
             self.save_baselines_locked(&guard.baselines);
         }
 
-        // Temperature & AIO heat-soak diagnostics (ignore user-hidden sensors)
+        // Temperature & AIO heat-soak diagnostics (ignore user-hidden sensors & silenced alerts)
+        let silenced_ref = guard.config.silenced_alerts.clone();
         for t in temperatures.iter().filter(|t| !t.hidden) {
             if t.value_c >= t.crit_c {
-                all_findings.push(HealthFinding {
-                    severity: "crit",
-                    code: "OVER_TEMP",
-                    channel: t.name.clone(),
-                    title: format!("{} Over-Temperature ({:.0}°C)", t.name, t.value_c),
-                    detail: format!(
-                        "{} exceeded critical threshold ({:.0}°C).",
-                        t.hardware, t.crit_c
-                    ),
-                    advice: "Increase cooling curve, inspect dust filters/airflow, and verify cooler mount or pump RPM.".into(),
-                });
+                let key = format!("OVER_TEMP::{}", t.id);
+                if !is_silenced(&silenced_ref, &key) {
+                    all_findings.push(HealthFinding {
+                        key,
+                        severity: "crit",
+                        code: "OVER_TEMP",
+                        channel: t.name.clone(),
+                        title: format!("{} Over-Temperature ({:.0}°C)", t.name, t.value_c),
+                        detail: format!(
+                            "{} exceeded critical threshold ({:.0}°C).",
+                            t.hardware, t.crit_c
+                        ),
+                        advice: "Increase cooling curve, inspect dust filters/airflow, and verify cooler mount or pump RPM.".into(),
+                    });
+                }
             }
         }
 
@@ -1952,22 +2005,26 @@ impl ThermalEngine {
             && cpu >= 85.0
             && cool < 32.0
         {
-            all_findings.push(HealthFinding {
-                severity: "crit",
-                code: "AIO_THERMAL_TRANSFER_FAULT",
-                channel: "AIO Cooler".into(),
-                title: format!(
-                    "AIO Heat Transfer Fault (CPU {cpu:.0}°C vs Coolant {cool:.0}°C)"
-                ),
-                detail: "Large CPU-to-coolant delta indicates dry/poor thermal paste, loose coldplate mounting, or a clogged microfin block.".into(),
-                advice: "Check pump RPM, confirm coldplate mounting pressure, and re-paste the CPU if temps remain high.".into(),
-            });
+            let key = "AIO_THERMAL_TRANSFER_FAULT::AIO Cooler".to_owned();
+            if !is_silenced(&silenced_ref, &key) {
+                all_findings.push(HealthFinding {
+                    key,
+                    severity: "crit",
+                    code: "AIO_THERMAL_TRANSFER_FAULT",
+                    channel: "AIO Cooler".into(),
+                    title: format!(
+                        "AIO Heat Transfer Fault (CPU {cpu:.0}°C vs Coolant {cool:.0}°C)"
+                    ),
+                    detail: "Large CPU-to-coolant delta indicates dry/poor thermal paste, loose coldplate mounting, or a clogged microfin block.".into(),
+                    advice: "Check pump RPM, confirm coldplate mounting pressure, and re-paste the CPU if temps remain high.".into(),
+                });
+            }
         }
         let aio_detected = pump_count > 0 || coolant_c.is_some() || flow_lph.is_some();
         let aio_summary = if aio_detected {
             let pump_bad = fans_out
                 .iter()
-                .any(|f| f.role == "pump" && f.health_score < 70);
+                .any(|f| !f.hidden && f.role == "pump" && f.health_score < 70);
             let status = if pump_bad || coolant_c.is_some_and(|c| c >= 50.0) {
                 "Critical"
             } else if coolant_c.is_some_and(|c| c >= 42.0) {
@@ -2009,14 +2066,18 @@ impl ThermalEngine {
 
         let gpu_throttle_reason = nvml_gpu.and_then(|g| g.throttle_reason);
         if let Some(ref reason) = gpu_throttle_reason {
-            all_findings.push(HealthFinding {
-                severity: "warn",
-                code: "GPU_THROTTLE",
-                channel: "NVIDIA GPU".into(),
-                title: format!("GPU Throttling Active: {reason}"),
-                detail: "NVML reports active GPU clock slowdown due to thermal or power limits.".into(),
-                advice: "Raise GPU fan curve or verify case intake airflow.".into(),
-            });
+            let key = "GPU_THROTTLE::NVIDIA GPU".to_owned();
+            if !is_silenced(&silenced_ref, &key) {
+                all_findings.push(HealthFinding {
+                    key,
+                    severity: "warn",
+                    code: "GPU_THROTTLE",
+                    channel: "NVIDIA GPU".into(),
+                    title: format!("GPU Throttling Active: {reason}"),
+                    detail: "NVML reports active GPU clock slowdown due to thermal or power limits.".into(),
+                    advice: "Raise GPU fan curve or verify case intake airflow.".into(),
+                });
+            }
         }
 
         // Overall health score
@@ -2064,7 +2125,7 @@ impl ThermalEngine {
             None
         };
 
-        ThermalSnapshot {
+        let snap = ThermalSnapshot {
             elevated,
             helper_available,
             helper_active: guard.session.is_some(),
@@ -2087,11 +2148,22 @@ impl ThermalEngine {
             health_check_running: self.check_running.load(Ordering::Acquire),
             last_check_summary: guard.last_check_summary.clone(),
             providers,
+            silenced_alerts: guard.config.silenced_alerts.clone(),
             note,
-        }
+        };
+        guard.last_snapshot = Some((Instant::now(), snap.clone()));
+        snap
     }
 
     pub fn snapshot(&self) -> ThermalSnapshot {
+        {
+            let guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some((at, ref snap)) = guard.last_snapshot
+                && at.elapsed() < Duration::from_millis(1500)
+            {
+                return snap.clone();
+            }
+        }
         self.tick_once()
     }
 
@@ -2103,9 +2175,11 @@ impl ThermalEngine {
                 if active {
                     Ok(self.tick_once())
                 } else {
-                    let guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-                    drop(guard);
-                    Ok(self.tick_once())
+                    let cached = {
+                        let guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+                        guard.last_snapshot.as_ref().map(|(_, s)| s.clone())
+                    };
+                    Ok(cached.unwrap_or_else(|| self.tick_once()))
                 }
             }
             ThermalAction::SetManual {
@@ -2256,11 +2330,39 @@ impl ThermalEngine {
                 drop(guard);
                 Ok(self.tick_once())
             }
+            ThermalAction::SilenceAlert { key } => {
+                let clean = key.trim().to_owned();
+                if !clean.is_empty() {
+                    let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+                    if !guard.config.silenced_alerts.iter().any(|s| s == &clean) {
+                        guard.config.silenced_alerts.push(clean);
+                    }
+                    let cfg = guard.config.clone();
+                    self.save_config_locked(&cfg);
+                }
+                Ok(self.tick_once())
+            }
+            ThermalAction::UnsilenceAlert { key } => {
+                let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+                guard.config.silenced_alerts.retain(|s| s != &key);
+                let cfg = guard.config.clone();
+                self.save_config_locked(&cfg);
+                drop(guard);
+                Ok(self.tick_once())
+            }
+            ThermalAction::ClearSilencedAlerts => {
+                let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+                guard.config.silenced_alerts.clear();
+                let cfg = guard.config.clone();
+                self.save_config_locked(&cfg);
+                drop(guard);
+                Ok(self.tick_once())
+            }
             ThermalAction::ApplyPreset { preset } => {
                 if self.smoke_test {
                     return Ok(self.tick_once());
                 }
-                let snap = self.tick_once();
+                let snap = self.snapshot();
                 let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
                 guard.config.active_preset = preset.clone();
                 if preset == "auto" {
@@ -2368,14 +2470,14 @@ impl ThermalEngine {
                 let controllable: Vec<(String, String, &'static str, u8)> = snap_before
                     .fans
                     .iter()
-                    .filter(|f| !f.hidden && f.controllable && f.control_id.is_some())
-                    .map(|f| {
-                        (
-                            f.id.clone(),
-                            f.control_id.clone().unwrap(),
-                            f.role,
-                            f.min_pct,
-                        )
+                    .filter_map(|f| {
+                        if !f.hidden && f.controllable {
+                            f.control_id
+                                .as_ref()
+                                .map(|cid| (f.id.clone(), cid.clone(), f.role, f.min_pct))
+                        } else {
+                            None
+                        }
                     })
                     .collect();
 
@@ -2517,22 +2619,45 @@ mod tests {
             ..Default::default()
         };
         // Silent GPU at 38°C & 0% PWM (both 0 RPM and tach-less NVML) => healthy 0-dB Idle
-        let idle = evaluate_channel_health("GPU Fan 1", "gpu", Some(0), Some(0.0), Some(38.0), &tracker, None);
+        let idle = evaluate_channel_health("gpu0", "GPU Fan 1", "gpu", Some(0), Some(0.0), Some(38.0), &tracker, None, &[]);
         assert_eq!(idle.status, "0-dB Idle");
         assert_eq!(idle.score, 100);
         assert!(idle.issues.is_empty());
-        let idle_no_tach = evaluate_channel_health("GPU Fan 2", "gpu", None, Some(0.0), Some(39.0), &tracker, None);
+        let idle_no_tach = evaluate_channel_health("gpu1", "GPU Fan 2", "gpu", None, Some(0.0), Some(39.0), &tracker, None, &[]);
         assert_eq!(idle_no_tach.status, "0-dB Idle");
         assert_eq!(idle_no_tach.score, 100);
 
+        // Quiet AIO pump (e.g. Arctic Liquid Freezer) at 850–1,000 RPM => Healthy!
+        let quiet_pump = evaluate_channel_health("pump0", "Arctic AIO Pump", "pump", Some(950), Some(50.0), Some(42.0), &ChannelTracker::default(), None, &[]);
+        assert_eq!(quiet_pump.status, "Healthy");
+        assert_eq!(quiet_pump.score, 100);
+        assert!(quiet_pump.issues.is_empty());
+
+        // Struggling pump below 600 RPM => Critical PUMP_LOW_RPM, unless silenced!
+        let low_pump = evaluate_channel_health("pump0", "Arctic AIO Pump", "pump", Some(480), Some(50.0), Some(42.0), &ChannelTracker::default(), None, &[]);
+        assert!(low_pump.issues.iter().any(|i| i.code == "PUMP_LOW_RPM"));
+        let silenced_pump = evaluate_channel_health(
+            "pump0",
+            "Arctic AIO Pump",
+            "pump",
+            Some(480),
+            Some(50.0),
+            Some(42.0),
+            &ChannelTracker::default(),
+            None,
+            &["PUMP_LOW_RPM::pump0".into()],
+        );
+        assert_eq!(silenced_pump.score, 100);
+        assert!(silenced_pump.issues.is_empty());
+
         // Unplugged motherboard chassis header (never spun) => Idle / No Tach (no false stall)
-        let unplugged = evaluate_channel_health("Fan #6", "chassis", Some(0), Some(50.0), Some(42.0), &tracker, None);
+        let unplugged = evaluate_channel_health("fan6", "Fan #6", "chassis", Some(0), Some(50.0), Some(42.0), &tracker, None, &[]);
         assert_eq!(unplugged.status, "Idle / No Tach");
         assert_eq!(unplugged.score, 100);
         assert!(unplugged.issues.is_empty());
 
         // Stalled CPU fan at 60% PWM => Critical stall alert
-        let stalled = evaluate_channel_health("CPU_FAN", "cpu", Some(0), Some(60.0), Some(72.0), &tracker, None);
+        let stalled = evaluate_channel_health("cpu0", "CPU_FAN", "cpu", Some(0), Some(60.0), Some(72.0), &tracker, None, &[]);
         assert_eq!(stalled.status, "Critical");
         assert!(stalled.issues.iter().any(|i| i.code == "FAN_STALL"));
 
@@ -2544,7 +2669,7 @@ mod tests {
             steady.rpm_samples.push_back(900);
             steady.pwm_samples.push_back(60.0);
         }
-        let drag = evaluate_channel_health("SYS_FAN1", "chassis", Some(900), Some(60.0), Some(50.0), &steady, Some(&base));
+        let drag = evaluate_channel_health("sys1", "SYS_FAN1", "chassis", Some(900), Some(60.0), Some(50.0), &steady, Some(&base), &[]);
         assert!(drag.score <= 65);
         assert!(drag.issues.iter().any(|i| i.code == "BEARING_SEVERE_DRAG"));
 
@@ -2554,7 +2679,7 @@ mod tests {
             wobble.rpm_samples.push_back(r);
             wobble.pwm_samples.push_back(80.0);
         }
-        let cav = evaluate_channel_health("AIO_PUMP", "pump", Some(1980), Some(80.0), Some(55.0), &wobble, None);
+        let cav = evaluate_channel_health("aio0", "AIO_PUMP", "pump", Some(1980), Some(80.0), Some(55.0), &wobble, None, &[]);
         assert!(cav.issues.iter().any(|i| i.code == "PUMP_CAVITATION"));
     }
 

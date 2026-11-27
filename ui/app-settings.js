@@ -29,7 +29,7 @@ function createAppSettings(core, save, modulesChanged, status, onOpenWizard) {
         "profiles", "startup", "sharing", "apps", "appstore", "devices", "organizer", "rgbstudio", "thermal"
     ]);
     function formatHeaderVersion(version) {
-        if (!version) return "v1.0 Beta";
+        if (!version) return "";
         const beta = version.match(/^(\d+\.\d+)(?:\.\d+)?-beta(?:\.(\d+))?/i);
         if (beta) return beta[2] ? `v${beta[1]} Beta ${beta[2]}` : `v${beta[1]} Beta`;
         return `v${version}`;

@@ -154,6 +154,12 @@
     font-size: calc(11.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-primary);
 }
+.thermal-inline-issue {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+}
 .thermal-finding p {
     margin: 0;
     font-size: calc(10.5px * var(--cw-font-scale, 1));

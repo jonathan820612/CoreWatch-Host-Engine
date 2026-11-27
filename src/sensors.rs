@@ -578,8 +578,8 @@ impl Session {
             .spawn()
             .map_err(|error| error.to_string())?;
         let job = KillOnCloseJob::attach(&child);
-        let input = child.stdin.take().expect("piped sensor input");
-        let mut output = BufReader::new(child.stdout.take().expect("piped sensor output"));
+        let input = child.stdin.take().ok_or("Missing sensor helper stdin.")?;
+        let mut output = BufReader::new(child.stdout.take().ok_or("Missing sensor helper stdout.")?);
         let (send, receive) = mpsc::sync_channel(1);
         thread::spawn(move || {
             let mut buf = Vec::with_capacity(512);

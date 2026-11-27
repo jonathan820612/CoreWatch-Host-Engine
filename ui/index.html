@@ -1311,7 +1311,10 @@
                 <button type="button" class="filter-pill" data-thermal-preset="performance">⚡ Performance</button>
                 <button type="button" class="filter-pill" data-thermal-preset="max">🌀 Max 100%</button>
             </div>
-            <button id="thermal-reset-baselines" type="button" class="console-clear-btn" title="Clear learned healthy RPM-vs-PWM baselines and recalibrate">Reset Baselines</button>
+            <div class="panel-actions">
+                <button id="thermal-restore-silenced" type="button" class="console-clear-btn" hidden title="Restore all silenced thermal & fan alerts">🔔 Restore Silenced (0)</button>
+                <button id="thermal-reset-baselines" type="button" class="console-clear-btn" title="Clear learned healthy RPM-vs-PWM baselines and recalibrate">Reset Baselines</button>
+            </div>
         </div>
         <div id="thermal-providers-bar" class="thermal-providers-bar" aria-label="Hybrid thermal hardware providers"></div>
         <div id="thermal-banner" class="thermal-banner" hidden>

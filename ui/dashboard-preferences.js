@@ -281,8 +281,12 @@ function createDashboardPreferences(core, nativeWindow, temperatureChanged, modu
         setLiveSystemConsole: async (enabled) => {
             const cur = settingsPanel.getSettings();
             if (!cur) return;
-            const saved = await save({ general: { ...cur.general, liveSystemConsole: Boolean(enabled) }, liveSystemConsole: Boolean(enabled) });
-            settingsPanel.apply(saved);
+            try {
+                const saved = await save({ general: { ...cur.general, liveSystemConsole: Boolean(enabled) }, liveSystemConsole: Boolean(enabled) });
+                settingsPanel.apply(saved);
+            } catch (error) {
+                log("Live console preference: " + String(error));
+            }
         },
         cycleLockMode,
         togglePin,

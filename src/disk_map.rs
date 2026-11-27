@@ -645,8 +645,10 @@ impl SharedLimits<'_> {
 fn retain_largest(heap: &mut BinaryHeap<Reverse<Entry>>, item: Entry, limit: usize) {
     if heap.len() < limit {
         heap.push(Reverse(item));
-    } else if heap.peek().is_some_and(|last| item > last.0) {
-        *heap.peek_mut().unwrap() = Reverse(item);
+    } else if let Some(mut top) = heap.peek_mut()
+        && item > top.0
+    {
+        *top = Reverse(item);
     }
 }
 

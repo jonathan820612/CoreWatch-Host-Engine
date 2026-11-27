@@ -343,10 +343,16 @@ impl AlertsEngine {
                     if store.rules.len() == before {
                         return Err("Rule not found.".into());
                     }
+                    let mut tracker = self.tracker.lock().unwrap_or_else(|e| e.into_inner());
+                    tracker.breached_since.remove(&id);
+                    tracker.last_fired.remove(&id);
                     "Deleted alert rule.".into()
                 }
                 AlertAction::ResetDefaults => {
                     store.rules = default_rules();
+                    let mut tracker = self.tracker.lock().unwrap_or_else(|e| e.into_inner());
+                    tracker.breached_since.clear();
+                    tracker.last_fired.clear();
                     "Restored default watchdog rules.".into()
                 }
                 AlertAction::ClearHistory => {
@@ -381,6 +387,7 @@ impl AlertsEngine {
                             message: "Smart Alerts & Watchdog pipeline is active.".into(),
                         },
                     );
+                    store.history.truncate(120);
                     std::thread::spawn(|| {
                         send_windows_toast(
                             "RustCoreWatch Alert Test",

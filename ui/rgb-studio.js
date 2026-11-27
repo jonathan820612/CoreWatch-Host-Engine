@@ -615,7 +615,7 @@ function createRgbStudio(invoke) {
                 if (moduleEnabled && state?.config?.effect === "theme_sync") {
                     void run({ kind: "sync_theme_accent", accent_hex: accent }, true, true);
                 }
-            });
+            }).catch(() => {});
             return;
         }
         if (state?.config?.effect === "theme_sync") {

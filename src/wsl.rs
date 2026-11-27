@@ -259,13 +259,17 @@ pub fn merge_wslconfig(existing: &str, cfg: &WslConfig) -> String {
         if !has_any && !sections.iter().any(|(s, _)| s.eq_ignore_ascii_case(sec_name)) {
             return;
         }
-        if !sections.iter().any(|(s, _)| s.eq_ignore_ascii_case(sec_name)) {
-            sections.push((sec_name.to_owned(), Vec::new()));
-        }
-        let (_, lines) = sections
-            .iter_mut()
-            .find(|(s, _)| s.eq_ignore_ascii_case(sec_name))
-            .unwrap();
+        let idx = match sections
+            .iter()
+            .position(|(s, _)| s.eq_ignore_ascii_case(sec_name))
+        {
+            Some(i) => i,
+            None => {
+                sections.push((sec_name.to_owned(), Vec::new()));
+                sections.len() - 1
+            }
+        };
+        let lines = &mut sections[idx].1;
         for (key, val_opt) in updates {
             let pos = lines.iter().position(|l| {
                 let t = l.trim();
@@ -317,14 +321,38 @@ fn run_wsl_timeout(wsl: &Path, args: &[&str], timeout: Duration) -> Result<std::
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("Failed launching wsl.exe: {e}"))?;
+    let stdout_pipe = child.stdout.take();
+    let stderr_pipe = child.stderr.take();
+    let out_handle = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(mut r) = stdout_pipe {
+            let _ = std::io::Read::read_to_end(&mut r, &mut buf);
+        }
+        buf
+    });
+    let err_handle = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(mut r) = stderr_pipe {
+            let _ = std::io::Read::read_to_end(&mut r, &mut buf);
+        }
+        buf
+    });
     let deadline = Instant::now() + timeout;
     loop {
-        if let Ok(Some(_)) = child.try_wait() {
-            return child.wait_with_output().map_err(|e| e.to_string());
+        if let Ok(Some(status)) = child.try_wait() {
+            let stdout = out_handle.join().unwrap_or_default();
+            let stderr = err_handle.join().unwrap_or_default();
+            return Ok(std::process::Output {
+                status,
+                stdout,
+                stderr,
+            });
         }
         if Instant::now() >= deadline {
             let _ = child.kill();
             let _ = child.wait();
+            let _ = out_handle.join();
+            let _ = err_handle.join();
             return Err(format!("wsl.exe {} timed out after {}s.", args.join(" "), timeout.as_secs()));
         }
         std::thread::sleep(Duration::from_millis(35));
