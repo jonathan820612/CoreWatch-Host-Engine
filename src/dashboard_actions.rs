@@ -12,13 +12,17 @@ use tauri::{AppHandle, PhysicalPosition, WebviewUrl, WebviewWindow, WebviewWindo
 use windows_sys::Win32::Storage::FileSystem::SetVolumeLabelW;
 
 pub fn relaunch_elevated() -> Result<(), String> {
+    relaunch_elevated_with_args("--elevated")
+}
+
+pub fn relaunch_elevated_with_args(args: &str) -> Result<(), String> {
     if native::elevated() {
         return Err("CoreWatch is already elevated.".into());
     }
     let exe = std::env::current_exe().map_err(|error| error.to_string())?;
     use std::os::windows::ffi::OsStrExt;
     let exe: Vec<u16> = exe.as_os_str().encode_wide().chain([0]).collect();
-    shell_open_wide(&exe, Some("--elevated"), true)
+    shell_open_wide(&exe, Some(args), true)
 }
 
 /// Spawns a fresh instance of RustCoreWatch with `--relaunch` so the new process waits briefly
@@ -30,6 +34,107 @@ pub fn relaunch() -> Result<(), String> {
         .spawn()
         .map(|_| ())
         .map_err(|error| format!("Could not restart RustCoreWatch: {error}"))
+}
+
+/// Spawns an unelevated (Standard User) instance from an elevated session by duplicating
+/// Explorer's desktop shell token (`CreateProcessWithTokenW`), passing `--relaunch --no-auto-elevate`.
+pub fn relaunch_unelevated() -> Result<(), String> {
+    if !native::elevated() {
+        return relaunch();
+    }
+    use std::{os::windows::ffi::OsStrExt, ptr};
+    use windows_sys::Win32::{
+        Foundation::{CloseHandle, HANDLE},
+        Security::{
+            DuplicateTokenEx, SecurityImpersonation, TOKEN_ADJUST_DEFAULT,
+            TOKEN_ADJUST_SESSIONID, TOKEN_ASSIGN_PRIMARY, TOKEN_DUPLICATE, TOKEN_QUERY,
+            TokenPrimary,
+        },
+        System::Threading::{
+            CreateProcessWithTokenW, OpenProcess, OpenProcessToken,
+            PROCESS_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION, STARTUPINFOW,
+        },
+    };
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn GetShellWindow() -> *mut core::ffi::c_void;
+        fn GetWindowThreadProcessId(hwnd: *mut core::ffi::c_void, process_id: *mut u32) -> u32;
+    }
+
+    let exe = std::env::current_exe().map_err(|error| error.to_string())?;
+    let exe_wide: Vec<u16> = exe.as_os_str().encode_wide().chain([0]).collect();
+    let mut cmd_wide = native::wide(&format!(
+        "\"{}\" --relaunch --no-auto-elevate",
+        exe.display()
+    ));
+
+    unsafe {
+        let shell_hwnd = GetShellWindow();
+        if shell_hwnd.is_null() {
+            return Err("Standard User mode saved — close and reopen RustCoreWatch normally to switch privilege level.".into());
+        }
+        let mut shell_pid = 0u32;
+        GetWindowThreadProcessId(shell_hwnd, &mut shell_pid);
+        if shell_pid == 0 {
+            return Err("Could not locate desktop shell process to restart as Standard User.".into());
+        }
+        let shell_proc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, shell_pid);
+        if shell_proc.is_null() {
+            return Err("Standard User mode saved — close and reopen RustCoreWatch normally to switch privilege level.".into());
+        }
+        let mut shell_token: HANDLE = ptr::null_mut();
+        let ok_open = OpenProcessToken(shell_proc, TOKEN_DUPLICATE, &mut shell_token);
+        CloseHandle(shell_proc);
+        if ok_open == 0 || shell_token.is_null() {
+            return Err("Standard User mode saved — close and reopen RustCoreWatch normally to switch privilege level.".into());
+        }
+        let mut primary_token: HANDLE = ptr::null_mut();
+        let access = TOKEN_ASSIGN_PRIMARY
+            | TOKEN_DUPLICATE
+            | TOKEN_QUERY
+            | TOKEN_ADJUST_DEFAULT
+            | TOKEN_ADJUST_SESSIONID;
+        let ok_dup = DuplicateTokenEx(
+            shell_token,
+            access,
+            ptr::null(),
+            SecurityImpersonation,
+            TokenPrimary,
+            &mut primary_token,
+        );
+        CloseHandle(shell_token);
+        if ok_dup == 0 || primary_token.is_null() {
+            return Err("Standard User mode saved — close and reopen RustCoreWatch normally to switch privilege level.".into());
+        }
+        let mut si: STARTUPINFOW = std::mem::zeroed();
+        si.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
+        let mut pi: PROCESS_INFORMATION = std::mem::zeroed();
+        let ok_spawn = CreateProcessWithTokenW(
+            primary_token,
+            0,
+            exe_wide.as_ptr(),
+            cmd_wide.as_mut_ptr(),
+            0,
+            ptr::null(),
+            ptr::null(),
+            &si,
+            &mut pi,
+        );
+        CloseHandle(primary_token);
+        if ok_spawn == 0 {
+            return Err(format!(
+                "Standard User mode saved, but automatic restart failed ({}). Close and reopen RustCoreWatch normally.",
+                std::io::Error::last_os_error()
+            ));
+        }
+        if !pi.hThread.is_null() {
+            CloseHandle(pi.hThread);
+        }
+        if !pi.hProcess.is_null() {
+            CloseHandle(pi.hProcess);
+        }
+        Ok(())
+    }
 }
 
 pub(crate) fn shell_open(target: &str, argument: Option<&str>, admin: bool) -> Result<(), String> {

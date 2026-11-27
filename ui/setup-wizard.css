@@ -1,0 +1,566 @@
+/* First-Launch Setup Wizard & Launch Privilege Mode Styles */
+
+.cw-wizard-dialog {
+    width: min(860px, calc(100vw - 24px));
+    max-width: calc(100vw - 24px);
+    max-height: min(690px, calc(100dvh - 24px));
+    margin: auto;
+    padding: 0;
+    border: 1px solid var(--cw-border-strong);
+    border-radius: 8px;
+    background: var(--cw-bg-surface);
+    color: var(--cw-text-primary);
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.65);
+    overflow: hidden;
+    font-size: calc(11.5px * var(--cw-font-scale, 1));
+}
+.cw-wizard-dialog[open] {
+    display: flex;
+    flex-direction: column;
+}
+.cw-wizard-dialog::backdrop {
+    background: rgba(8, 12, 20, 0.56);
+    backdrop-filter: blur(2px);
+}
+
+.cw-wizard-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 16px;
+    background: var(--cw-bg-inset);
+    border-bottom: 1px solid var(--cw-border);
+    flex-shrink: 0;
+}
+.cw-wizard-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+.cw-wizard-brand img {
+    width: 34px;
+    height: 34px;
+    border-radius: 6px;
+    flex-shrink: 0;
+}
+.cw-wizard-brand h2 {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    font-size: calc(14px * var(--cw-font-scale, 1));
+    color: var(--cw-text-primary);
+    letter-spacing: 0.3px;
+}
+.cw-wizard-brand p {
+    margin: 2px 0 0;
+    color: var(--cw-text-muted);
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
+}
+
+.cw-wizard-stepper {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+    padding: 8px 16px;
+    background: color-mix(in srgb, var(--cw-bg-inset) 70%, var(--cw-bg-surface));
+    border-bottom: 1px solid var(--cw-border);
+    flex-shrink: 0;
+}
+.cw-wizard-step-btn {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 9px;
+    border: 1px solid var(--cw-border);
+    border-radius: 5px;
+    background: var(--cw-bg-surface);
+    color: var(--cw-text-muted);
+    font: inherit;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.14s ease, background 0.14s ease, color 0.14s ease;
+    min-width: 0;
+}
+.cw-wizard-step-btn:hover {
+    border-color: var(--cw-border-strong);
+    color: var(--cw-text-primary);
+}
+.cw-wizard-step-btn.is-active {
+    border-color: var(--cw-accent);
+    background: color-mix(in srgb, var(--cw-accent) 18%, var(--cw-bg-surface));
+    color: var(--cw-text-primary);
+}
+.cw-wizard-step-btn.is-done {
+    color: var(--cw-text-secondary);
+}
+.cw-wizard-step-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--cw-bg-control);
+    color: var(--cw-text-secondary);
+    font-size: calc(10px * var(--cw-font-scale, 1));
+    flex-shrink: 0;
+}
+.cw-wizard-step-btn.is-active .cw-wizard-step-num {
+    background: var(--cw-accent);
+    color: var(--cw-on-accent);
+}
+.cw-wizard-step-btn.is-done .cw-wizard-step-num {
+    background: #2f855a;
+    color: #fff;
+}
+.cw-wizard-step-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cw-wizard-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.cw-wizard-pane[hidden] {
+    display: none;
+}
+.cw-wizard-pane {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.cw-wizard-section-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+.cw-wizard-section-head h3 {
+    margin: 0;
+    font-size: calc(12.5px * var(--cw-font-scale, 1));
+    color: var(--cw-text-primary);
+}
+.cw-wizard-section-head p {
+    margin: 0;
+    color: var(--cw-text-muted);
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
+}
+
+.cw-wizard-legacy-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px 11px;
+    border: 1px solid color-mix(in srgb, var(--cw-accent) 55%, var(--cw-border));
+    border-radius: 5px;
+    background: color-mix(in srgb, var(--cw-accent) 12%, var(--cw-bg-inset));
+}
+.cw-wizard-legacy-banner[hidden] {
+    display: none;
+}
+.cw-wizard-legacy-banner span {
+    color: var(--cw-text-secondary);
+    font-size: calc(11px * var(--cw-font-scale, 1));
+}
+
+/* Step 1: Theme Cards & Quick Tweaks */
+.cw-wizard-theme-grid {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 7px;
+}
+.cw-wizard-theme-card {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px;
+    border: 1px solid var(--cw-border);
+    border-radius: 6px;
+    background: var(--cw-bg-inset);
+    color: var(--cw-text-secondary);
+    text-align: left;
+    cursor: pointer;
+    font: inherit;
+    transition: border-color 0.14s ease, transform 0.1s ease;
+}
+.cw-wizard-theme-card:hover {
+    border-color: var(--cw-border-strong);
+}
+.cw-wizard-theme-card.is-selected {
+    border-color: var(--cw-accent-light);
+    box-shadow: 0 0 0 1px var(--cw-accent);
+    color: var(--cw-text-primary);
+}
+.cw-wizard-theme-preview {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 3px;
+    padding: 5px;
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    height: 30px;
+    box-sizing: border-box;
+}
+.cw-wizard-theme-preview span {
+    border-radius: 2px;
+}
+.cw-wizard-theme-name {
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cw-wizard-two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+.cw-wizard-box {
+    border: 1px solid var(--cw-border);
+    border-radius: 6px;
+    background: var(--cw-bg-inset);
+    padding: 10px 11px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.cw-wizard-box-title {
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--cw-accent-soft);
+}
+.cw-wizard-slider-row {
+    display: grid;
+    grid-template-columns: 112px minmax(0, 1fr) 44px;
+    align-items: center;
+    gap: 8px;
+    color: var(--cw-text-secondary);
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
+}
+.cw-wizard-slider-row input[type="range"] {
+    width: 100%;
+    margin: 0;
+    accent-color: var(--cw-accent);
+}
+.cw-wizard-slider-row output {
+    text-align: right;
+    color: var(--cw-text-muted);
+    font-variant-numeric: tabular-nums;
+}
+.cw-wizard-accent-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    color: var(--cw-text-secondary);
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
+}
+.cw-wizard-accent-controls {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.cw-wizard-accent-controls input[type="color"] {
+    width: 30px;
+    height: 22px;
+    padding: 1px;
+    border: 1px solid var(--cw-border-strong);
+    background: transparent;
+    cursor: pointer;
+}
+.cw-wizard-accent-controls code {
+    font-family: Consolas, monospace;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: var(--cw-bg-control);
+    color: var(--cw-text-primary);
+}
+.cw-wizard-font-row {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+}
+.cw-wizard-choice-pill {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    padding: 7px 6px;
+    border: 1px solid var(--cw-border);
+    border-radius: 5px;
+    background: var(--cw-bg-surface);
+    color: var(--cw-text-secondary);
+    cursor: pointer;
+    font: inherit;
+    text-align: center;
+}
+.cw-wizard-choice-pill:hover {
+    border-color: var(--cw-border-strong);
+    color: var(--cw-text-primary);
+}
+.cw-wizard-choice-pill.is-selected {
+    border-color: var(--cw-accent-light);
+    background: color-mix(in srgb, var(--cw-accent) 22%, var(--cw-bg-surface));
+    color: var(--cw-text-primary);
+}
+.cw-wizard-choice-pill strong {
+    font-size: calc(11px * var(--cw-font-scale, 1));
+}
+.cw-wizard-choice-pill small {
+    font-size: calc(9.5px * var(--cw-font-scale, 1));
+    color: var(--cw-text-muted);
+}
+
+/* Step 2: Layout Presets & Cards */
+.cw-wizard-layout-presets {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 7px;
+}
+.cw-wizard-preset-card {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    padding: 9px 10px;
+    border: 1px solid var(--cw-border);
+    border-radius: 6px;
+    background: var(--cw-bg-inset);
+    color: var(--cw-text-secondary);
+    text-align: left;
+    cursor: pointer;
+    font: inherit;
+}
+.cw-wizard-preset-card:hover {
+    border-color: var(--cw-border-strong);
+    color: var(--cw-text-primary);
+}
+.cw-wizard-preset-card.is-selected {
+    border-color: var(--cw-accent-light);
+    background: color-mix(in srgb, var(--cw-accent) 18%, var(--cw-bg-inset));
+    color: var(--cw-text-primary);
+}
+.cw-wizard-preset-card strong {
+    font-size: calc(11px * var(--cw-font-scale, 1));
+}
+.cw-wizard-preset-card small {
+    font-size: calc(9.5px * var(--cw-font-scale, 1));
+    color: var(--cw-text-muted);
+    line-height: 1.3;
+}
+.cw-wizard-cards-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+}
+.cw-wizard-card-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 7px 9px;
+    border: 1px solid var(--cw-border);
+    border-radius: 5px;
+    background: var(--cw-bg-inset);
+}
+.cw-wizard-card-row strong {
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.cw-wizard-card-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+/* Step 3: Privilege Mode Cards (shared between Setup Wizard & Settings) */
+.cw-privilege-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+.cw-privilege-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 10px 11px;
+    border: 1px solid var(--cw-border);
+    border-radius: 6px;
+    background: var(--cw-bg-surface);
+    color: var(--cw-text-secondary);
+    cursor: pointer;
+    text-align: left;
+    transition: border-color 0.14s ease, background 0.14s ease;
+}
+.cw-privilege-card:hover {
+    border-color: var(--cw-border-strong);
+}
+.cw-privilege-card:has(input:checked),
+.cw-privilege-card.is-selected {
+    border-color: var(--cw-accent-light);
+    background: color-mix(in srgb, var(--cw-accent) 16%, var(--cw-bg-surface));
+    color: var(--cw-text-primary);
+}
+.cw-privilege-card input[type="radio"] {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+.cw-privilege-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+}
+.cw-privilege-head strong {
+    font-size: calc(11.5px * var(--cw-font-scale, 1));
+    color: var(--cw-text-primary);
+}
+.cw-privilege-desc {
+    margin: 0;
+    font-size: calc(10px * var(--cw-font-scale, 1));
+    color: var(--cw-text-muted);
+    line-height: 1.35;
+}
+.cw-privilege-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 6px;
+}
+.cw-wizard-checks-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+.cw-wizard-toggle {
+    display: flex;
+    align-items: flex-start;
+    gap: 7px;
+    padding: 7px 9px;
+    border: 1px solid var(--cw-border);
+    border-radius: 5px;
+    background: var(--cw-bg-surface);
+    cursor: pointer;
+}
+.cw-wizard-toggle input {
+    margin-top: 2px;
+    accent-color: var(--cw-accent);
+}
+.cw-wizard-toggle strong {
+    display: block;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
+    color: var(--cw-text-primary);
+}
+.cw-wizard-toggle small {
+    display: block;
+    font-size: calc(9.5px * var(--cw-font-scale, 1));
+    color: var(--cw-text-muted);
+    line-height: 1.25;
+    margin-top: 1px;
+}
+
+/* Step 4: Modular Tabs */
+.cw-wizard-mod-presets {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px;
+}
+.cw-wizard-mod-groups {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+.cw-wizard-mod-group {
+    border: 1px solid var(--cw-border);
+    border-radius: 6px;
+    background: var(--cw-bg-inset);
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+.cw-wizard-mod-group-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--cw-border);
+    padding-bottom: 4px;
+    margin-bottom: 2px;
+}
+.cw-wizard-mod-group-head strong {
+    font-size: calc(10px * var(--cw-font-scale, 1));
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--cw-accent-soft);
+}
+.cw-wizard-mod-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
+    color: var(--cw-text-secondary);
+    cursor: pointer;
+    padding: 2px 0;
+}
+.cw-wizard-mod-item input {
+    accent-color: var(--cw-accent);
+    margin: 0;
+}
+.cw-wizard-mod-item:hover {
+    color: var(--cw-text-primary);
+}
+
+/* Footer */
+.cw-wizard-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 16px;
+    background: var(--cw-bg-inset);
+    border-top: 1px solid var(--cw-border);
+    flex-shrink: 0;
+}
+.cw-wizard-footer-actions {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+
+@media (max-width: 720px) {
+    .cw-wizard-theme-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .cw-wizard-layout-presets { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .cw-wizard-two-col,
+    .cw-wizard-cards-list,
+    .cw-privilege-grid,
+    .cw-wizard-checks-grid,
+    .cw-wizard-mod-groups { grid-template-columns: minmax(0, 1fr); }
+    .cw-wizard-stepper { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

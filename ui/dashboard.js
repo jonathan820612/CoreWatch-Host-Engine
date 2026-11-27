@@ -1052,6 +1052,7 @@ async function start() {
     window.cwApp = {
         selectView,
         showToast,
+        openSetupWizard: () => preferences.openSetupWizard(0),
         inspectPid: async (pid) => {
             if (hiddenModules.includes("tasksports")) return;
             await selectView("tasks");
@@ -1131,6 +1132,7 @@ async function start() {
         { cat: "Action", label: "🔄 Scan All Updates (WinGet + PS)", hint: "Open Unified Update Center and scan", hidden: () => hiddenModules.includes("updates"), run: () => void selectView("updates") },
         { cat: "Action", label: "🌐 Probe All Homelab Nodes", hint: "Check reachability across all hosts", hidden: () => hiddenModules.includes("homelab"), run: () => void selectView("homelab").then(() => byId("homelab-probe-all")?.click()) },
         // Window & Layout
+        { cat: "Window", label: "✨ First-Launch Setup Wizard", hint: "Theme, Layout, Telemetry, Privilege Mode & Tabs", run: () => preferences.openSetupWizard(0) },
         { cat: "Window", label: "⚙️ Application Settings (Ctrl+,)", hint: "General, Font Size, Directories, Modules", run: () => preferences.openPanel("preferences") },
         { cat: "Window", label: "🎨 Theme & Appearance Studio", hint: "Presets, Colors, Wallpaper", run: () => preferences.openPanel("appearance") },
         { cat: "Window", label: "✏️ Customize Dashboard Layout", hint: "Cards, Dock, Opacity", run: () => { void selectView("dashboard").then(() => preferences.openPanel("layout")); } },
@@ -1700,6 +1702,45 @@ async function start() {
                         throw new Error("RGB Studio did not render its effects and lighting presets.");
                     }
                     await selectView("dashboard");
+                    // Verify Launch Privilege Mode setting round-trip and First-Launch Setup Wizard all 4 steps
+                    byId("preferences-toggle").click();
+                    byId("settings-tab-general").click();
+                    const adminPrivRadio = document.querySelector('input[name="cwLaunchPrivilege"][value="admin"]');
+                    const userPrivRadio = document.querySelector('input[name="cwLaunchPrivilege"][value="user"]');
+                    if (!adminPrivRadio || !userPrivRadio) {
+                        throw new Error("Launch Privilege Mode radios were missing from Settings -> General.");
+                    }
+                    adminPrivRadio.click();
+                    await preferences.settled();
+                    if (!(await invoke("dashboard_preferences")).settings.general.runAsAdmin) {
+                        throw new Error("Launch Privilege Mode (Administrator) did not round-trip through IPC.");
+                    }
+                    userPrivRadio.click();
+                    await preferences.settled();
+                    if ((await invoke("dashboard_preferences")).settings.general.runAsAdmin) {
+                        throw new Error("Launch Privilege Mode (Standard User) did not restore through IPC.");
+                    }
+                    byId("settings-open-wizard").click();
+                    const wizard = byId("cwSetupWizard");
+                    if (!wizard.open || wizard.querySelectorAll("[data-wizard-theme]").length !== 10) {
+                        throw new Error("Setup Wizard Step 1 did not render all 10 theme presets.");
+                    }
+                    byId("cwWizardNext").click();
+                    if (wizard.querySelectorAll("[data-wizard-layout]").length !== 4 || wizard.querySelectorAll(".cw-wizard-card-row").length !== 6) {
+                        throw new Error("Setup Wizard Step 2 did not render layout presets and all 6 telemetry cards.");
+                    }
+                    byId("cwWizardNext").click();
+                    if (wizard.querySelectorAll("[data-wizard-priv]").length !== 2 || wizard.querySelectorAll("[data-wizard-poll]").length !== 3) {
+                        throw new Error("Setup Wizard Step 3 did not render privilege mode and telemetry options.");
+                    }
+                    byId("cwWizardNext").click();
+                    if (wizard.querySelectorAll("[data-wizard-module]").length !== 24) {
+                        throw new Error("Setup Wizard Step 4 did not render all 24 modular tabs.");
+                    }
+                    preferences.closeSetupWizardWithoutSave();
+                    if (wizard.open) {
+                        throw new Error("Setup Wizard did not close cleanly.");
+                    }
                     if (smokeErrors.length) {
                         throw new Error("Runtime JS/console errors detected: " + smokeErrors.join(" | "));
                     }

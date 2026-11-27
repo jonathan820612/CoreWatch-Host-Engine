@@ -366,6 +366,8 @@ pub struct General {
     pub confirm_destructive_actions: bool,
     pub auto_check_core_watch_updates: bool,
     pub low_memory_mode: bool,
+    pub run_as_admin: bool,
+    pub onboarding_completed: bool,
     pub font_size: FontSize,
 }
 
@@ -378,17 +380,26 @@ impl Default for General {
             confirm_destructive_actions: true,
             auto_check_core_watch_updates: true,
             low_memory_mode: false,
+            run_as_admin: false,
+            onboarding_completed: false,
             font_size: FontSize::Normal,
         }
     }
 }
 
-/// Fast startup read used before WebView2 initialization to check whether Low-Memory Mode is enabled.
-pub fn read_low_memory_mode(directory: &Path) -> bool {
+/// Fast startup read used before WebView2 / single-instance initialization to check
+/// `(low_memory_mode, run_as_admin)` without opening the full Store.
+pub fn read_startup_flags(directory: &Path) -> (bool, bool) {
     read_json::<Settings>(&directory.join(SETTINGS_FILE))
         .ok()
         .flatten()
-        .is_some_and(|settings| settings.general.low_memory_mode)
+        .map(|settings| (settings.general.low_memory_mode, settings.general.run_as_admin))
+        .unwrap_or((false, false))
+}
+
+/// Fast startup read used before WebView2 initialization to check whether Low-Memory Mode is enabled.
+pub fn read_low_memory_mode(directory: &Path) -> bool {
+    read_startup_flags(directory).0
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -459,6 +470,8 @@ pub struct Changes {
     pub general: Option<General>,
     pub start_with_windows: Option<bool>,
     pub low_memory_mode: Option<bool>,
+    pub run_as_admin: Option<bool>,
+    pub onboarding_completed: Option<bool>,
     directories: Option<Directories>,
     pub modules: Option<Modules>,
     #[serde(skip)]
@@ -496,6 +509,12 @@ impl Changes {
         }
         if let Some(low_mem) = self.low_memory_mode {
             settings.general.low_memory_mode = low_mem;
+        }
+        if let Some(run_as_admin) = self.run_as_admin {
+            settings.general.run_as_admin = run_as_admin;
+        }
+        if let Some(completed) = self.onboarding_completed {
+            settings.general.onboarding_completed = completed;
         }
         if let Some(directories) = self.directories {
             settings.directories = directories;
@@ -682,13 +701,21 @@ impl Store {
                 "No dashboard preferences were found in the PowerShell version.",
             ));
         }
+        // Preserve RustCoreWatch-only fields that did not exist in the legacy PowerShell edition.
+        let general = app.general.map(|mut imported| {
+            let current = self.saved.lock().unwrap_or_else(|e| e.into_inner());
+            imported.low_memory_mode = current.settings.general.low_memory_mode;
+            imported.run_as_admin = current.settings.general.run_as_admin;
+            imported.onboarding_completed = current.settings.general.onboarding_completed;
+            imported
+        });
         Ok(Changes {
             layout: ui.layout,
             theme: ui.theme,
             window_lock_mode: ui.window_lock_mode,
             telemetry: app.telemetry,
             directories: app.directories,
-            general: app.general,
+            general,
             always_on_top: None,
             ..Changes::default()
         })
@@ -952,5 +979,31 @@ mod tests {
             )
             .unwrap();
         assert!(read_low_memory_mode(path.path()));
+    }
+
+    #[test]
+    fn persists_and_preloads_admin_mode_and_onboarding() {
+        let path = tempfile::tempdir().unwrap();
+        assert_eq!(read_startup_flags(path.path()), (false, false));
+        let store = Store::open(Some(path.path().into()), None);
+        assert!(!store.state().settings.general.run_as_admin);
+        assert!(!store.state().settings.general.onboarding_completed);
+        let updated = store
+            .update(
+                Changes {
+                    run_as_admin: Some(true),
+                    onboarding_completed: Some(true),
+                    low_memory_mode: Some(true),
+                    ..Changes::default()
+                },
+                |_| {},
+            )
+            .unwrap();
+        assert!(updated.general.run_as_admin);
+        assert!(updated.general.onboarding_completed);
+        assert_eq!(read_startup_flags(path.path()), (true, true));
+        let reloaded = Store::open(Some(path.path().into()), None).state().settings;
+        assert!(reloaded.general.run_as_admin);
+        assert!(reloaded.general.onboarding_completed);
     }
 }

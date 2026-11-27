@@ -8,11 +8,15 @@
 
 .EXAMPLE
     .\build\Build-Beta.ps1
+    .\build\Build-Beta.ps1 -Bump beta
+    .\build\Build-Beta.ps1 -Bump patch
     .\build\Build-Beta.ps1 -SkipTests
     .\build\Build-Beta.ps1 -SkipInstaller
 #>
 [CmdletBinding()]
 param(
+    [ValidateSet("none", "beta", "patch", "minor", "major")]
+    [string]$Bump = "none",
     [switch]$SkipTests,
     [switch]$SkipBuild,
     [switch]$SkipInstaller,
@@ -25,8 +29,9 @@ $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $BuildDir    = $PSScriptRoot
 $DistRoot    = Join-Path $ProjectRoot "dist"
 
-# 1. Read canonical version from Cargo.toml
-$cargoRaw = Get-Content -LiteralPath (Join-Path $ProjectRoot "Cargo.toml") -Raw
+# 1. Read canonical version from Cargo.toml (and optionally bump across Cargo.toml, Cargo.lock, tauri.conf.json)
+$cargoPath = Join-Path $ProjectRoot "Cargo.toml"
+$cargoRaw  = Get-Content -LiteralPath $cargoPath -Raw
 if ($cargoRaw -notmatch '(?m)^version\s*=\s*"([^"]+)"') {
     throw "Could not parse package version from Cargo.toml."
 }
@@ -36,6 +41,60 @@ $major = if ($verNums.Count -ge 1) { [int]$verNums[0] } else { 1 }
 $minor = if ($verNums.Count -ge 2) { [int]$verNums[1] } else { 0 }
 $patch = if ($verNums.Count -ge 3) { [int]$verNums[2] } else { 0 }
 $betaNum = if ($AppVersion -match 'beta\.(\d+)') { [int]$Matches[1] } else { 0 }
+
+if ($Bump -ne "none") {
+    $oldVersion = $AppVersion
+    switch ($Bump) {
+        "beta" {
+            if ($AppVersion -match '-beta\.(\d+)$') {
+                $betaNum = [int]$Matches[1] + 1
+                $AppVersion = "$major.$minor.$patch-beta.$betaNum"
+            } else {
+                $patch += 1; $betaNum = 1
+                $AppVersion = "$major.$minor.$patch-beta.1"
+            }
+        }
+        "patch" {
+            if ($AppVersion -match '-beta\.') {
+                $betaNum = 0
+                $AppVersion = "$major.$minor.$patch"
+            } else {
+                $patch += 1; $betaNum = 0
+                $AppVersion = "$major.$minor.$patch"
+            }
+        }
+        "minor" {
+            $minor += 1; $patch = 0; $betaNum = 0
+            $AppVersion = "$major.$minor.0"
+        }
+        "major" {
+            $major += 1; $minor = 0; $patch = 0; $betaNum = 0
+            $AppVersion = "$major.0.0"
+        }
+    }
+    Write-Host "Bumping version: $oldVersion -> $AppVersion" -ForegroundColor Yellow
+    $cargoUpdated = [regex]::Replace($cargoRaw, '(?m)^version\s*=\s*"[^"]+"', "version = `"$AppVersion`"", 1)
+    [System.IO.File]::WriteAllText($cargoPath, $cargoUpdated, [System.Text.UTF8Encoding]::new($false))
+
+    $tauriConfPath = Join-Path $ProjectRoot "tauri.conf.json"
+    if (Test-Path -LiteralPath $tauriConfPath) {
+        $tauriRaw = Get-Content -LiteralPath $tauriConfPath -Raw
+        $tauriUpdated = [regex]::Replace($tauriRaw, '"version"\s*:\s*"[^"]+"', "`"version`": `"$AppVersion`"", 1)
+        [System.IO.File]::WriteAllText($tauriConfPath, $tauriUpdated, [System.Text.UTF8Encoding]::new($false))
+    }
+
+    $cargoLockPath = Join-Path $ProjectRoot "Cargo.lock"
+    if (Test-Path -LiteralPath $cargoLockPath) {
+        $lockRaw = Get-Content -LiteralPath $cargoLockPath -Raw
+        $lockUpdated = [regex]::Replace(
+            $lockRaw,
+            '(name\s*=\s*"corewatch-rust"\r?\nversion\s*=\s*)"[^"]+"',
+            "`${1}`"$AppVersion`"",
+            1
+        )
+        [System.IO.File]::WriteAllText($cargoLockPath, $lockUpdated, [System.Text.UTF8Encoding]::new($false))
+    }
+}
 $VersionInfo = "$major.$minor.$patch.$betaNum"
 
 $gitBranch = "unknown"
@@ -276,12 +335,14 @@ Native Rust + Win32 + WebView2 System Telemetry, Hardware RGB,
 Diagnostics, Operations & Developer Workbench.
 
 Quick Tips:
+- On first launch, the in-app Setup Wizard lets you configure theme,
+  dashboard layout, telemetry, Admin/User launch mode, and visible tabs.
 - Press Ctrl+K for the Quick Command Palette (50+ actions).
-- Press Ctrl+, for Settings (General, Low-Memory Mode, Font Size,
-  Directories, Telemetry, and Modules & Tabs).
+- Press Ctrl+, for Settings (Launch Privilege Mode, General, Low-Memory Mode,
+  Font Size, Directories, Telemetry, and Modules & Tabs).
 - To enable CPU die temperatures and SMBus DRAM RGB control, install
-  the signed PawnIO driver (winget install namazso.PawnIO) and run
-  RustCoreWatch as Administrator.
+  the signed PawnIO driver (winget install namazso.PawnIO) and choose
+  Administrator mode in Setup or Settings -> General.
 
 Project & Releases:
 https://github.com/jonathan820612/CoreWatch-Host-Engine

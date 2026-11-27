@@ -13,12 +13,14 @@
     <link rel="stylesheet" href="diagnostics.css">
     <link rel="stylesheet" href="modules-hub.css">
     <link rel="stylesheet" href="rgb-studio.css">
+    <link rel="stylesheet" href="setup-wizard.css">
     <script src="dashboard.js" defer></script>
     <script src="network.js" defer></script>
     <script src="dashboard-network.js" defer></script>
     <script src="dashboard-controls.js" defer></script>
     <script src="dashboard-layout.js" defer></script>
     <script src="dashboard-theme.js" defer></script>
+    <script src="setup-wizard.js" defer></script>
     <script src="dashboard-preferences.js" defer></script>
     <script src="app-settings.js" defer></script>
     <script src="tasks.js" defer></script>
@@ -1460,6 +1462,25 @@
             <button id="settings-tab-modules" type="button" class="filter-pill" role="tab" aria-controls="settings-pane-modules" data-settings-tab="modules">🧩 Modules &amp; Tabs</button>
         </nav>
         <div class="dashboard-panel-body" id="settings-pane-general" role="tabpanel" aria-labelledby="settings-tab-general">
+            <fieldset class="dashboard-option-group">
+                <legend>Launch Privilege Mode</legend>
+                <div class="cw-privilege-grid" role="radiogroup" aria-label="Launch privilege mode">
+                    <label class="cw-privilege-card">
+                        <input type="radio" name="cwLaunchPrivilege" value="user" checked>
+                        <span class="cw-privilege-head"><strong>👤 Standard User</strong><span class="diag-pill diag-neutral">No UAC</span></span>
+                        <p class="cw-privilege-desc">Recommended for daily use. Supports GPU temps/VRAM, USB HID &amp; NVAPI RGB, displays &amp; network telemetry.</p>
+                    </label>
+                    <label class="cw-privilege-card">
+                        <input type="radio" name="cwLaunchPrivilege" value="admin">
+                        <span class="cw-privilege-head"><strong>🛡️ Administrator</strong><span class="diag-pill diag-ok">Full Access</span></span>
+                        <p class="cw-privilege-desc">Auto-elevates on launch. Unlocks CPU die temps (PawnIO), SMBus RAM RGB, Firewall/Defender &amp; elevated logon task.</p>
+                    </label>
+                </div>
+                <div class="cw-privilege-bar">
+                    <span id="settings-priv-session" class="diag-pill diag-neutral">Session: Checking…</span>
+                    <button id="settings-priv-restart" type="button" class="console-clear-btn btn-accent-action" hidden>Restart to Apply</button>
+                </div>
+            </fieldset>
             <fieldset class="dashboard-option-group"><legend>Startup &amp; Behavior</legend><div id="settings-general-fields" class="settings-general-fields"></div></fieldset>
             <fieldset class="dashboard-option-group">
                 <legend>Interface Font Size</legend>
@@ -1481,7 +1502,10 @@
                 <p id="settings-update-status" class="dashboard-hint" role="status"></p>
                 <div class="panel-actions"><button class="console-clear-btn" id="settings-check-update" type="button">Check for Updates</button><button class="console-clear-btn" id="settings-open-releases" type="button">Release Notes</button><button class="console-clear-btn" id="settings-data-folder" type="button">Open Data Folder</button></div>
             </fieldset>
-            <button id="import-dashboard-settings" type="button" class="console-clear-btn">Import from Legacy PowerShell Edition…</button>
+            <div class="panel-actions">
+                <button id="settings-open-wizard" type="button" class="console-clear-btn btn-accent-action">✨ Re-run Setup Wizard…</button>
+                <button id="import-dashboard-settings" type="button" class="console-clear-btn">Import from Legacy PowerShell Edition…</button>
+            </div>
         </div>
         <div class="dashboard-panel-body" id="settings-pane-directories" role="tabpanel" aria-labelledby="settings-tab-directories" hidden><div id="settings-directories" class="settings-directories"></div></div>
         <div class="dashboard-panel-body" id="settings-pane-telemetry" role="tabpanel" aria-labelledby="settings-tab-telemetry" hidden>
@@ -1513,6 +1537,149 @@
             <span id="preferences-save-status" class="dashboard-hint" role="status"></span>
         </footer>
     </section>
+    <dialog id="cwSetupWizard" class="cw-wizard-dialog" aria-labelledby="cwWizardTitle">
+        <header class="cw-wizard-header">
+            <div class="cw-wizard-brand">
+                <img src="icon-64.png" alt="" draggable="false">
+                <div>
+                    <h2 id="cwWizardTitle">Welcome to RustCoreWatch</h2>
+                    <p>Personalize your theme, dashboard layout, telemetry, privilege mode, and visible tabs.</p>
+                </div>
+            </div>
+            <button id="cwWizardSkip" type="button" class="console-clear-btn">Skip Setup</button>
+        </header>
+        <nav class="cw-wizard-stepper" aria-label="Setup steps">
+            <button type="button" class="cw-wizard-step-btn is-active" data-wizard-step="0"><span class="cw-wizard-step-num">1</span><span class="cw-wizard-step-label">Theme &amp; Colors</span></button>
+            <button type="button" class="cw-wizard-step-btn" data-wizard-step="1"><span class="cw-wizard-step-num">2</span><span class="cw-wizard-step-label">Dashboard Layout</span></button>
+            <button type="button" class="cw-wizard-step-btn" data-wizard-step="2"><span class="cw-wizard-step-num">3</span><span class="cw-wizard-step-label">Telemetry &amp; Mode</span></button>
+            <button type="button" class="cw-wizard-step-btn" data-wizard-step="3"><span class="cw-wizard-step-num">4</span><span class="cw-wizard-step-label">Tabs &amp; Modules</span></button>
+        </nav>
+        <div id="cwWizardBody" class="cw-wizard-body">
+            <!-- Step 1: Theme, Colors & Typography -->
+            <section class="cw-wizard-pane" data-wizard-pane="0">
+                <div id="cwWizardLegacyBanner" class="cw-wizard-legacy-banner" hidden>
+                    <span>✨ Existing preferences from the Legacy PowerShell Edition were detected on this PC.</span>
+                    <button id="cwWizardImportLegacy" type="button" class="console-clear-btn btn-accent-action">Import Legacy Settings</button>
+                </div>
+                <div class="cw-wizard-section-head">
+                    <h3>🎨 Choose a Theme Preset</h3>
+                    <p>Changes preview live on the dashboard behind this window.</p>
+                </div>
+                <div id="cwWizardThemeGrid" class="cw-wizard-theme-grid"></div>
+                <div class="cw-wizard-two-col">
+                    <div class="cw-wizard-box">
+                        <span class="cw-wizard-box-title">Accent &amp; Surface Effects</span>
+                        <label class="cw-wizard-accent-row">
+                            <span>Primary Accent Color</span>
+                            <span class="cw-wizard-accent-controls">
+                                <code id="cwWizardAccentHex">#3182CE</code>
+                                <input id="cwWizardAccent" type="color" value="#3182ce" aria-label="Primary accent color">
+                            </span>
+                        </label>
+                        <label class="cw-wizard-slider-row">
+                            <span>Surface Opacity</span>
+                            <input id="cwWizardSurfaceOpacity" type="range" min="35" max="100" value="100">
+                            <output id="cwWizardSurfaceOpacityVal">100%</output>
+                        </label>
+                        <label class="cw-wizard-slider-row">
+                            <span>Card Glass Blur</span>
+                            <input id="cwWizardCardBlur" type="range" min="0" max="16" value="0">
+                            <output id="cwWizardCardBlurVal">0 px</output>
+                        </label>
+                    </div>
+                    <div class="cw-wizard-box">
+                        <span class="cw-wizard-box-title">Interface Font Size</span>
+                        <div class="cw-wizard-font-row">
+                            <button type="button" class="cw-wizard-choice-pill" data-wizard-font="small"><strong>Small</strong><small>88%</small></button>
+                            <button type="button" class="cw-wizard-choice-pill is-selected" data-wizard-font="normal"><strong>Normal</strong><small>100%</small></button>
+                            <button type="button" class="cw-wizard-choice-pill" data-wizard-font="large"><strong>Large</strong><small>112%</small></button>
+                            <button type="button" class="cw-wizard-choice-pill" data-wizard-font="xlarge"><strong>X-Large</strong><small>124%</small></button>
+                        </div>
+                        <p class="dashboard-hint">You can further customize all 12 color tokens or set a local wallpaper anytime in Theme Studio (🎨).</p>
+                    </div>
+                </div>
+            </section>
+            <!-- Step 2: Dashboard Layout -->
+            <section class="cw-wizard-pane" data-wizard-pane="1" hidden>
+                <div class="cw-wizard-section-head">
+                    <h3>✏️ Dashboard Layout Preset</h3>
+                    <p>Pick a starting layout or place individual cards in the Grid, movable Dock, or Hidden.</p>
+                </div>
+                <div id="cwWizardLayoutPresets" class="cw-wizard-layout-presets"></div>
+                <div class="cw-wizard-section-head">
+                    <h3>Individual Telemetry Cards</h3>
+                    <p>Grid shows on the main canvas · Dock pins to the movable side drawer.</p>
+                </div>
+                <div id="cwWizardLayoutCards" class="cw-wizard-cards-list"></div>
+            </section>
+            <!-- Step 3: Telemetry, Privilege & Performance -->
+            <section class="cw-wizard-pane" data-wizard-pane="2" hidden>
+                <div class="cw-wizard-section-head">
+                    <h3>🛡️ Launch Privilege Mode</h3>
+                    <span id="cwWizardPrivSession" class="diag-pill diag-neutral">Active session: Standard User</span>
+                </div>
+                <div class="cw-privilege-grid">
+                    <label class="cw-privilege-card is-selected" data-wizard-priv="user">
+                        <input type="radio" name="cwWizardPrivilege" value="user" checked>
+                        <span class="cw-privilege-head"><strong>👤 Standard User Mode</strong><span class="diag-pill diag-neutral">Recommended</span></span>
+                        <p class="cw-privilege-desc">Zero UAC prompt on startup. Native GPU sensors, VRAM, USB HID &amp; NVAPI RGB, display, storage, and network telemetry.</p>
+                    </label>
+                    <label class="cw-privilege-card" data-wizard-priv="admin">
+                        <input type="radio" name="cwWizardPrivilege" value="admin">
+                        <span class="cw-privilege-head"><strong>🛡️ Administrator Mode</strong><span class="diag-pill diag-ok">Full Hardware</span></span>
+                        <p class="cw-privilege-desc">Auto-elevates on launch. Unlocks CPU die temperatures (PawnIO), SMBus RAM RGB, Firewall/Defender controls &amp; elevated logon task.</p>
+                    </label>
+                </div>
+                <p id="cwWizardPrivNote" class="dashboard-hint"></p>
+                <div class="cw-wizard-two-col">
+                    <div class="cw-wizard-box">
+                        <span class="cw-wizard-box-title">⚡ Telemetry Polling Speed</span>
+                        <div class="cw-wizard-font-row" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
+                            <button type="button" class="cw-wizard-choice-pill" data-wizard-poll="fast"><strong>Fast</strong><small>250 ms</small></button>
+                            <button type="button" class="cw-wizard-choice-pill is-selected" data-wizard-poll="balanced"><strong>Balanced</strong><small>500 ms</small></button>
+                            <button type="button" class="cw-wizard-choice-pill" data-wizard-poll="eco"><strong>Eco</strong><small>1000 ms</small></button>
+                        </div>
+                    </div>
+                    <div class="cw-wizard-box">
+                        <span class="cw-wizard-box-title">🌡️ Temperature Unit</span>
+                        <div class="cw-wizard-font-row" style="grid-template-columns: repeat(2, minmax(0, 1fr));">
+                            <button type="button" class="cw-wizard-choice-pill is-selected" data-wizard-unit="C"><strong>Celsius (°C)</strong><small>Metric</small></button>
+                            <button type="button" class="cw-wizard-choice-pill" data-wizard-unit="F"><strong>Fahrenheit (°F)</strong><small>Imperial</small></button>
+                        </div>
+                    </div>
+                </div>
+                <div class="cw-wizard-checks-grid">
+                    <label class="cw-wizard-toggle"><input id="cwWizardStartWindows" type="checkbox"><span><strong>Start with Windows</strong><small>Launch automatically at Windows logon (uses elevated task in Admin mode).</small></span></label>
+                    <label class="cw-wizard-toggle"><input id="cwWizardLowMemory" type="checkbox"><span><strong>Low-Memory Mode</strong><small>Disables WebView2 GPU compositor to save ~180–225 MB RAM (restart required).</small></span></label>
+                    <label class="cw-wizard-toggle"><input id="cwWizardStartMinimized" type="checkbox"><span><strong>Start minimized to tray</strong><small>Launch quietly in the notification area with alert watchdog active.</small></span></label>
+                    <label class="cw-wizard-toggle"><input id="cwWizardMinTrayClose" type="checkbox"><span><strong>Minimize to tray on EXIT</strong><small>Keep Smart Alerts &amp; RGB Thermal running when clicking EXIT.</small></span></label>
+                </div>
+            </section>
+            <!-- Step 4: Tabs & Modules -->
+            <section class="cw-wizard-pane" data-wizard-pane="3" hidden>
+                <div class="cw-wizard-section-head">
+                    <h3>🧩 Show or Hide Tabs &amp; Modules</h3>
+                    <span id="cwWizardModCount" class="diag-pill diag-ok">24 of 24 tabs enabled</span>
+                </div>
+                <div class="cw-wizard-mod-presets">
+                    <button type="button" class="filter-pill" data-wizard-mod-preset="all">All 24 Tabs</button>
+                    <button type="button" class="filter-pill" data-wizard-mod-preset="essentials">Home &amp; Essentials</button>
+                    <button type="button" class="filter-pill" data-wizard-mod-preset="gamer">Gamer &amp; RGB</button>
+                    <button type="button" class="filter-pill" data-wizard-mod-preset="developer">Developer</button>
+                    <button type="button" class="filter-pill" data-wizard-mod-preset="itpro">IT / SysAdmin</button>
+                    <button type="button" class="filter-pill" data-wizard-mod-preset="minimal">Dashboard Only</button>
+                </div>
+                <div id="cwWizardModGroups" class="cw-wizard-mod-groups"></div>
+            </section>
+        </div>
+        <footer class="cw-wizard-footer">
+            <span id="cwWizardStatus" class="dashboard-hint" role="status">Step 1 of 4</span>
+            <div class="cw-wizard-footer-actions">
+                <button id="cwWizardBack" type="button" class="console-clear-btn" hidden>← Back</button>
+                <button id="cwWizardNext" type="button" class="console-clear-btn btn-accent-action">Next →</button>
+            </div>
+        </footer>
+    </dialog>
     <div id="cwInlineDropdown" class="cw-inline-dropdown" popover="manual" role="menu" aria-label="Options"></div>
     <div id="cwToastStack" class="cw-toast-stack" aria-live="polite" aria-atomic="false"></div>
 </body>

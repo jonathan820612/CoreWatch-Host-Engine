@@ -25,12 +25,19 @@ use windows::{
     },
     core::PCWSTR,
 };
-use winreg::{RegKey, enums::HKEY_CURRENT_USER};
+use winreg::{
+    RegKey,
+    enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE},
+};
 
 const RUN: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 const APPROVED: &str = r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
 const STARTUP_NAME: &str = "RustCoreWatch";
+const STARTUP_TASK_NAME: &str = "RustCoreWatch_AutoStart";
+const TASK_CACHE_TREE: &str =
+    r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree\RustCoreWatch_AutoStart";
 const RELEASES: &str = "https://github.com/jonathan820612/CoreWatch-Host-Engine/releases";
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 #[derive(Serialize)]
 pub struct Startup {
@@ -51,7 +58,82 @@ fn extract_run_exe(value: &str) -> &str {
     }
 }
 
+/// Fast, zero-subprocess check whether the elevated logon Scheduled Task exists.
+pub fn has_startup_task() -> bool {
+    RegKey::predef(HKEY_LOCAL_MACHINE)
+        .open_subkey(TASK_CACHE_TREE)
+        .is_ok()
+}
+
+fn create_startup_task(exe: &Path) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    let command = launch_command_for(exe);
+    let output = std::process::Command::new("schtasks.exe")
+        .args([
+            "/Create",
+            "/TN",
+            STARTUP_TASK_NAME,
+            "/TR",
+            &command,
+            "/SC",
+            "ONLOGON",
+            "/RL",
+            "HIGHEST",
+            "/F",
+        ])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|error| format!("Could not invoke Task Scheduler: {error}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+        let detail = if stderr.is_empty() {
+            String::from_utf8_lossy(&output.stdout).trim().to_owned()
+        } else {
+            stderr
+        };
+        return Err(if detail.is_empty() {
+            "Windows Task Scheduler could not create the elevated logon task.".into()
+        } else {
+            detail
+        });
+    }
+    Ok(())
+}
+
+fn delete_startup_task() -> Result<(), String> {
+    if !has_startup_task() {
+        return Ok(());
+    }
+    use std::os::windows::process::CommandExt;
+    let output = std::process::Command::new("schtasks.exe")
+        .args(["/Delete", "/TN", STARTUP_TASK_NAME, "/F"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|error| format!("Could not invoke Task Scheduler: {error}"))?;
+    if !output.status.success() && has_startup_task() {
+        if !native::elevated() {
+            return Err(
+                "Administrator access is required to remove the elevated logon task. Restart as Administrator first."
+                    .into(),
+            );
+        }
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+        return Err(if stderr.is_empty() {
+            "Windows Task Scheduler could not remove the elevated logon task.".into()
+        } else {
+            stderr
+        });
+    }
+    Ok(())
+}
+
 pub fn startup() -> Result<Startup, String> {
+    if has_startup_task() {
+        return Ok(Startup {
+            enabled: true,
+            detail: "Enabled (Administrator logon task)",
+        });
+    }
     let user = RegKey::predef(HKEY_CURRENT_USER);
     let value = user
         .open_subkey(RUN)
@@ -89,24 +171,35 @@ pub fn startup() -> Result<Startup, String> {
     }
 }
 
-pub fn set_startup(enabled: bool) -> Result<(), String> {
-    let exe = std::env::current_exe().map_err(|error| error.to_string())?;
-    set_startup_for_exe(&exe, enabled)
-}
-
-pub fn set_startup_for_exe(exe: &Path, enabled: bool) -> Result<(), String> {
+pub fn set_startup_with_mode(exe: &Path, enabled: bool, run_as_admin: bool) -> Result<(), String> {
     let user = RegKey::predef(HKEY_CURRENT_USER);
     let (run, _) = user.create_subkey(RUN).map_err(|error| error.to_string())?;
-    if enabled {
-        if let Ok((approved, _)) = user.create_subkey(APPROVED) {
-            ignore_missing(approved.delete_value(STARTUP_NAME))
-                .map_err(|error| error.to_string())?;
-        }
-        run.set_value(STARTUP_NAME, &launch_command_for(exe))
-            .map_err(|error| error.to_string())
-    } else {
-        ignore_missing(run.delete_value(STARTUP_NAME)).map_err(|error| error.to_string())
+    if !enabled {
+        ignore_missing(run.delete_value(STARTUP_NAME)).map_err(|error| error.to_string())?;
+        delete_startup_task()?;
+        return Ok(());
     }
+    if run_as_admin && native::elevated() {
+        // Elevated session: register zero-UAC-prompt logon task and remove HKCU Run to prevent double launch.
+        create_startup_task(exe)?;
+        ignore_missing(run.delete_value(STARTUP_NAME)).map_err(|error| error.to_string())?;
+        return Ok(());
+    }
+    // Standard User mode (or Admin mode selected before elevating): write HKCU Run entry.
+    // If switching from Admin -> Standard User while elevated, clean up any prior elevated task first.
+    if !run_as_admin {
+        delete_startup_task()?;
+    }
+    if let Ok((approved, _)) = user.create_subkey(APPROVED) {
+        ignore_missing(approved.delete_value(STARTUP_NAME)).map_err(|error| error.to_string())?;
+    }
+    run.set_value(STARTUP_NAME, &launch_command_for(exe))
+        .map_err(|error| error.to_string())
+}
+
+pub fn set_startup_for_current(enabled: bool, run_as_admin: bool) -> Result<(), String> {
+    let exe = std::env::current_exe().map_err(|error| error.to_string())?;
+    set_startup_with_mode(&exe, enabled, run_as_admin)
 }
 
 fn ignore_missing(result: std::io::Result<()>) -> std::io::Result<()> {
@@ -281,7 +374,6 @@ pub fn detect_editor(editor: Editor) -> Option<PathBuf> {
         Editor::Cursor => ("Cursor.exe", r"Programs\cursor", "Cursor"),
     };
     let key = format!(r"Software\Microsoft\Windows\CurrentVersion\App Paths\{exe}");
-    use winreg::enums::HKEY_LOCAL_MACHINE;
     [HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE]
         .into_iter()
         .filter_map(|hive| {

@@ -5,7 +5,7 @@ function confirmDashboardAction(title, message, label = "Apply") {
     return confirmDestructiveActions ? askDashboard(title, message, null, 0, label) : Promise.resolve(true);
 }
 
-function createAppSettings(core, save, modulesChanged, status) {
+function createAppSettings(core, save, modulesChanged, status, onOpenWizard) {
     const invoke = (action) => core.invoke("settings_action", { action });
     const fieldNames = [
         ["startWithWindows", "Start with Windows", "Register RustCoreWatch in Windows Run at logon."],
@@ -41,6 +41,9 @@ function createAppSettings(core, save, modulesChanged, status) {
         xlarge: { body: "1.24", header: "1.10" }
     };
     const fontRadios = [...document.querySelectorAll('input[name="cwFontSize"]')];
+    const privRadios = [...document.querySelectorAll('input[name="cwLaunchPrivilege"]')];
+    const privSessionEl = byId("settings-priv-session");
+    const privRestartBtn = byId("settings-priv-restart");
     function applyFontSize(size) {
         const key = Object.prototype.hasOwnProperty.call(fontScales, size) ? size : "normal";
         const scale = fontScales[key];
@@ -56,6 +59,63 @@ function createAppSettings(core, save, modulesChanged, status) {
             void change((cur) => ({ general: { ...cur.general, fontSize: radio.value } }));
         });
     }
+    function syncPrivilegeUi() {
+        const wantAdmin = Boolean(settings?.general?.runAsAdmin);
+        for (const radio of privRadios) radio.checked = (radio.value === "admin") === wantAdmin;
+        const elevated = Boolean(catalog?.elevated);
+        if (privSessionEl) {
+            privSessionEl.textContent = catalog
+                ? (elevated ? "Current session: Administrator" : "Current session: Standard User")
+                : "Current session: Checking…";
+            privSessionEl.className = "diag-pill " + (elevated ? "diag-ok" : "diag-neutral");
+        }
+        if (privRestartBtn) {
+            const mismatch = Boolean(catalog && !catalog.smoke && wantAdmin !== elevated);
+            privRestartBtn.hidden = !mismatch;
+            privRestartBtn.textContent = wantAdmin ? "🛡️ Restart as Administrator" : "👤 Restart as Standard User";
+        }
+    }
+    for (const radio of privRadios) {
+        radio.addEventListener("change", async () => {
+            if (!radio.checked) return;
+            const wantAdmin = radio.value === "admin";
+            for (const r of privRadios) r.disabled = true;
+            try {
+                await change((cur) => ({ general: { ...cur.general, runAsAdmin: wantAdmin }, runAsAdmin: wantAdmin }));
+                await refreshStartup();
+                if (!catalog?.smoke) {
+                    const elevated = Boolean(catalog?.elevated);
+                    if (wantAdmin && !elevated) {
+                        window.showToast?.("Administrator mode saved — click Restart as Administrator to elevate now.", "ok", 4200);
+                    } else if (!wantAdmin && elevated) {
+                        window.showToast?.("Standard User mode saved — click Restart as Standard User or reopen normally.", "info", 4200);
+                    }
+                }
+            } finally {
+                for (const r of privRadios) r.disabled = false;
+                syncPrivilegeUi();
+            }
+        });
+    }
+    privRestartBtn?.addEventListener("click", async () => {
+        const wantAdmin = Boolean(settings?.general?.runAsAdmin);
+        privRestartBtn.disabled = true;
+        try {
+            await pending;
+            if (wantAdmin) {
+                await core.invoke("elevate");
+            } else {
+                await core.invoke("relaunch_unelevated");
+            }
+        } catch (error) {
+            report(error);
+            window.showToast?.(String(error), "warn", 4500);
+            privRestartBtn.disabled = false;
+        }
+    });
+    byId("settings-open-wizard")?.addEventListener("click", () => {
+        onOpenWizard?.();
+    });
     const generalInputs = new Map();
     const pathInputs = new Map();
     const tabs = [...byId("settings-tabs").querySelectorAll("button")];
@@ -334,6 +394,7 @@ function createAppSettings(core, save, modulesChanged, status) {
         }
         for (const [key, item] of generalInputs) item.input.checked = key === "startWithWindows" && startupStatus ? startupStatus.enabled : next.general[key];
         for (const [key, input] of pathInputs) if (document.activeElement !== input) input.value = next.directories[key];
+        syncPrivilegeUi();
         modulesChanged(next.modules.disabled);
         renderModules();
     }
@@ -352,6 +413,7 @@ function createAppSettings(core, save, modulesChanged, status) {
             if (modSearch && Array.isArray(catalog.modules)) {
                 modSearch.placeholder = `Filter ${catalog.modules.length} modules by name or group…`;
             }
+            syncPrivilegeUi();
             renderModules();
             if (!updateStarted && !catalog.smoke && settings?.general.autoCheckCoreWatchUpdates) {
                 updateStarted = true;
@@ -368,6 +430,8 @@ function createAppSettings(core, save, modulesChanged, status) {
         apply,
         initialize,
         opened: refreshStartup,
+        getCatalog: () => catalog,
+        getSettings: () => settings,
         setFontSize(size) {
             applyFontSize(size);
             void change((cur) => ({ general: { ...cur.general, fontSize: size } }));

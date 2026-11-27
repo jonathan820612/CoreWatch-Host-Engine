@@ -316,6 +316,9 @@ function createDashboardAppearance(core, save) {
                 window.showToast?.(`Theme: ${found[1]}`, "ok");
             }
         },
+        previewTheme(theme) {
+            applyDashboardTheme(theme, wallpaperUrl(), false);
+        },
         commit
     };
 }

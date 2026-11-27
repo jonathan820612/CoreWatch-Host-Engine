@@ -23,7 +23,19 @@ function createDashboardPreferences(core, nativeWindow, temperatureChanged, modu
     const save = (changes) => enqueue(() => core.invoke("save_dashboard_preferences", { changes }));
     const layout = createDashboardLayout(save);
     const appearance = createDashboardAppearance(core, save);
-    const settingsPanel = createAppSettings(core, save, modulesChanged, status);
+    let setupWizard = null;
+    function openSetupWizard(startStep = 0) {
+        closePanel();
+        setupWizard?.open(settingsPanel.getSettings(), settingsPanel.getCatalog(), startStep);
+    }
+    const settingsPanel = createAppSettings(core, save, modulesChanged, status, () => openSetupWizard(0));
+    setupWizard = createSetupWizard(core, {
+        save,
+        applySettings: (next) => apply(next),
+        previewTheme: (theme) => appearance.previewTheme(theme),
+        previewLayout: (nextLayout) => layout.apply(nextLayout),
+        refreshStartup: () => settingsPanel.opened()
+    });
 
     function closePanel(restoreFocus = false) {
         if (!openPanel) return;
@@ -246,7 +258,13 @@ function createDashboardPreferences(core, nativeWindow, temperatureChanged, modu
                         layout: { ...initial.settings.layout, hidden: hidden.filter((value) => typeof value === "string") }
                     });
                     layout.apply(restored.layout);
+                    settingsPanel.apply(restored);
                 }
+            }
+            const currentCatalog = settingsPanel.getCatalog();
+            const currentSettings = settingsPanel.getSettings() || initial.settings;
+            if (!currentCatalog?.smoke && !currentSettings.general?.onboardingCompleted) {
+                openSetupWizard(0);
             }
         } catch (error) {
             status.textContent = String(error);
@@ -257,6 +275,8 @@ function createDashboardPreferences(core, nativeWindow, temperatureChanged, modu
     return {
         restore,
         openPanel: open,
+        openSetupWizard,
+        closeSetupWizardWithoutSave: () => setupWizard?.closeWithoutSave(),
         cycleLockMode,
         togglePin,
         toggleDock: () => layout.toggleDock(),

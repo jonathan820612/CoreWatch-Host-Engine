@@ -121,6 +121,8 @@ Name: "extras\sensors"; Description: "Hardware CPU Sensor Helper (LibreHardwareM
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "Shortcuts:"
+Name: "priv_user"; Description: "Standard User mode (Recommended — no UAC prompt; GPU sensors & HID/NVAPI RGB)"; GroupDescription: "Launch Privilege Mode:"; Flags: exclusive
+Name: "priv_admin"; Description: "Administrator mode (Auto-elevate — CPU die temps via PawnIO, SMBus RAM RGB & System controls)"; GroupDescription: "Launch Privilege Mode:"; Flags: exclusive unchecked
 Name: "lowmemory"; Description: "Enable Low-Memory Mode (disables WebView2 GPU compositor; saves ~200 MB RAM)"; GroupDescription: "Performance:"; Flags: unchecked
 Name: "installpawnio"; Description: "Install PawnIO signed kernel driver via WinGet (needed for CPU die temps & SMBus RAM RGB)"; GroupDescription: "Hardware Drivers:"; Check: not IsPawnIoInstalled; Flags: unchecked
 
@@ -162,12 +164,15 @@ function IsStartWithWindowsConfigured(): Boolean;
 var
   Existing: String;
 begin
-  Result := RegQueryStringValue(
+  Result := RegKeyExists(
+    HKLM,
+    'SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree\RustCoreWatch_AutoStart'
+  ) or (RegQueryStringValue(
     HKCU,
     'Software\Microsoft\Windows\CurrentVersion\Run',
     'RustCoreWatch',
     Existing
-  ) and (Trim(Existing) <> '');
+  ) and (Trim(Existing) <> ''));
 end;
 
 function IsUpgradeInstall(): Boolean;
@@ -188,7 +193,7 @@ begin
 
   FinishHintLabel := TNewStaticText.Create(WizardForm.FinishedPage);
   FinishHintLabel.Parent := WizardForm.FinishedPage;
-  FinishHintLabel.Caption := 'Tip: You can toggle Start with Windows, Low-Memory Mode, or enable/hide any module anytime inside Settings.';
+  FinishHintLabel.Caption := 'Tip: On first launch, the in-app Setup Wizard lets you customize theme, layout, telemetry, Admin/User mode, and visible tabs.';
   FinishHintLabel.WordWrap := True;
 end;
 
@@ -224,7 +229,23 @@ begin
   end;
 end;
 
-procedure ApplyInstallConfiguration(const IncludeStartup: Boolean; const StartupEnabled: Boolean);
+function GetSwitchValue(const Name: String): String;
+var
+  I: Integer;
+  Prefix, Arg: String;
+begin
+  Result := '';
+  Prefix := '/' + Uppercase(Name) + '=';
+  for I := 1 to ParamCount do begin
+    Arg := ParamStr(I);
+    if Copy(Uppercase(Arg), 1, Length(Prefix)) = Prefix then begin
+      Result := Copy(Arg, Length(Prefix) + 1, MaxInt);
+      Exit;
+    end;
+  end;
+end;
+
+procedure ApplyInstallConfiguration(const IncludeStartup: Boolean; const StartupEnabled: Boolean; const RunAsAdmin: Boolean);
 var
   ExePath, Params: String;
   ResultCode: Integer;
@@ -238,6 +259,11 @@ begin
   else
     Params := Params + ' --low-memory=false';
 
+  if RunAsAdmin then
+    Params := Params + ' --run-as-admin=true'
+  else
+    Params := Params + ' --run-as-admin=false';
+
   if IncludeStartup then begin
     if StartupEnabled then
       Params := Params + ' --startup=true'
@@ -250,8 +276,8 @@ end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  ModList, JsonText, SetupType, StartupParam: String;
-  NotFirst: Boolean;
+  ModList, JsonText, SetupType, StartupParam, AdminParam: String;
+  NotFirst, WantAdmin: Boolean;
 begin
   if CurStep = ssPostInstall then begin
     ModList := '';
@@ -300,12 +326,21 @@ begin
       '}' + #13#10;
     SaveStringToFile(ExpandConstant('{app}\installed-modules.json'), JsonText, False);
 
-    // Apply manifest & Low-Memory Mode immediately (also handles /VERYSILENT with optional /STARTUP=0|1)
+    // Apply manifest, Low-Memory Mode & Launch Privilege Mode (also handles /VERYSILENT with /STARTUP=0|1 and /ADMIN=0|1)
     if WizardSilent() then begin
-      StartupParam := ExpandConstant('{param:STARTUP|1}');
-      ApplyInstallConfiguration(True, (StartupParam <> '0') and (Lowercase(StartupParam) <> 'false'));
+      StartupParam := GetSwitchValue('STARTUP');
+      AdminParam := GetSwitchValue('ADMIN');
+      if AdminParam <> '' then
+        WantAdmin := (AdminParam = '1') or (Lowercase(AdminParam) = 'true')
+      else
+        WantAdmin := WizardIsTaskSelected('priv_admin');
+      ApplyInstallConfiguration(
+        True,
+        (StartupParam = '') or ((StartupParam <> '0') and (Lowercase(StartupParam) <> 'false')),
+        WantAdmin
+      );
     end else begin
-      ApplyInstallConfiguration(False, False);
+      ApplyInstallConfiguration(False, False, WizardIsTaskSelected('priv_admin'));
     end;
   end;
 end;
@@ -313,18 +348,21 @@ end;
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
-  if CurPageID = wpFinished then begin
-    // Apply final Finish-page Start with Windows toggle BEFORE Launch RustCoreWatch runs
-    ApplyInstallConfiguration(True, StartWithWindowsCheck.Checked);
+  if (CurPageID = wpFinished) and (not WizardSilent()) then begin
+    // Apply final Finish-page Start with Windows & Launch Privilege Mode BEFORE Launch RustCoreWatch runs
+    ApplyInstallConfiguration(True, StartWithWindowsCheck.Checked, WizardIsTaskSelected('priv_admin'));
   end;
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   DataDir: String;
+  ResultCode: Integer;
 begin
   if CurUninstallStep = usPostUninstall then begin
     RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'RustCoreWatch');
+    if RegKeyExists(HKLM, 'SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree\RustCoreWatch_AutoStart') then
+      Exec('schtasks.exe', '/Delete /TN "RustCoreWatch_AutoStart" /F', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
     DataDir := ExpandConstant('{localappdata}\com.corewatch.rust.dashboard');
     if DirExists(DataDir) and (not UninstallSilent()) then begin
       if MsgBox(

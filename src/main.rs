@@ -480,11 +480,22 @@ async fn save_dashboard_preferences(
     let dashboard = dashboard.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let previous = store.state().settings;
-        let startup = changes.start_with_windows;
-        if let Some(enabled) = startup
-            && !dashboard.smoke_test
-        {
-            app_settings::set_startup(enabled)?;
+        let next_startup = changes
+            .start_with_windows
+            .or_else(|| changes.general.as_ref().map(|g| g.start_with_windows))
+            .unwrap_or(previous.general.start_with_windows);
+        let next_run_as_admin = changes
+            .run_as_admin
+            .or_else(|| changes.general.as_ref().map(|g| g.run_as_admin))
+            .unwrap_or(previous.general.run_as_admin);
+        let startup_touched = changes.start_with_windows.is_some()
+            || changes
+                .general
+                .as_ref()
+                .is_some_and(|g| g.start_with_windows != previous.general.start_with_windows)
+            || (next_startup && next_run_as_admin != previous.general.run_as_admin);
+        if startup_touched && !dashboard.smoke_test {
+            app_settings::set_startup_for_current(next_startup, next_run_as_admin)?;
         }
         if let Some(opacity) = changes.opacity {
             app_settings::set_opacity(&window, opacity)?;
@@ -493,8 +504,11 @@ async fn save_dashboard_preferences(
             .update(changes, |profile| dashboard.set_polling_profile(profile))
             .map_err(|error| error.to_string());
         if result.is_err() {
-            if startup.is_some() && !dashboard.smoke_test {
-                app_settings::set_startup(previous.general.start_with_windows)?;
+            if startup_touched && !dashboard.smoke_test {
+                let _ = app_settings::set_startup_for_current(
+                    previous.general.start_with_windows,
+                    previous.general.run_as_admin,
+                );
             }
             app_settings::set_opacity(&window, previous.opacity)?;
         }
@@ -556,10 +570,13 @@ async fn settings_action(
                             .collect()
                     })
                 };
+                let has_legacy = !smoke && store.legacy_changes().is_ok();
                 Ok(serde_json::json!({
                     "modules": catalog["modules"],
                     "installedModules": installed_modules,
                     "version": env!("CARGO_PKG_VERSION"),
+                    "elevated": native::elevated(),
+                    "hasLegacySettings": has_legacy,
                     "smoke": smoke,
                     "smokeDiskRoot": smoke_disk_root
                 }))
@@ -1046,6 +1063,21 @@ async fn relaunch_app(
         return Err("App restart is disabled during smoke tests.".into());
     }
     tauri::async_runtime::spawn_blocking(dashboard_actions::relaunch)
+        .await
+        .map_err(|e| e.to_string())??;
+    app.exit(0);
+    Ok(())
+}
+
+#[tauri::command]
+async fn relaunch_unelevated(
+    app: tauri::AppHandle,
+    state: State<'_, Arc<Dashboard>>,
+) -> Result<(), String> {
+    if state.smoke_test {
+        return Err("App restart is disabled during smoke tests.".into());
+    }
+    tauri::async_runtime::spawn_blocking(dashboard_actions::relaunch_unelevated)
         .await
         .map_err(|e| e.to_string())??;
     app.exit(0);
@@ -1876,13 +1908,15 @@ fn default_app_data_dir() -> Option<std::path::PathBuf> {
 }
 
 /// Headless CLI entry point invoked by the modular installer at the end of setup:
-/// `RustCoreWatch.exe --configure-install [--apply-manifest | --enabled=id1,id2] [--startup=true|false] [--low-memory=true|false] [--data-dir=PATH]`
+/// `RustCoreWatch.exe --configure-install [--apply-manifest | --enabled=id1,id2] [--startup=true|false] [--low-memory=true|false] [--run-as-admin=true|false] [--onboarding-completed=true|false] [--data-dir=PATH]`
 fn run_configure_install(args: &[String]) -> Result<(), String> {
     let mut data_dir = default_app_data_dir();
     let mut apply_manifest = false;
     let mut enabled_override: Option<Vec<String>> = None;
     let mut startup: Option<bool> = None;
     let mut low_memory: Option<bool> = None;
+    let mut run_as_admin: Option<bool> = None;
+    let mut onboarding_completed: Option<bool> = None;
 
     for arg in args {
         if arg == "--apply-manifest" {
@@ -1899,6 +1933,11 @@ fn run_configure_install(args: &[String]) -> Result<(), String> {
             startup = Some(matches!(val.to_ascii_lowercase().as_str(), "1" | "true" | "yes"));
         } else if let Some(val) = arg.strip_prefix("--low-memory=") {
             low_memory = Some(matches!(val.to_ascii_lowercase().as_str(), "1" | "true" | "yes"));
+        } else if let Some(val) = arg.strip_prefix("--run-as-admin=") {
+            run_as_admin = Some(matches!(val.to_ascii_lowercase().as_str(), "1" | "true" | "yes"));
+        } else if let Some(val) = arg.strip_prefix("--onboarding-completed=") {
+            onboarding_completed =
+                Some(matches!(val.to_ascii_lowercase().as_str(), "1" | "true" | "yes"));
         } else if let Some(val) = arg.strip_prefix("--data-dir=")
             && !val.trim().is_empty()
         {
@@ -1908,6 +1947,7 @@ fn run_configure_install(args: &[String]) -> Result<(), String> {
 
     let dir = data_dir.ok_or("Could not resolve %LOCALAPPDATA% for RustCoreWatch preferences.")?;
     let store = preferences::Store::open(Some(dir), None);
+    let existing = store.state().settings;
     let mut changes = preferences::Changes::default();
 
     let enabled_list = if let Some(list) = enabled_override {
@@ -1929,9 +1969,19 @@ fn run_configure_install(args: &[String]) -> Result<(), String> {
     if let Some(flag) = low_memory {
         changes.low_memory_mode = Some(flag);
     }
+    if let Some(flag) = run_as_admin {
+        changes.run_as_admin = Some(flag);
+    }
+    if let Some(flag) = onboarding_completed {
+        changes.onboarding_completed = Some(flag);
+    }
+    let effective_startup = startup.unwrap_or(existing.general.start_with_windows);
+    let effective_admin = run_as_admin.unwrap_or(existing.general.run_as_admin);
     if let Some(flag) = startup {
         changes.start_with_windows = Some(flag);
-        app_settings::set_startup(flag)?;
+    }
+    if startup.is_some() || (effective_startup && run_as_admin.is_some()) {
+        app_settings::set_startup_for_current(effective_startup, effective_admin)?;
     }
 
     store
@@ -2104,7 +2154,31 @@ fn main() {
     let handoff = all_args
         .iter()
         .any(|a| a == "--elevated" || a == "--relaunch");
+    let no_auto_elevate = all_args
+        .iter()
+        .any(|a| a == "--elevated" || a == "--no-auto-elevate");
+    let autostart = all_args.iter().any(|a| a == "--autostart");
     let force_low_memory = all_args.iter().any(|a| a == "--low-memory");
+
+    // If user enabled "Start as Administrator", elevate cleanly before mutex & WebView2 startup.
+    // Declining UAC gracefully falls through and launches in Standard User mode without looping.
+    if !smoke_test
+        && !no_auto_elevate
+        && !native::elevated()
+        && default_app_data_dir().is_some_and(|dir| preferences::read_startup_flags(&dir).1)
+    {
+        let mut forward = vec!["--elevated"];
+        if autostart {
+            forward.push("--autostart");
+        }
+        if force_low_memory {
+            forward.push("--low-memory");
+        }
+        if dashboard_actions::relaunch_elevated_with_args(&forward.join(" ")).is_ok() {
+            return;
+        }
+    }
+
     let _instance_guard = if smoke_test {
         None
     } else {
@@ -2217,6 +2291,7 @@ fn main() {
             set_advanced_color,
             elevate,
             relaunch_app,
+            relaunch_unelevated,
             open_volume,
             label_volume,
             power_plans,
@@ -2350,6 +2425,15 @@ fn main() {
             }
             if !state.smoke_test {
                 state.sensors.start();
+                if native::elevated()
+                    && initial.general.start_with_windows
+                    && initial.general.run_as_admin
+                    && !app_settings::has_startup_task()
+                {
+                    thread::spawn(|| {
+                        let _ = app_settings::set_startup_for_current(true, true);
+                    });
+                }
             }
             if let Some(window) = app.get_webview_window("main") {
                 if !state.smoke_test && !narrow_smoke {
