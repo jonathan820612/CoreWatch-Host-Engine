@@ -365,6 +365,7 @@ pub struct General {
     pub minimize_to_tray_on_close: bool,
     pub confirm_destructive_actions: bool,
     pub auto_check_core_watch_updates: bool,
+    pub low_memory_mode: bool,
     pub font_size: FontSize,
 }
 
@@ -376,9 +377,18 @@ impl Default for General {
             minimize_to_tray_on_close: false,
             confirm_destructive_actions: true,
             auto_check_core_watch_updates: true,
+            low_memory_mode: false,
             font_size: FontSize::Normal,
         }
     }
+}
+
+/// Fast startup read used before WebView2 initialization to check whether Low-Memory Mode is enabled.
+pub fn read_low_memory_mode(directory: &Path) -> bool {
+    read_json::<Settings>(&directory.join(SETTINGS_FILE))
+        .ok()
+        .flatten()
+        .is_some_and(|settings| settings.general.low_memory_mode)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -511,20 +521,43 @@ struct Wallpaper {
     bytes: Vec<u8>,
 }
 
+fn detect_image_mime(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("image/png")
+    } else if bytes.starts_with(b"\xff\xd8\xff") {
+        Some("image/jpeg")
+    } else if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
+        Some("image/webp")
+    } else {
+        None
+    }
+}
+
+fn probe_wallpaper_mime(path: &Path) -> io::Result<Option<&'static str>> {
+    let mut file = match File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    if file.metadata()?.len() > MAX_IMAGE_BYTES as u64 {
+        return Err(io::Error::other(
+            "The dashboard file exceeds the supported size.",
+        ));
+    }
+    let mut header = [0u8; 16];
+    let n = file.read(&mut header)?;
+    detect_image_mime(&header[..n])
+        .map(Some)
+        .ok_or_else(|| io::Error::other("Choose a PNG, JPEG, or WebP image."))
+}
+
 impl Wallpaper {
     fn parse(bytes: Vec<u8>) -> io::Result<Self> {
         if bytes.len() > MAX_IMAGE_BYTES {
             return Err(io::Error::other("Choose an image no larger than 12 MiB."));
         }
-        let mime = if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
-            "image/png"
-        } else if bytes.starts_with(b"\xff\xd8\xff") {
-            "image/jpeg"
-        } else if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
-            "image/webp"
-        } else {
-            return Err(io::Error::other("Choose a PNG, JPEG, or WebP image."));
-        };
+        let mime = detect_image_mime(&bytes)
+            .ok_or_else(|| io::Error::other("Choose a PNG, JPEG, or WebP image."))?;
         Ok(Self { mime, bytes })
     }
 }
@@ -533,7 +566,11 @@ impl Wallpaper {
 struct Saved {
     settings: Settings,
     initialized: bool,
-    wallpaper: Option<Wallpaper>,
+    /// MIME type of the active wallpaper. For disk-backed stores, raw bytes are
+    /// streamed from disk on demand rather than pinned in RAM (saves up to 12 MiB).
+    wallpaper_mime: Option<&'static str>,
+    /// Used only for in-memory stores (e.g. smoke tests with `directory: None`).
+    memory_wallpaper: Option<Vec<u8>>,
     wallpaper_generation: u64,
 }
 
@@ -556,10 +593,8 @@ impl Store {
                 Ok(None) => {}
                 Err(error) => eprintln!("Dashboard preferences: {error}"),
             }
-            match read_limited(&path.join(WALLPAPER_FILE), MAX_IMAGE_BYTES)
-                .and_then(|bytes| bytes.map(Wallpaper::parse).transpose())
-            {
-                Ok(wallpaper) => saved.wallpaper = wallpaper,
+            match probe_wallpaper_mime(&path.join(WALLPAPER_FILE)) {
+                Ok(mime) => saved.wallpaper_mime = mime,
                 Err(error) => eprintln!("Dashboard wallpaper: {error}"),
             }
         }
@@ -575,7 +610,7 @@ impl Store {
         State {
             settings: saved.settings.clone(),
             initialized: saved.initialized,
-            wallpaper_version: saved.wallpaper.as_ref().map(|_| saved.wallpaper_generation),
+            wallpaper_version: saved.wallpaper_mime.map(|_| saved.wallpaper_generation),
         }
     }
 
@@ -659,8 +694,11 @@ impl Store {
         let mut saved = self.saved.lock().unwrap();
         if let Some(path) = &self.directory {
             write_atomic(path, WALLPAPER_FILE, &wallpaper.bytes)?;
+            saved.memory_wallpaper = None;
+        } else {
+            saved.memory_wallpaper = Some(wallpaper.bytes);
         }
-        saved.wallpaper = Some(wallpaper);
+        saved.wallpaper_mime = Some(wallpaper.mime);
         saved.wallpaper_generation += 1;
         Ok(saved.wallpaper_generation)
     }
@@ -674,22 +712,35 @@ impl Store {
                 Err(error) => return Err(error),
             }
         }
-        saved.wallpaper = None;
+        saved.wallpaper_mime = None;
+        saved.memory_wallpaper = None;
         Ok(())
     }
 
     pub fn serve_wallpaper(&self, request: &Request<Vec<u8>>) -> Response<Vec<u8>> {
-        let saved = self.saved.lock().unwrap();
-        if request.method() == Method::GET
-            && request.uri().path() == "/wallpaper"
-            && let Some(wallpaper) = saved.wallpaper.as_ref()
-        {
-            return Response::builder()
-                .header(header::CONTENT_TYPE, wallpaper.mime)
-                .header(header::CACHE_CONTROL, "no-store")
-                .header("X-Content-Type-Options", "nosniff")
-                .body(wallpaper.bytes.clone())
-                .expect("build wallpaper response");
+        if request.method() == Method::GET && request.uri().path() == "/wallpaper" {
+            let (mime, memory_bytes) = {
+                let saved = self.saved.lock().unwrap();
+                (saved.wallpaper_mime, saved.memory_wallpaper.clone())
+            };
+            if let Some(mime) = mime {
+                let bytes = match memory_bytes {
+                    Some(bytes) => Some(bytes),
+                    None => self
+                        .directory
+                        .as_ref()
+                        .and_then(|dir| read_limited(&dir.join(WALLPAPER_FILE), MAX_IMAGE_BYTES).ok())
+                        .flatten(),
+                };
+                if let Some(bytes) = bytes {
+                    return Response::builder()
+                        .header(header::CONTENT_TYPE, mime)
+                        .header(header::CACHE_CONTROL, "no-store")
+                        .header("X-Content-Type-Options", "nosniff")
+                        .body(bytes)
+                        .expect("build wallpaper response");
+                }
+            }
         }
         Response::builder()
             .status(StatusCode::NOT_FOUND)
@@ -875,5 +926,26 @@ mod tests {
         let reloaded = Store::open(Some(path.path().into()), None).state().settings;
         assert_eq!(reloaded.general.font_size, FontSize::Large);
         assert_eq!(reloaded.window_lock_mode, WindowLockMode::Position);
+    }
+
+    #[test]
+    fn persists_and_preloads_low_memory_mode() {
+        let path = tempfile::tempdir().unwrap();
+        assert!(!read_low_memory_mode(path.path()));
+        let store = Store::open(Some(path.path().into()), None);
+        let general = General {
+            low_memory_mode: true,
+            ..General::default()
+        };
+        store
+            .update(
+                Changes {
+                    general: Some(general),
+                    ..Changes::default()
+                },
+                |_| {},
+            )
+            .unwrap();
+        assert!(read_low_memory_mode(path.path()));
     }
 }

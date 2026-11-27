@@ -884,9 +884,110 @@ fn mask_from_prefix(prefix: u8) -> Option<Ipv4Addr> {
         .then(|| Ipv4Addr::from(u32::MAX.checked_shl(32 - u32::from(prefix)).unwrap_or(0)))
 }
 
+/// Zero-allocation physical memory usage `(used_bytes, total_bytes)` via Win32 `GlobalMemoryStatusEx`.
+pub fn memory_usage() -> Option<(u64, u64)> {
+    use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+    let mut status = MEMORYSTATUSEX {
+        dwLength: mem::size_of::<MEMORYSTATUSEX>() as u32,
+        ..Default::default()
+    };
+    unsafe {
+        if GlobalMemoryStatusEx(&mut status) == 0 || status.ullTotalPhys == 0 {
+            return None;
+        }
+    }
+    let used = status.ullTotalPhys.saturating_sub(status.ullAvailPhys);
+    Some((used, status.ullTotalPhys))
+}
+
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    fn SetProcessWorkingSetSize(
+        process: *mut core::ffi::c_void,
+        min_working_set_size: usize,
+        max_working_set_size: usize,
+    ) -> i32;
+    fn CreateToolhelp32Snapshot(flags: u32, process_id: u32) -> *mut core::ffi::c_void;
+    fn Process32FirstW(snapshot: *mut core::ffi::c_void, entry: *mut ProcessEntry32W) -> i32;
+    fn Process32NextW(snapshot: *mut core::ffi::c_void, entry: *mut ProcessEntry32W) -> i32;
+}
+
+#[repr(C)]
+struct ProcessEntry32W {
+    dw_size: u32,
+    cnt_usage: u32,
+    th32_process_id: u32,
+    th32_default_heap_id: usize,
+    th32_module_id: u32,
+    cnt_threads: u32,
+    th32_parent_process_id: u32,
+    pc_pri_class_base: i32,
+    dw_flags: u32,
+    sz_exe_file: [u16; 260],
+}
+
+/// Hints Windows to flush unused paged working-set pages for the Rust host process
+/// (e.g. when minimizing to tray or evicting large Disk Map / Diagnostics caches).
+pub fn trim_working_set() {
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+    unsafe {
+        let _ = SetProcessWorkingSetSize(GetCurrentProcess(), usize::MAX, usize::MAX);
+    }
+}
+
+/// Sums working-set bytes of running processes matching any name in `targets_lower_no_ext`
+/// (case-insensitive, `.exe` suffix stripped) without allocating a full `sysinfo::System`.
+pub fn process_memory_sum_by_names(targets_lower_no_ext: &[&str]) -> u64 {
+    use windows_sys::Win32::{
+        Foundation::{CloseHandle, INVALID_HANDLE_VALUE},
+        System::{
+            ProcessStatus::{K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS},
+            Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION},
+        },
+    };
+    const TH32CS_SNAPPROCESS: u32 = 0x0000_0002;
+    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+    if snapshot.is_null() || snapshot == INVALID_HANDLE_VALUE {
+        return 0;
+    }
+    let mut entry: ProcessEntry32W = unsafe { mem::zeroed() };
+    entry.dw_size = mem::size_of::<ProcessEntry32W>() as u32;
+    let mut total_bytes = 0u64;
+    unsafe {
+        if Process32FirstW(snapshot, &mut entry) != 0 {
+            loop {
+                let raw_name = utf16(&entry.sz_exe_file).to_ascii_lowercase();
+                let stem = raw_name.strip_suffix(".exe").unwrap_or(&raw_name);
+                if targets_lower_no_ext.contains(&stem) {
+                    let handle =
+                        OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, entry.th32_process_id);
+                    if !handle.is_null() {
+                        let mut counters = PROCESS_MEMORY_COUNTERS::default();
+                        if K32GetProcessMemoryInfo(
+                            handle,
+                            &mut counters,
+                            mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32,
+                        ) != 0
+                        {
+                            total_bytes =
+                                total_bytes.saturating_add(counters.WorkingSetSize as u64);
+                        }
+                        CloseHandle(handle);
+                    }
+                }
+                if Process32NextW(snapshot, &mut entry) == 0 {
+                    break;
+                }
+            }
+        }
+        CloseHandle(snapshot);
+    }
+    total_bytes
+}
+
 #[cfg(test)]
 mod tests {
-    use super::mask_from_prefix;
+    use super::{mask_from_prefix, memory_usage};
 
     #[test]
     fn subnet_mask_handles_boundary_and_non_octet_prefixes() {
@@ -894,5 +995,11 @@ mod tests {
         assert_eq!(mask_from_prefix(23).unwrap().to_string(), "255.255.254.0");
         assert_eq!(mask_from_prefix(32).unwrap().to_string(), "255.255.255.255");
         assert!(mask_from_prefix(33).is_none());
+    }
+
+    #[test]
+    fn global_memory_usage_reports_nonzero_physical_ram() {
+        let (used, total) = memory_usage().expect("GlobalMemoryStatusEx");
+        assert!(total > 0 && used <= total);
     }
 }

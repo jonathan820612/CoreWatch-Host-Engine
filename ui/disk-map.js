@@ -663,5 +663,42 @@ function createDiskMap(invoke) {
         });
     }).observe(map);
 
-    return { async show(target) { if (!drivesLoaded) await refreshDrives(); if (target) await scan(target, true); } };
+    let evictTimer = 0;
+    function cancelEvict() {
+        if (evictTimer) {
+            clearTimeout(evictTimer);
+            evictTimer = 0;
+        }
+    }
+
+    return {
+        async show(target) {
+            cancelEvict();
+            if (!drivesLoaded) await refreshDrives();
+            if (target) await scan(target, true);
+            else if (result && !scanning) render();
+        },
+        leave() {
+            // Release Canvas GPU/software backing surface immediately when tab is hidden.
+            if (canvas) {
+                canvas.width = 0;
+                canvas.height = 0;
+            }
+            renderedRects = [];
+            hoveredRect = null;
+            if (tooltip) tooltip.hidden = true;
+            cancelEvict();
+            if (!scanning && result) {
+                evictTimer = setTimeout(() => {
+                    evictTimer = 0;
+                    if (scanning || !byId("viewDiskMapPanel")?.hidden) return;
+                    result = null;
+                    root = null;
+                    selectedItem = null;
+                    rows.replaceChildren();
+                    invoke("disk_map_clear").catch(() => {});
+                }, 30000);
+            }
+        }
+    };
 }

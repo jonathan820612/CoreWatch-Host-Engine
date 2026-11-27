@@ -470,10 +470,32 @@ function createDiagnosticsView(invoke) {
         await translateAndReveal(byId("diag-code-input").value);
     });
 
+    let evictTimer = 0;
+    function cancelEvict() {
+        if (evictTimer) {
+            clearTimeout(evictTimer);
+            evictTimer = 0;
+        }
+    }
+
     return { async show(visible, key) {
         active = visible;
         schedule();
-        if (!visible) return;
+        if (!visible) {
+            cancelEvict();
+            if (!live && report) {
+                evictTimer = setTimeout(() => {
+                    evictTimer = 0;
+                    if (active || live || running) return;
+                    report = null;
+                    selected = null;
+                    eventRows.replaceChildren();
+                    invoke("diagnostics_clear").catch(() => {});
+                }, 30000);
+            }
+            return;
+        }
+        cancelEvict();
         if (!report) await scan();
         if (key) await focusCrash(key);
     } };

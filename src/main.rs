@@ -169,6 +169,16 @@ async fn diagnostics_mark(
 }
 
 #[tauri::command]
+fn diagnostics_clear(dashboard: State<'_, Arc<Dashboard>>) {
+    if lock_or_recover(&dashboard.diagnostics_report)
+        .take()
+        .is_some()
+    {
+        native::trim_working_set();
+    }
+}
+
+#[tauri::command]
 fn diagnostics_code(input: String) -> Result<diagnostics::Code, String> {
     diagnostics::translate(&input)
 }
@@ -253,6 +263,13 @@ impl Dashboard {
                 .pause(state.paused || (state.minimized && !background_watchdog));
             state.requested += 1;
             self.schedule.1.notify_all();
+            drop(state);
+            if minimized {
+                // Evict heavy on-demand caches and release unused Rust working set pages in tray.
+                self.disk_scan.clear();
+                let _ = lock_or_recover(&self.diagnostics_report).take();
+                native::trim_working_set();
+            }
         }
     }
 
@@ -582,6 +599,11 @@ async fn disk_map_scan(
 #[tauri::command]
 fn disk_map_cancel(dashboard: State<'_, Arc<Dashboard>>) {
     dashboard.disk_scan.cancel();
+}
+
+#[tauri::command]
+fn disk_map_clear(dashboard: State<'_, Arc<Dashboard>>) {
+    dashboard.disk_scan.clear();
 }
 
 #[tauri::command]
@@ -975,6 +997,21 @@ async fn set_advanced_color(
 #[tauri::command]
 async fn elevate(app: tauri::AppHandle) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(dashboard_actions::relaunch_elevated)
+        .await
+        .map_err(|e| e.to_string())??;
+    app.exit(0);
+    Ok(())
+}
+
+#[tauri::command]
+async fn relaunch_app(
+    app: tauri::AppHandle,
+    state: State<'_, Arc<Dashboard>>,
+) -> Result<(), String> {
+    if state.smoke_test {
+        return Err("App restart is disabled during smoke tests.".into());
+    }
+    tauri::async_runtime::spawn_blocking(dashboard_actions::relaunch)
         .await
         .map_err(|e| e.to_string())??;
     app.exit(0);
@@ -1558,11 +1595,9 @@ fn start_details_worker(
                 let cpu_temp = sensor.as_ref().and_then(|s| s.cpu_temp);
                 let gpu_temp = sensor.as_ref().and_then(|s| s.gpu_temp);
                 rgb.update_telemetry(cpu_temp, gpu_temp);
-                let mut sys = sysinfo::System::new();
-                sys.refresh_memory();
-                let total_mem = sys.total_memory();
-                let ram_pct = (total_mem > 0)
-                    .then(|| (sys.used_memory() as f64 / total_mem as f64) * 100.0);
+                let ram_pct = native::memory_usage()
+                    .filter(|&(_, total)| total > 0)
+                    .map(|(used, total)| (used as f64 / total as f64) * 100.0);
                 let fired_any = alerts.evaluate(&smart_alerts::LiveTelemetryInput {
                     cpu_temp,
                     gpu_temp,
@@ -1730,11 +1765,46 @@ fn acquire_single_instance(elevated_handoff: bool) -> Option<SingleInstanceGuard
     None
 }
 
+fn configure_webview2_memory_args(smoke_test: bool, force_low_memory: bool) {
+    let low_memory = force_low_memory
+        || (!smoke_test
+            && std::env::var_os("LOCALAPPDATA")
+                .map(|root| {
+                    std::path::PathBuf::from(root).join("com.corewatch.rust.dashboard")
+                })
+                .is_some_and(|dir| preferences::read_low_memory_mode(&dir)));
+
+    // Tier 1 (always on, zero UI tradeoff): strip unused Edge features, cap renderer count,
+    // disable shader disk cache and background networking/pings.
+    let mut flags = String::from(
+        "--disable-features=msSmartScreenProtection,msWebOOUI,msEdgeReadingView,Translate,MediaRouter \
+         --disable-gpu-shader-disk-cache \
+         --renderer-process-limit=1 \
+         --disable-background-networking \
+         --no-pings",
+    );
+    // Tier 2 (togglable in Settings -> General -> Low-Memory Mode, or --low-memory CLI flag):
+    // disables Chromium's dedicated GPU compositor process, saving ~180-225 MB RAM.
+    if low_memory {
+        flags.push_str(" --disable-gpu --disable-gpu-compositing");
+    }
+    let existing = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").unwrap_or_default();
+    let merged = if existing.trim().is_empty() {
+        flags
+    } else {
+        format!("{existing} {flags}")
+    };
+    // SAFETY: Called once at the start of `main()` before spawning any worker threads or WebView2.
+    unsafe {
+        std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", merged);
+    }
+}
+
 fn main() {
-    let mut args = std::env::args().skip(1);
-    let arg = args.next();
+    let all_args: Vec<String> = std::env::args().skip(1).collect();
+    let arg = all_args.first().map(String::as_str);
     let is_cli = matches!(
-        arg.as_deref(),
+        arg,
         Some(
             "--snapshot"
                 | "--diagnostics"
@@ -1747,13 +1817,13 @@ fn main() {
     if is_cli {
         attach_parent_console_for_cli();
     }
-    if arg.as_deref() == Some("--snapshot") {
+    if arg == Some("--snapshot") {
         print_snapshot();
         return;
     }
-    if arg.as_deref() == Some("--diagnostics") {
-        let hours = args
-            .next()
+    if arg == Some("--diagnostics") {
+        let hours = all_args
+            .get(1)
             .and_then(|value| value.parse().ok())
             .unwrap_or(24);
         match diagnostics::scan(diagnostics::Options {
@@ -1771,33 +1841,40 @@ fn main() {
         }
         return;
     }
-    if arg.as_deref() == Some("--sensor-status") {
+    if arg == Some("--sensor-status") {
         println!(
             "{}",
             serde_json::to_string_pretty(&sensors::status(None)).expect("serialize sensor status")
         );
         return;
     }
-    if arg.as_deref() == Some("--rgb-probe") {
+    if arg == Some("--rgb-probe") {
         println!("{}", rgb_studio::run_cli_probe(None));
         return;
     }
-    if arg.as_deref() == Some("--rgb-test") {
-        let hex = args.next().unwrap_or_else(|| "#00b4ff".to_owned());
+    if arg == Some("--rgb-test") {
+        let hex = all_args
+            .get(1)
+            .cloned()
+            .unwrap_or_else(|| "#00b4ff".to_owned());
         println!("{}", rgb_studio::run_cli_probe(Some(&hex)));
         return;
     }
-    let smoke_test = arg.as_deref() == Some("--smoke-test");
-    let narrow_smoke = smoke_test && args.next().as_deref() == Some("--narrow");
-    let elevated_handoff = arg.as_deref() == Some("--elevated");
+    let smoke_test = all_args.iter().any(|a| a == "--smoke-test");
+    let narrow_smoke = smoke_test && all_args.iter().any(|a| a == "--narrow");
+    let handoff = all_args
+        .iter()
+        .any(|a| a == "--elevated" || a == "--relaunch");
+    let force_low_memory = all_args.iter().any(|a| a == "--low-memory");
     let _instance_guard = if smoke_test {
         None
     } else {
-        match acquire_single_instance(elevated_handoff) {
+        match acquire_single_instance(handoff) {
             Some(guard) => Some(guard),
             None => return,
         }
     };
+    configure_webview2_memory_args(smoke_test, force_low_memory);
     let state = Arc::new(Dashboard {
         smoke_test,
         ..Default::default()
@@ -1815,6 +1892,7 @@ fn main() {
             diagnostics_scan,
             diagnostics_event,
             diagnostics_mark,
+            diagnostics_clear,
             diagnostics_code,
             diagnostics_open_dump,
             diagnostics_launch_tool,
@@ -1824,6 +1902,7 @@ fn main() {
             disk_map_drives,
             disk_map_scan,
             disk_map_cancel,
+            disk_map_clear,
             disk_map_open,
             disk_map_node,
             disk_map_recycle,
@@ -1898,6 +1977,7 @@ fn main() {
             confirm_display,
             set_advanced_color,
             elevate,
+            relaunch_app,
             open_volume,
             label_volume,
             power_plans,

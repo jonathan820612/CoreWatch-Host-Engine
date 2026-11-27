@@ -1629,6 +1629,27 @@ function createModulesHub(invoke, helpers) {
         async show(viewName) {
             const fn = loaders[viewName];
             if (fn) await fn();
+        },
+        leave(viewName) {
+            // Release large cached datasets and hidden DOM rows when switching tabs.
+            if (viewName === "apps") {
+                installedApps = [];
+                byId("apps-rows")?.replaceChildren();
+            } else if (viewName === "sshcerts") {
+                sshData = null;
+                byId("ssh-certs-rows")?.replaceChildren();
+                byId("ssh-keys-list")?.replaceChildren();
+            } else if (viewName === "updates") {
+                lastUpdateScan = null;
+                byId("updates-rows")?.replaceChildren();
+            } else if (viewName === "snapshots") {
+                byId("snap-diff-visual")?.replaceChildren();
+                const out = byId("snap-diff-output");
+                if (out) out.textContent = "";
+            } else if (viewName === "docker") {
+                byId("docker-containers-rows")?.replaceChildren();
+                byId("docker-images-rows")?.replaceChildren();
+            }
         }
     };
 }

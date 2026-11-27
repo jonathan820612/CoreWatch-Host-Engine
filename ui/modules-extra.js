@@ -1017,6 +1017,19 @@ function createExtraModules(invoke) {
         async show(viewName) {
             const fn = loaders[viewName];
             if (fn) await fn();
+        },
+        leave(viewName) {
+            if (viewName === "devices") {
+                devicesReport = null;
+                byId("devices-rows")?.replaceChildren();
+            } else if (viewName === "github") {
+                lastGitHubData = null;
+            } else if (viewName === "jira") {
+                jiraIssues = [];
+                byId("jira-rows")?.replaceChildren();
+            } else if (viewName === "appstore") {
+                byId("appstore-search-rows")?.replaceChildren();
+            }
         }
     };
 }

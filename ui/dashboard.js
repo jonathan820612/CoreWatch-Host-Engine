@@ -798,7 +798,13 @@ async function start() {
     async function selectView(name, subview) {
         if (views.some(([view, , , module]) => view === name && hiddenModules.includes(module))) return;
         const seq = ++viewSeq;
+        const prevView = currentView;
         closeDropdowns();
+        if (prevView && prevView !== name) {
+            if (prevView === "diskmap") diskMap.leave?.();
+            modulesHub.leave?.(prevView);
+            extraModules.leave?.(prevView);
+        }
         currentView = name;
         preferences.viewChanged(name === "dashboard");
         const activeDropdowns = new Set();

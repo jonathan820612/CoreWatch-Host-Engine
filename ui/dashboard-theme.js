@@ -88,6 +88,9 @@ function applyDashboardTheme(theme, wallpaperUrl) {
     style.setProperty("--cw-bg-blur", theme.bgBlur + "px");
     style.setProperty("--cw-bg-scale", theme.bgBlur && theme.bgFit === "cover" ? "1.04" : "1");
     style.setProperty("--cw-bg-fade-overlay", wallpaperUrl ? wallpaperFade(theme) : "none");
+    document.documentElement.dataset.cardBlur = theme.cardBlur > 0 ? "on" : "off";
+    document.documentElement.dataset.bgBlur = theme.bgBlur > 0 ? "on" : "off";
+    document.documentElement.dataset.hasWallpaper = wallpaperUrl ? "on" : "off";
     const isLight = relativeLuminance(rgb(theme.bgInset)) > 0.45;
     document.documentElement.style.colorScheme = isLight ? "light" : "dark";
     document.documentElement.dataset.colorScheme = isLight ? "light" : "dark";

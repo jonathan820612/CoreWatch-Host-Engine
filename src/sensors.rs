@@ -115,6 +115,10 @@ pub struct Readings {
     pub gpu_power: Option<f64>,
     #[serde(default)]
     pub gpu_load: Option<f64>,
+    #[serde(default)]
+    pub vram_used: Option<u64>,
+    #[serde(default)]
+    pub vram_total: Option<u64>,
     pub sensor: Option<String>,
     error: Option<String>,
 }
@@ -134,17 +138,27 @@ mod nvml {
         memory: c_uint,
     }
 
+    #[repr(C)]
+    #[derive(Default)]
+    struct NvmlMemory {
+        total: u64,
+        free: u64,
+        used: u64,
+    }
+
     type FnInitV2 = unsafe extern "C" fn() -> c_uint;
     type FnGetHandleByIndexV2 = unsafe extern "C" fn(c_uint, *mut *mut c_void) -> c_uint;
     type FnGetTemperature = unsafe extern "C" fn(*mut c_void, c_uint, *mut c_uint) -> c_uint;
     type FnGetPowerUsage = unsafe extern "C" fn(*mut c_void, *mut c_uint) -> c_uint;
     type FnGetUtilization = unsafe extern "C" fn(*mut c_void, *mut NvmlUtilization) -> c_uint;
+    type FnGetMemoryInfo = unsafe extern "C" fn(*mut c_void, *mut NvmlMemory) -> c_uint;
 
     struct NvmlApi {
         get_handle: FnGetHandleByIndexV2,
         get_temp: FnGetTemperature,
         get_power: Option<FnGetPowerUsage>,
         get_util: Option<FnGetUtilization>,
+        get_memory: Option<FnGetMemoryInfo>,
     }
 
     unsafe impl Send for NvmlApi {}
@@ -181,11 +195,13 @@ mod nvml {
             let get_temp: FnGetTemperature = sym(module, b"nvmlDeviceGetTemperature\0")?;
             let get_power: Option<FnGetPowerUsage> = sym(module, b"nvmlDeviceGetPowerUsage\0");
             let get_util: Option<FnGetUtilization> = sym(module, b"nvmlDeviceGetUtilizationRates\0");
+            let get_memory: Option<FnGetMemoryInfo> = sym(module, b"nvmlDeviceGetMemoryInfo\0");
             Some(NvmlApi {
                 get_handle,
                 get_temp,
                 get_power,
                 get_util,
+                get_memory,
             })
         })
         .as_ref()
@@ -196,6 +212,12 @@ mod nvml {
         pub temp_c: Option<f64>,
         pub power_w: Option<f64>,
         pub load_pct: Option<f64>,
+        pub vram_used: Option<u64>,
+        pub vram_total: Option<u64>,
+    }
+
+    pub fn available() -> bool {
+        sample_gpu0().is_some()
     }
 
     pub fn sample_gpu0() -> Option<GpuSample> {
@@ -216,13 +238,31 @@ mod nvml {
                 let mut util = NvmlUtilization::default();
                 (f(dev, &mut util) == 0 && util.gpu <= 100).then_some(f64::from(util.gpu))
             });
-            (temp_c.is_some() || power_w.is_some() || load_pct.is_some()).then_some(GpuSample {
+            let (vram_used, vram_total) = api
+                .get_memory
+                .and_then(|f| {
+                    let mut mem = NvmlMemory::default();
+                    (f(dev, &mut mem) == 0 && mem.total > 0)
+                        .then_some((Some(mem.used), Some(mem.total)))
+                })
+                .unwrap_or((None, None));
+            (temp_c.is_some()
+                || power_w.is_some()
+                || load_pct.is_some()
+                || vram_used.is_some())
+            .then_some(GpuSample {
                 temp_c,
                 power_w,
                 load_pct,
+                vram_used,
+                vram_total,
             })
         }
     }
+}
+
+pub fn nvml_available() -> bool {
+    nvml::available()
 }
 
 fn merge_nvml(mut readings: Option<Readings>) -> Option<Readings> {
@@ -237,14 +277,23 @@ fn merge_nvml(mut readings: Option<Readings>) -> Option<Readings> {
         if target.gpu_load.is_none() {
             target.gpu_load = gpu.load_pct;
         }
+        if target.vram_used.is_none() {
+            target.vram_used = gpu.vram_used;
+        }
+        if target.vram_total.is_none() {
+            target.vram_total = gpu.vram_total;
+        }
     }
     readings
 }
 
-/// Fast one-shot sensor reading for CLI `--snapshot` (NVML instant + helper if available).
+/// Fast one-shot sensor reading for CLI `--snapshot` (NVML instant + helper only when needed).
 pub fn instant_readings() -> Option<Readings> {
-    let helper = helper_path()
-        .and_then(|path| Session::open(&path).and_then(|s| s.read(None)).ok());
+    let helper = if !crate::native::elevated() && nvml_available() {
+        None
+    } else {
+        helper_path().and_then(|path| Session::open(&path).and_then(|s| s.read(None)).ok())
+    };
     merge_nvml(helper)
 }
 
@@ -268,9 +317,20 @@ impl SensorBridge {
         if slot.is_some() {
             return;
         }
+        // Standard User + native NVIDIA NVML: nvml.dll already reads GPU Temp/Power/Load/VRAM
+        // in <1ms with zero background process (~50 MB RAM saved), while CPU package temperature
+        // requires Administrator + PawnIO anyway. Skip spawning the .NET helper unless elevated
+        // or on non-NVIDIA hardware.
+        if !crate::native::elevated() && nvml_available() {
+            return;
+        }
         let readings = self.clone();
         *slot = Some(thread::spawn(move || {
             while !readings.0.stopping.load(Ordering::Acquire) {
+                if readings.0.paused.load(Ordering::Acquire) {
+                    readings.wait_while_paused();
+                    continue;
+                }
                 if let Some(executable) = helper_path() {
                     if let Err(error) = readings.sample(&executable) {
                         if readings.0.stopping.load(Ordering::Acquire) {
@@ -279,9 +339,15 @@ impl SensorBridge {
                         eprintln!("CoreWatch sensor bridge: {error}");
                         *readings.0.error.lock().unwrap_or_else(|e| e.into_inner()) = Some(error);
                     }
-                    *readings.0.latest.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                    if !readings.0.paused.load(Ordering::Acquire) {
+                        *readings.0.latest.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                    }
                 }
-                readings.wait(Duration::from_secs(10));
+                if readings.0.paused.load(Ordering::Acquire) {
+                    readings.wait_while_paused();
+                } else {
+                    readings.wait(Duration::from_secs(10));
+                }
             }
         }));
     }
@@ -320,7 +386,7 @@ impl SensorBridge {
     fn wait(&self, duration: Duration) {
         let until = Instant::now() + duration;
         let mut guard = self.0.wake_lock.lock().unwrap_or_else(|e| e.into_inner());
-        while !self.0.stopping.load(Ordering::Acquire) {
+        while !self.0.stopping.load(Ordering::Acquire) && !self.0.paused.load(Ordering::Acquire) {
             let remaining = until.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
                 break;
@@ -334,23 +400,28 @@ impl SensorBridge {
         }
     }
 
+    fn wait_while_paused(&self) {
+        let mut guard = self.0.wake_lock.lock().unwrap_or_else(|e| e.into_inner());
+        while self.0.paused.load(Ordering::Acquire) && !self.0.stopping.load(Ordering::Acquire) {
+            guard = self.0.wake.wait(guard).unwrap_or_else(|e| e.into_inner());
+        }
+    }
+
     fn sample(&self, executable: &Path) -> Result<(), String> {
         let mut session = Session::open(executable)?;
-        while !self.0.stopping.load(Ordering::Acquire) {
+        while !self.0.stopping.load(Ordering::Acquire) && !self.0.paused.load(Ordering::Acquire) {
             let readings = session.read(Some(&self.0.stopping))?;
             *self.0.latest.lock().unwrap_or_else(|e| e.into_inner()) =
                 Some((Instant::now(), readings));
             *self.0.error.lock().unwrap_or_else(|e| e.into_inner()) = None;
             self.wait(Duration::from_secs(5));
-            while self.0.paused.load(Ordering::Acquire) && !self.0.stopping.load(Ordering::Acquire)
-            {
-                self.wait(Duration::from_millis(500));
-            }
-            if self.0.stopping.load(Ordering::Acquire) {
+            if self.0.stopping.load(Ordering::Acquire) || self.0.paused.load(Ordering::Acquire) {
                 break;
             }
             session.request()?;
         }
+        // Dropping `session` here cleanly exits CoreWatchSensorHelper.exe when paused/minimized,
+        // freeing ~45-50 MB RAM immediately until resumed.
         Ok(())
     }
 }

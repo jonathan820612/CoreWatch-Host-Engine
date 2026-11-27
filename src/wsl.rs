@@ -171,22 +171,7 @@ fn read_lxss_metadata() -> HashMap<String, (String, Option<u64>)> {
 }
 
 fn vmmem_usage_mb() -> u64 {
-    let mut sys = sysinfo::System::new();
-    sys.refresh_processes_specifics(
-        sysinfo::ProcessesToUpdate::All,
-        true,
-        sysinfo::ProcessRefreshKind::nothing().with_memory(),
-    );
-    let total_bytes: u64 = sys
-        .processes()
-        .values()
-        .filter(|p| {
-            let n = p.name().to_string_lossy().to_ascii_lowercase();
-            n == "vmmem" || n == "vmmemwsl"
-        })
-        .map(|p| p.memory())
-        .sum();
-    total_bytes / (1024 * 1024)
+    crate::native::process_memory_sum_by_names(&["vmmem", "vmmemwsl"]) / (1024 * 1024)
 }
 
 fn wslconfig_path() -> PathBuf {

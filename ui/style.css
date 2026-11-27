@@ -67,16 +67,21 @@ body {
     pointer-events: none;
     z-index: 0;
 }
+html:not([data-has-wallpaper="on"]) #cwWallpaperLayer,
+html:not([data-has-wallpaper="on"]) #cwWallpaperFade {
+    display: none;
+}
 #cwWallpaperLayer {
     background-image: var(--cw-bg-image);
     background-size: var(--cw-bg-size);
     background-position: var(--cw-bg-position);
     background-repeat: var(--cw-bg-repeat);
     opacity: var(--cw-bg-opacity);
-    filter: blur(var(--cw-bg-blur));
     transform: scale(var(--cw-bg-scale));
     transition: opacity 0.12s ease;
-    will-change: opacity, filter;
+}
+html[data-bg-blur="on"] #cwWallpaperLayer {
+    filter: blur(var(--cw-bg-blur));
 }
 #cwWallpaperFade {
     background: var(--cw-bg-fade-overlay);
@@ -117,7 +122,6 @@ button, input, select {
     column-gap: 8px;
     flex: 0 0 auto;
     background-color: rgba(var(--cw-bg-surface-rgb), var(--cw-surface-alpha));
-    backdrop-filter: blur(var(--cw-card-blur));
     border: 1px solid var(--cw-border);
     padding: 6px 10px;
     margin-bottom: 8px;
@@ -5366,6 +5370,14 @@ button.adapter-status-badge.status-off:hover {
 .layout-drawer {
     background-color: rgba(var(--cw-bg-surface-rgb), var(--cw-surface-alpha));
     border-color: var(--cw-border);
+}
+html[data-card-blur="on"] .app-header-deck,
+html[data-card-blur="on"] .dashboard-card,
+html[data-card-blur="on"] .wide-sub-console,
+html[data-card-blur="on"] .tab-view-panel,
+html[data-card-blur="on"] .side-telemetry-dock,
+html[data-card-blur="on"] .cw-settings-dialog,
+html[data-card-blur="on"] .layout-drawer {
     backdrop-filter: blur(var(--cw-card-blur));
 }
 

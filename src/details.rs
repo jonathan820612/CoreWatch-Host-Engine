@@ -407,45 +407,49 @@ impl Collector {
                     })
                     .and_then(|row| text(row, "DriverVersion")),
             );
-            let adapter_prefix = format!("luid_0x{:08x}_0x{:08x}_", gpu.high, gpu.low);
-            let engines = rows(
-                self.wmi.as_ref(),
-                "SELECT Name, UtilizationPercentage FROM Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine",
-            );
-            let mut totals = HashMap::<String, u64>::new();
-            for row in &engines {
-                if let Some(engine) =
-                    text(row, "Name").and_then(|name| gpu_instance_suffix(name, &adapter_prefix))
-                    && let Some(usage) = number(row, "UtilizationPercentage")
-                {
-                    *totals.entry(engine.to_owned()).or_default() += usage;
+            let nvml_covers_perf = bridge_gpu_matches
+                && bridge.is_some_and(|r| r.gpu_load.is_some() && r.vram_used.is_some());
+            if !nvml_covers_perf {
+                let adapter_prefix = format!("luid_0x{:08x}_0x{:08x}_", gpu.high, gpu.low);
+                let engines = rows(
+                    self.wmi.as_ref(),
+                    "SELECT Name, UtilizationPercentage FROM Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine",
+                );
+                let mut totals = HashMap::<String, u64>::new();
+                for row in &engines {
+                    if let Some(engine) =
+                        text(row, "Name").and_then(|name| gpu_instance_suffix(name, &adapter_prefix))
+                        && let Some(usage) = number(row, "UtilizationPercentage")
+                    {
+                        *totals.entry(engine.to_owned()).or_default() += usage;
+                    }
                 }
-            }
-            put(
-                f,
-                "gpuLoad",
-                totals
-                    .values()
-                    .max()
-                    .map(|usage| usage.min(&100).to_string()),
-            );
-            let memory = rows(
-                self.wmi.as_ref(),
-                "SELECT Name, DedicatedUsage FROM Win32_PerfFormattedData_GPUPerformanceCounters_GPUAdapterMemory",
-            );
-            put(
-                f,
-                "vramUsed",
-                memory
-                    .iter()
-                    .find(|row| {
-                        text(row, "Name").is_some_and(|name| {
-                            gpu_instance_suffix(name, &adapter_prefix).is_some()
+                put(
+                    f,
+                    "gpuLoad",
+                    totals
+                        .values()
+                        .max()
+                        .map(|usage| usage.min(&100).to_string()),
+                );
+                let memory = rows(
+                    self.wmi.as_ref(),
+                    "SELECT Name, DedicatedUsage FROM Win32_PerfFormattedData_GPUPerformanceCounters_GPUAdapterMemory",
+                );
+                put(
+                    f,
+                    "vramUsed",
+                    memory
+                        .iter()
+                        .find(|row| {
+                            text(row, "Name").is_some_and(|name| {
+                                gpu_instance_suffix(name, &adapter_prefix).is_some()
+                            })
                         })
-                    })
-                    .and_then(|row| number(row, "DedicatedUsage"))
-                    .map(|bytes| bytes.to_string()),
-            );
+                        .and_then(|row| number(row, "DedicatedUsage"))
+                        .map(|bytes| bytes.to_string()),
+                );
+            }
         }
         if let Some(reading) = bridge
             && let Some(value) = reading
@@ -551,6 +555,14 @@ impl Collector {
                         .map(|value| format!("{value:.0}"))
                 {
                     put(f, field, Some(formatted));
+                }
+            }
+            if !f.contains_key("vramUsed")
+                && let Some(used) = readings.vram_used
+            {
+                put(f, "vramUsed", Some(used.to_string()));
+                if let Some(total) = readings.vram_total.filter(|&t| t > 0) {
+                    put(f, "vramTotal", Some(total.to_string()));
                 }
             }
         }

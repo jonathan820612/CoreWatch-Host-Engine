@@ -12,7 +12,8 @@ function createAppSettings(core, save, modulesChanged, status) {
         ["startMinimized", "Start minimized to tray", "Launch quietly in the notification area with watchdog active."],
         ["minimizeToTrayOnClose", "Minimize to tray on EXIT", "Keep Smart Alerts & RGB Thermal running when clicking EXIT."],
         ["confirmDestructiveActions", "Confirm before destructive actions", "Show a confirmation dialog before restarts, kills, wipes, or resets."],
-        ["autoCheckCoreWatchUpdates", "Auto-check for updates", "Check GitHub releases automatically in the background on launch."]
+        ["autoCheckCoreWatchUpdates", "Auto-check for updates", "Check GitHub releases automatically in the background on launch."],
+        ["lowMemoryMode", "Low-Memory Mode (Disable WebView2 GPU)", "Disables Chromium's GPU compositor process to save ~180–225 MB RAM (restart required)."]
     ];
     const paths = [
         ["projectsRoot", "projects", "Default Git / Projects root", "Scanned by GitHub Manager for local repositories."],
@@ -55,6 +56,8 @@ function createAppSettings(core, save, modulesChanged, status) {
     let settings;
     let catalog;
     let startupStatus;
+    let bootLowMemoryMode = null;
+    let lowMemoryRestartBtn = null;
     let updateStarted = false;
     let pending = Promise.resolve();
 
@@ -130,12 +133,43 @@ function createAppSettings(core, save, modulesChanged, status) {
         wrap.append(element("span", "", caption), element("small", "settings-check-hint", hint));
         row.append(input, wrap);
         const startup = key === "startWithWindows";
+        const lowMem = key === "lowMemoryMode";
         if (startup) row.append(badge);
+        if (lowMem) {
+            lowMemoryRestartBtn = action("Restart Now", async (ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                lowMemoryRestartBtn.disabled = true;
+                try {
+                    await pending;
+                    await core.invoke("relaunch_app");
+                } catch (error) {
+                    report(error);
+                    lowMemoryRestartBtn.disabled = false;
+                }
+            });
+            lowMemoryRestartBtn.hidden = true;
+            lowMemoryRestartBtn.title = "Restart RustCoreWatch now to apply Low-Memory Mode";
+            row.append(lowMemoryRestartBtn);
+        }
         input.addEventListener("change", async () => {
             const checked = input.checked;
             input.disabled = true;
             try {
                 await change((settings) => startup ? { startWithWindows: checked } : { general: { ...settings.general, [key]: checked } });
+                if (lowMem && !catalog?.smoke) {
+                    const needsRestart = bootLowMemoryMode !== null && checked !== bootLowMemoryMode;
+                    if (lowMemoryRestartBtn) lowMemoryRestartBtn.hidden = !needsRestart;
+                    if (needsRestart) {
+                        window.showToast?.(
+                            checked
+                                ? "Low-Memory Mode enabled — click Restart Now to free ~200 MB GPU RAM."
+                                : "Low-Memory Mode disabled — restart RustCoreWatch to re-enable GPU acceleration.",
+                            "ok",
+                            4200
+                        );
+                    }
+                }
             } finally {
                 input.disabled = false;
                 if (startup) await refreshStartup();
@@ -271,6 +305,10 @@ function createAppSettings(core, save, modulesChanged, status) {
 
     function apply(next) {
         settings = next;
+        if (bootLowMemoryMode === null) bootLowMemoryMode = Boolean(next.general.lowMemoryMode);
+        if (lowMemoryRestartBtn) {
+            lowMemoryRestartBtn.hidden = Boolean(catalog?.smoke) || Boolean(next.general.lowMemoryMode) === bootLowMemoryMode;
+        }
         confirmDestructiveActions = next.general.confirmDestructiveActions;
         applyFontSize(next.general.fontSize || "normal");
         const exitBtn = byId("exit");

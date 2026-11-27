@@ -21,6 +21,17 @@ pub fn relaunch_elevated() -> Result<(), String> {
     shell_open_wide(&exe, Some("--elevated"), true)
 }
 
+/// Spawns a fresh instance of RustCoreWatch with `--relaunch` so the new process waits briefly
+/// for the exiting instance to release its single-instance mutex (used when toggling Low-Memory Mode).
+pub fn relaunch() -> Result<(), String> {
+    let exe = std::env::current_exe().map_err(|error| error.to_string())?;
+    std::process::Command::new(exe)
+        .arg("--relaunch")
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("Could not restart RustCoreWatch: {error}"))
+}
+
 pub(crate) fn shell_open(target: &str, argument: Option<&str>, admin: bool) -> Result<(), String> {
     shell_open_wide(&native::wide(target), argument, admin)
 }

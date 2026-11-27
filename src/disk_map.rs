@@ -38,24 +38,25 @@ pub struct Job {
     cancel: Arc<AtomicBool>,
 }
 
+const NO_PARENT: u32 = u32::MAX;
+
 struct TreeNode {
-    name: String,
-    path: String,
+    name: Box<str>,
     bytes: u64,
     files: u64,
     dirs: u64,
     modified_ms: i64,
+    parent: u32,
+    children: Vec<u32>,
     directory: bool,
-    ext: String,
-    parent: Option<usize>,
-    children: Vec<usize>,
     removed: bool,
 }
 
 struct CachedTree {
     scan_root: String,
     nodes: Vec<TreeNode>,
-    path_index: HashMap<String, usize>,
+    /// Directory-only lowercase path index (~85-90% smaller than indexing every file).
+    path_index: HashMap<Box<str>, u32>,
     largest: Vec<Entry>,
     extensions: Vec<Extension>,
     inaccessible: u64,
@@ -86,15 +87,26 @@ impl State {
         }
     }
 
+    /// Evicts the cached scan arena to release memory immediately when leaving Disk Map or minimizing.
+    pub fn clear(&self) {
+        if let Ok(mut cache) = self.cache.lock()
+            && cache.take().is_some()
+        {
+            drop(cache);
+            crate::native::trim_working_set();
+        }
+    }
+
     pub fn node_view(&self, path: &Path) -> Result<Option<Scan>, String> {
         let key = normalize_key(&path.to_string_lossy());
         let guard = self.cache.lock().map_err(|_| "Disk Map cache unavailable.")?;
         let Some(tree) = guard.as_ref() else {
             return Ok(None);
         };
-        let Some(&idx) = tree.path_index.get(&key) else {
+        let Some(&idx) = tree.path_index.get(key.as_str()) else {
             return Ok(None);
         };
+        let idx = idx as usize;
         if tree.nodes[idx].removed || !tree.nodes[idx].directory {
             return Ok(None);
         }
@@ -109,7 +121,7 @@ impl State {
         let Some(tree) = guard.as_mut() else {
             return Ok(None);
         };
-        if let Some(&idx) = tree.path_index.get(&key)
+        if let Some(idx) = tree.find_path_index(path, &key)
             && !tree.nodes[idx].removed
         {
             let delta_bytes = tree.nodes[idx].bytes;
@@ -125,26 +137,27 @@ impl State {
             };
             mark_removed(&mut tree.nodes, idx);
             let mut cur = tree.nodes[idx].parent;
-            while let Some(p) = cur {
-                let node = &mut tree.nodes[p];
+            while cur != NO_PARENT {
+                let node = &mut tree.nodes[cur as usize];
                 node.bytes = node.bytes.saturating_sub(delta_bytes);
                 node.files = node.files.saturating_sub(delta_files);
                 node.dirs = node.dirs.saturating_sub(delta_dirs);
                 cur = node.parent;
             }
             let prefix = key.clone();
+            let prefix_slash = format!("{prefix}\\");
             tree.largest.retain(|e| {
                 let k = normalize_key(&e.path);
-                k != prefix && !k.starts_with(&(prefix.clone() + "\\"))
+                k != prefix && !k.starts_with(&prefix_slash)
             });
         }
         let target_key = current_view
             .map(|p| normalize_key(&p.to_string_lossy()))
             .unwrap_or_else(|| normalize_key(&tree.scan_root));
-        if let Some(&view_idx) = tree.path_index.get(&target_key)
-            && !tree.nodes[view_idx].removed
+        if let Some(&view_idx) = tree.path_index.get(target_key.as_str())
+            && !tree.nodes[view_idx as usize].removed
         {
-            return Ok(Some(tree.view_for(view_idx, true)));
+            return Ok(Some(tree.view_for(view_idx as usize, true)));
         }
         if !tree.nodes.is_empty() && !tree.nodes[0].removed {
             return Ok(Some(tree.view_for(0, true)));
@@ -154,13 +167,14 @@ impl State {
 }
 
 fn mark_removed(nodes: &mut [TreeNode], idx: usize) {
-    let mut stack = vec![idx];
+    let mut stack = vec![idx as u32];
     while let Some(n) = stack.pop() {
-        if nodes[n].removed {
+        let ni = n as usize;
+        if nodes[ni].removed {
             continue;
         }
-        nodes[n].removed = true;
-        stack.extend_from_slice(&nodes[n].children);
+        nodes[ni].removed = true;
+        stack.extend_from_slice(&nodes[ni].children);
     }
 }
 
@@ -302,12 +316,56 @@ struct Extension {
 }
 
 impl CachedTree {
-    fn view_for(&self, idx: usize, cached: bool) -> Scan {
-        let node = &self.nodes[idx];
-        let mut child_indices: Vec<usize> = node
+    fn node_path(&self, idx: usize) -> String {
+        if idx == 0 {
+            return self.scan_root.clone();
+        }
+        let mut parts: Vec<&str> = Vec::new();
+        let mut cur = idx;
+        while cur != 0 {
+            let node = &self.nodes[cur];
+            parts.push(&node.name);
+            if node.parent == NO_PARENT {
+                break;
+            }
+            cur = node.parent as usize;
+        }
+        let mut out = self.scan_root.clone();
+        for part in parts.into_iter().rev() {
+            if !out.ends_with('\\') && !out.ends_with('/') {
+                out.push('\\');
+            }
+            out.push_str(part);
+        }
+        out
+    }
+
+    fn find_path_index(&self, path: &Path, normalized_key: &str) -> Option<usize> {
+        if let Some(&idx) = self.path_index.get(normalized_key) {
+            return Some(idx as usize);
+        }
+        let parent_path = path.parent()?;
+        let file_name = path.file_name()?.to_string_lossy();
+        let parent_key = normalize_key(&parent_path.to_string_lossy());
+        let &parent_idx = self.path_index.get(parent_key.as_str())?;
+        self.nodes[parent_idx as usize]
             .children
             .iter()
             .copied()
+            .find(|&c| {
+                let cn = &self.nodes[c as usize];
+                !cn.directory && cn.name.eq_ignore_ascii_case(&file_name)
+            })
+            .map(|c| c as usize)
+    }
+
+    fn view_for(&self, idx: usize, cached: bool) -> Scan {
+        let node = &self.nodes[idx];
+        let node_path = self.node_path(idx);
+        let mut child_indices: Vec<usize> = node
+            .children
+            .iter()
+            .map(|&c| c as usize)
             .filter(|&c| !self.nodes[c].removed)
             .collect();
         child_indices.sort_unstable_by(|&a, &b| {
@@ -321,11 +379,12 @@ impl CachedTree {
             .take(MAX_CHILDREN_RESPONSE)
             .map(|c| {
                 let child = &self.nodes[c];
+                let child_path = join_display_path(&node_path, &child.name);
                 let preview_children = if child.directory {
                     let mut subs: Vec<usize> = child
                         .children
                         .iter()
-                        .copied()
+                        .map(|&s| s as usize)
                         .filter(|&s| !self.nodes[s].removed && self.nodes[s].bytes > 0)
                         .collect();
                     subs.sort_unstable_by(|&a, &b| self.nodes[b].bytes.cmp(&self.nodes[a].bytes));
@@ -334,11 +393,15 @@ impl CachedTree {
                         .map(|s| {
                             let sub = &self.nodes[s];
                             ChildTile {
-                                name: sub.name.clone(),
-                                path: sub.path.clone(),
+                                name: sub.name.to_string(),
+                                path: join_display_path(&child_path, &sub.name),
                                 bytes: sub.bytes,
                                 directory: sub.directory,
-                                ext: sub.ext.clone(),
+                                ext: if sub.directory {
+                                    String::new()
+                                } else {
+                                    extension_label(&sub.name)
+                                },
                             }
                         })
                         .collect()
@@ -347,29 +410,31 @@ impl CachedTree {
                 };
                 Entry {
                     bytes: child.bytes,
-                    name: child.name.clone(),
-                    path: child.path.clone(),
+                    name: child.name.to_string(),
+                    path: child_path,
                     directory: child.directory,
                     files: child.files,
                     dirs: child.dirs,
                     modified_ms: child.modified_ms,
-                    ext: child.ext.clone(),
+                    ext: if child.directory {
+                        String::new()
+                    } else {
+                        extension_label(&child.name)
+                    },
                     preview_children,
                 }
             })
             .collect();
 
-        let scope_prefix = normalize_key(&node.path);
+        let scope_prefix = normalize_key(&node_path);
+        let scope_prefix_slash = format!("{scope_prefix}\\");
         let largest = if idx == 0 {
             self.largest.clone()
         } else {
             let mut filtered: Vec<Entry> = self
                 .largest
                 .iter()
-                .filter(|e| {
-                    let k = normalize_key(&e.path);
-                    k.starts_with(&(scope_prefix.clone() + "\\"))
-                })
+                .filter(|e| normalize_key(&e.path).starts_with(&scope_prefix_slash))
                 .cloned()
                 .collect();
             if filtered.len() < 30 {
@@ -380,29 +445,33 @@ impl CachedTree {
                 let mut heap = BinaryHeap::new();
                 while let Some(cur) = stack.pop() {
                     for &c in &self.nodes[cur].children {
-                        let cn = &self.nodes[c];
+                        let ci = c as usize;
+                        let cn = &self.nodes[ci];
                         if cn.removed {
                             continue;
                         }
                         if cn.directory {
-                            stack.push(c);
-                        } else if !seen.contains(&normalize_key(&cn.path)) {
-                            seen.insert(normalize_key(&cn.path));
-                            retain_largest(
-                                &mut heap,
-                                Entry {
-                                    bytes: cn.bytes,
-                                    name: cn.name.clone(),
-                                    path: cn.path.clone(),
-                                    directory: false,
-                                    files: 1,
-                                    dirs: 0,
-                                    modified_ms: cn.modified_ms,
-                                    ext: cn.ext.clone(),
-                                    preview_children: Vec::new(),
-                                },
-                                MAX_FILES,
-                            );
+                            stack.push(ci);
+                        } else {
+                            let full = self.node_path(ci);
+                            let full_key = normalize_key(&full);
+                            if seen.insert(full_key) {
+                                retain_largest(
+                                    &mut heap,
+                                    Entry {
+                                        bytes: cn.bytes,
+                                        name: cn.name.to_string(),
+                                        path: full,
+                                        directory: false,
+                                        files: 1,
+                                        dirs: 0,
+                                        modified_ms: cn.modified_ms,
+                                        ext: extension_label(&cn.name),
+                                        preview_children: Vec::new(),
+                                    },
+                                    MAX_FILES,
+                                );
+                            }
                         }
                     }
                 }
@@ -413,12 +482,12 @@ impl CachedTree {
             filtered
         };
 
-        let parent = Path::new(&node.path)
+        let parent = Path::new(&node_path)
             .parent()
             .map(|p| p.to_string_lossy().into_owned());
 
         Scan {
-            root: node.path.clone(),
+            root: node_path,
             scan_root: self.scan_root.clone(),
             parent,
             bytes: node.bytes,
@@ -631,16 +700,14 @@ fn walk_subtree(
     limits: &SharedLimits<'_>,
 ) -> SubtreeResult {
     let mut nodes = vec![TreeNode {
-        name: root_name,
-        path: root_path,
+        name: root_name.into_boxed_str(),
         bytes: 0,
         files: 0,
         dirs: 0,
         modified_ms: root_modified,
-        directory: true,
-        ext: String::new(),
-        parent: None,
+        parent: NO_PARENT,
         children: Vec::new(),
+        directory: true,
         removed: false,
     }];
     let mut inaccessible = 0u64;
@@ -649,16 +716,16 @@ fn walk_subtree(
     let mut extensions = HashMap::new();
     let mut partial = None;
 
-    // Iterative DFS with post-order bubble-up of sizes/counts.
-    let mut stack: Vec<(usize, bool)> = vec![(0, false)];
-    while let Some((dir_idx, expanded)) = stack.pop() {
-        if expanded {
+    // Iterative DFS with transient paths on the stack (zero full paths stored on TreeNodes).
+    let mut stack: Vec<(usize, Option<String>)> = vec![(0, Some(root_path))];
+    while let Some((dir_idx, maybe_path)) = stack.pop() {
+        let Some(dir_path) = maybe_path else {
             let mut sum_bytes = 0u64;
             let mut sum_files = 0u64;
             let mut sum_dirs = 0u64;
             let children = nodes[dir_idx].children.clone();
             for c in children {
-                let cn = &nodes[c];
+                let cn = &nodes[c as usize];
                 if cn.directory {
                     sum_bytes = sum_bytes.saturating_add(cn.bytes);
                     sum_files = sum_files.saturating_add(cn.files);
@@ -669,21 +736,20 @@ fn walk_subtree(
             nodes[dir_idx].files = nodes[dir_idx].files.saturating_add(sum_files);
             nodes[dir_idx].dirs = nodes[dir_idx].dirs.saturating_add(sum_dirs);
             continue;
-        }
+        };
         if let Some(reason) = limits.check() {
             partial = Some(reason);
             continue;
         }
-        let dir_path = nodes[dir_idx].path.clone();
         let Ok(raw_items) = read_dir_win32(Path::new(&dir_path)) else {
             inaccessible += 1;
             continue;
         };
-        stack.push((dir_idx, true));
+        stack.push((dir_idx, None));
         let mut dir_file_bytes = 0u64;
         let mut dir_file_count = 0u64;
         let mut top_files: Vec<RawEntry> = Vec::new();
-        let mut sub_dirs: Vec<usize> = Vec::new();
+        let mut sub_dirs: Vec<(usize, String)> = Vec::new();
 
         for item in raw_items {
             if let Some(reason) = limits.advance() {
@@ -698,20 +764,18 @@ fn walk_subtree(
                 let child_path = join_display_path(&dir_path, &item.name);
                 let child_idx = nodes.len();
                 nodes.push(TreeNode {
-                    name: item.name,
-                    path: child_path,
+                    name: item.name.into_boxed_str(),
                     bytes: 0,
                     files: 0,
                     dirs: 0,
                     modified_ms: item.modified_ms,
-                    directory: true,
-                    ext: String::new(),
-                    parent: Some(dir_idx),
+                    parent: dir_idx as u32,
                     children: Vec::new(),
+                    directory: true,
                     removed: false,
                 });
-                nodes[dir_idx].children.push(child_idx);
-                sub_dirs.push(child_idx);
+                nodes[dir_idx].children.push(child_idx as u32);
+                sub_dirs.push((child_idx, child_path));
             } else {
                 let child_path = join_display_path(&dir_path, &item.name);
                 let ext = extension_label(&item.name);
@@ -737,26 +801,22 @@ fn walk_subtree(
             top_files.truncate(MAX_STORED_FILES_PER_DIR);
         }
         for file in top_files {
-            let ext = extension_label(&file.name);
-            let child_path = join_display_path(&dir_path, &file.name);
             let child_idx = nodes.len();
             nodes.push(TreeNode {
-                name: file.name,
-                path: child_path,
+                name: file.name.into_boxed_str(),
                 bytes: file.bytes,
                 files: 1,
                 dirs: 0,
                 modified_ms: file.modified_ms,
-                directory: false,
-                ext,
-                parent: Some(dir_idx),
+                parent: dir_idx as u32,
                 children: Vec::new(),
+                directory: false,
                 removed: false,
             });
-            nodes[dir_idx].children.push(child_idx);
+            nodes[dir_idx].children.push(child_idx as u32);
         }
-        for sub in sub_dirs {
-            stack.push((sub, false));
+        for (sub, sub_path) in sub_dirs {
+            stack.push((sub, Some(sub_path)));
         }
     }
 
@@ -789,16 +849,14 @@ fn scan_tree(path: PathBuf, cancel: &AtomicBool) -> Result<CachedTree, String> {
         .map_err(|()| format!("Could not scan {}. Access denied or path not found.", path.display()))?;
 
     let mut nodes = vec![TreeNode {
-        name: root_name,
-        path: root_str.clone(),
+        name: root_name.into_boxed_str(),
         bytes: 0,
         files: 0,
         dirs: 0,
         modified_ms: 0,
-        directory: true,
-        ext: String::new(),
-        parent: None,
+        parent: NO_PARENT,
         children: Vec::new(),
+        directory: true,
         removed: false,
     }];
     let mut inaccessible = 0u64;
@@ -889,23 +947,19 @@ fn scan_tree(path: PathBuf, cancel: &AtomicBool) -> Result<CachedTree, String> {
         root_files.truncate(MAX_STORED_FILES_PER_DIR);
     }
     for file in root_files {
-        let ext = extension_label(&file.name);
-        let child_path = join_display_path(&root_str, &file.name);
         let idx = nodes.len();
         nodes.push(TreeNode {
-            name: file.name,
-            path: child_path,
+            name: file.name.into_boxed_str(),
             bytes: file.bytes,
             files: 1,
             dirs: 0,
             modified_ms: file.modified_ms,
-            directory: false,
-            ext,
-            parent: Some(0),
+            parent: 0,
             children: Vec::new(),
+            directory: false,
             removed: false,
         });
-        nodes[0].children.push(idx);
+        nodes[0].children.push(idx as u32);
     }
 
     for sub in results.into_inner().unwrap() {
@@ -937,15 +991,17 @@ fn scan_tree(path: PathBuf, cancel: &AtomicBool) -> Result<CachedTree, String> {
         if sub.nodes.is_empty() {
             continue;
         }
-        let base_offset = nodes.len();
+        let base_offset = nodes.len() as u32;
         let sub_root_bytes = sub.nodes[0].bytes;
         let sub_root_files = sub.nodes[0].files;
         let sub_root_dirs = sub.nodes[0].dirs;
         for (local_idx, mut node) in sub.nodes.into_iter().enumerate() {
             node.parent = if local_idx == 0 {
-                Some(0)
+                0
+            } else if node.parent != NO_PARENT {
+                node.parent + base_offset
             } else {
-                node.parent.map(|p| p + base_offset)
+                NO_PARENT
             };
             for c in &mut node.children {
                 *c += base_offset;
@@ -958,9 +1014,9 @@ fn scan_tree(path: PathBuf, cancel: &AtomicBool) -> Result<CachedTree, String> {
         nodes[0].dirs = nodes[0].dirs.saturating_add(sub_root_dirs + 1);
     }
 
-    let mut path_index = HashMap::with_capacity(nodes.len());
-    for (idx, node) in nodes.iter().enumerate() {
-        path_index.insert(normalize_key(&node.path), idx);
+    nodes.shrink_to_fit();
+    for node in &mut nodes {
+        node.children.shrink_to_fit();
     }
 
     let largest_sorted: Vec<Entry> = largest
@@ -971,17 +1027,30 @@ fn scan_tree(path: PathBuf, cancel: &AtomicBool) -> Result<CachedTree, String> {
     let mut ext_sorted: Vec<Extension> = extensions.into_values().collect();
     ext_sorted.sort_unstable_by(|a, b| b.bytes.cmp(&a.bytes).then_with(|| a.name.cmp(&b.name)));
 
-    Ok(CachedTree {
+    let mut tree = CachedTree {
         scan_root: root_str,
         nodes,
-        path_index,
+        path_index: HashMap::new(),
         largest: largest_sorted,
         extensions: ext_sorted,
         inaccessible,
         skipped_links,
         elapsed_ms: start.elapsed().as_millis(),
         partial,
-    })
+    };
+
+    // Index directories only (cuts path_index memory ~85-90%).
+    let dir_count = tree.nodes.iter().filter(|n| n.directory).count();
+    let mut path_index = HashMap::with_capacity(dir_count);
+    for (idx, node) in tree.nodes.iter().enumerate() {
+        if node.directory {
+            let full = tree.node_path(idx);
+            path_index.insert(normalize_key(&full).into_boxed_str(), idx as u32);
+        }
+    }
+    tree.path_index = path_index;
+
+    Ok(tree)
 }
 
 #[cfg(test)]
@@ -995,7 +1064,8 @@ mod tests {
         let dir = tempfile::tempdir_in(base).unwrap();
         let child = dir.path().join("files");
         fs::create_dir(&child).unwrap();
-        fs::write(child.join("long.txt"), [0; 35]).unwrap();
+        let long_file = child.join("long.txt");
+        fs::write(&long_file, [0; 35]).unwrap();
         fs::write(dir.path().join("short.txt"), [0; 5]).unwrap();
         let tree = scan_tree(dir.path().to_path_buf(), &AtomicBool::new(false)).unwrap();
         let result = tree.view_for(0, false);
@@ -1004,14 +1074,17 @@ mod tests {
         assert_eq!(result.entries[0].preview_children.len(), 1);
         assert_eq!(result.largest[0].bytes, 35);
         assert_eq!(result.extensions[0].bytes, 40);
-        // Verify instant cached drill-down to child folder
-        let child_idx = *tree
-            .path_index
-            .get(&normalize_key(&child.to_string_lossy()))
-            .unwrap();
+        // Verify instant cached drill-down to child folder and directory-only path_index lookup
+        let child_key = normalize_key(&child.to_string_lossy());
+        let child_idx = *tree.path_index.get(child_key.as_str()).unwrap() as usize;
         let sub = tree.view_for(child_idx, true);
         assert_eq!(sub.bytes, 35);
         assert_eq!(sub.entries[0].name, "long.txt");
+        // Verify file lookup still works via parent directory in directory-only index
+        let file_key = normalize_key(&long_file.to_string_lossy());
+        assert!(!tree.path_index.contains_key(file_key.as_str()));
+        let file_idx = tree.find_path_index(&long_file, &file_key).unwrap();
+        assert_eq!(tree.nodes[file_idx].bytes, 35);
         assert!(
             scan_tree(dir.path().to_path_buf(), &AtomicBool::new(true))
                 .unwrap()
