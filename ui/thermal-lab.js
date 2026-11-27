@@ -39,6 +39,7 @@ function createThermalLab(invoke) {
     function healthPillClass(status) {
         if (status === "Critical" || status === "Struggling") return "diag-crit";
         if (status === "Degraded" || status === "Warning" || status === "Attention") return "diag-warn";
+        if (status === "Idle / No Tach") return "diag-neutral";
         if (status === "0-dB Idle" || status === "Monitoring") return "diag-info";
         return "diag-ok";
     }
@@ -370,9 +371,23 @@ function createThermalLab(invoke) {
         // Health bar
         const healthRow = element("div", "thermal-health-row");
         const healthMeta = element("div", "thermal-health-meta");
+        let baselineLabel;
+        if (fan.baselineSamples >= 5) {
+            baselineLabel = `Baseline ready (${fan.baselineSamples} pts)`;
+        } else if (fan.baselineSamples > 0) {
+            baselineLabel = `Calibrating (${fan.baselineSamples}/5 pts)…`;
+        } else if (fan.healthStatus === "0-dB Idle" || (fan.role === "gpu" && (fan.rpm || 0) === 0 && (fan.pwmPct || 0) <= 5)) {
+            baselineLabel = "0-dB idle (learns when spinning)";
+        } else if (fan.healthStatus === "Idle / No Tach") {
+            baselineLabel = "No tach RPM (header idle/unplugged)";
+        } else if (fan.rpm == null) {
+            baselineLabel = "PWM-only (no tach RPM)";
+        } else {
+            baselineLabel = "Calibrating (0/5 pts)…";
+        }
         healthMeta.append(
             element("span", "", `Mechanical Health: ${fan.healthScore}%`),
-            element("span", "", fan.baselineSamples > 0 ? `${fan.baselineSamples} baseline pts` : "Learning baseline…")
+            element("span", "", baselineLabel)
         );
         const track = element("div", "thermal-health-track");
         const fill = element("div", "thermal-health-fill"
@@ -478,6 +493,10 @@ function createThermalLab(invoke) {
             slider.value = String(curVal);
             const out = element("output", "", `${curVal}%`);
             slider.addEventListener("input", () => { out.value = `${slider.value}%`; });
+            slider.addEventListener("change", () => {
+                void runAction({ kind: "set_manual", control_id: cid, percent: Number(slider.value) },
+                    `${fan.name} set to ${slider.value}% PWM`);
+            });
             const applyBtn = actionButton("Set", () => {
                 void runAction({ kind: "set_manual", control_id: cid, percent: Number(slider.value) },
                     `${fan.name} set to ${slider.value}% PWM`);

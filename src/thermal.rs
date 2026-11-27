@@ -398,12 +398,17 @@ impl HelperSession {
         let mut stdout = BufReader::new(child.stdout.take().ok_or("Missing helper stdout.")?);
         let (tx, rx) = mpsc::sync_channel(2);
         thread::spawn(move || {
+            let mut buf = Vec::with_capacity(4096);
             loop {
-                let mut line = String::new();
-                match stdout.read_line(&mut line) {
+                buf.clear();
+                match stdout.read_until(b'\n', &mut buf) {
                     Ok(0) => break,
-                    Ok(_) if tx.send(Ok(line)).is_ok() => continue,
-                    Ok(_) => break,
+                    Ok(_) => {
+                        let line = String::from_utf8_lossy(&buf).into_owned();
+                        if tx.send(Ok(line)).is_err() {
+                            break;
+                        }
+                    }
                     Err(err) => {
                         let _ = tx.send(Err(err.to_string()));
                         break;
@@ -644,8 +649,9 @@ fn evaluate_channel_health(
     let mut issues = Vec::new();
 
     // 1. Check GPU 0-dB idle mode explicitly so silent GPUs are never false-flagged!
+    let baseline_samples = baseline.map_or(0, |b| b.buckets.values().map(|v| v.1).sum());
     let is_gpu_zero_db = role == "gpu"
-        && rpm == Some(0)
+        && rpm.unwrap_or(0) == 0
         && pwm.unwrap_or(0.0) <= 5.0
         && host_temp_c.unwrap_or(40.0) < 58.0;
 
@@ -655,7 +661,21 @@ fn evaluate_channel_health(
             status: "0-dB Idle",
             expected_rpm: None,
             jitter_pct: 0.0,
-            baseline_samples: baseline.map_or(0, |b| b.buckets.values().map(|v| v.1).sum()),
+            baseline_samples,
+            issues,
+        };
+    }
+
+    // 1b. Unplugged / tach-less motherboard headers (never spun, no baseline, not pump/cpu/gpu)
+    //     Keep them 100% healthy and controllable without false "Seized Fan" alarms!
+    let never_spun = tracker.rpm_max.is_none() && baseline_samples == 0 && tracker.pending_cmd.is_none();
+    if rpm == Some(0) && never_spun && !matches!(role, "pump" | "cpu" | "gpu") {
+        return HealthEvaluation {
+            score: 100,
+            status: "Idle / No Tach",
+            expected_rpm: None,
+            jitter_pct: 0.0,
+            baseline_samples: 0,
             issues,
         };
     }
@@ -710,15 +730,18 @@ fn evaluate_channel_health(
 
     // 4. Learned Baseline RPM Deficit (Bearing Drag / Dust Choke / End-of-Life)
     let mut expected_rpm = None;
-    let baseline_samples = baseline.map_or(0, |b| b.buckets.values().map(|v| v.1).sum());
-    if let (Some(r), Some(p), Some(base)) = (rpm, pwm, baseline)
+    if let (Some(r), Some(base)) = (rpm, baseline)
         && r > 0
-        && p >= 25.0
     {
-        let b = pwm_bucket(p);
-        if let Some(&(exp, count)) = base.buckets.get(&b)
+        let bucket_key = match pwm {
+            Some(p) if p >= 10.0 => Some(pwm_bucket(p)),
+            None => Some(255u8),
+            _ => None,
+        };
+        if let Some(b) = bucket_key
+            && let Some(&(exp, count)) = base.buckets.get(&b)
             && count >= 5
-            && exp >= 400.0
+            && exp >= 300.0
         {
             expected_rpm = Some(exp.round() as u32);
             let deficit_pct = ((exp - f64::from(r)) / exp) * 100.0;
@@ -730,8 +753,9 @@ fn evaluate_channel_health(
                     channel: channel_name.to_owned(),
                     title: format!("{channel_name}: Severe RPM Deficit (-{deficit_pct:.0}% vs baseline)"),
                     detail: format!(
-                        "Spinning at {r} RPM instead of expected ~{:.0} RPM at {:.0}% PWM — strong sign of failing bearing or clogged impeller.",
-                        exp, p
+                        "Spinning at {r} RPM instead of expected ~{:.0} RPM{} — strong sign of failing bearing or clogged impeller.",
+                        exp,
+                        pwm.map_or(String::new(), |p| format!(" at {p:.0}% PWM"))
                     ),
                     advice: "Clean dust filters/blades and check for bearing friction or wobble. Plan fan/pump replacement soon.".into(),
                 });
@@ -743,8 +767,9 @@ fn evaluate_channel_health(
                     channel: channel_name.to_owned(),
                     title: format!("{channel_name}: Early Bearing Drag (-{deficit_pct:.0}% vs baseline)"),
                     detail: format!(
-                        "Measured {r} RPM vs learned healthy baseline ~{:.0} RPM at {:.0}% PWM.",
-                        exp, p
+                        "Measured {r} RPM vs learned healthy baseline ~{:.0} RPM{}.",
+                        exp,
+                        pwm.map_or(String::new(), |p| format!(" at {p:.0}% PWM"))
                     ),
                     advice: "Inspect fan blades/radiator fins for dust resistance and monitor trend over coming sessions.".into(),
                 });
@@ -1022,11 +1047,6 @@ impl ThermalEngine {
         } else {
             read_lhm_ohm_wmi()
         };
-        let pawnio_sio = if self.smoke_test || !elevated {
-            Ok(None)
-        } else {
-            read_pawnio_superio()
-        };
         let acpi_temps = if self.smoke_test {
             Vec::new()
         } else {
@@ -1044,13 +1064,25 @@ impl ThermalEngine {
             Self::ensure_session_and_poll(&mut guard);
         }
 
-        // Track active hybrid providers (displayed as status pills at top of Thermal Lab)
+        // Only query direct native Rust PawnIO SuperIO when elevated AND LHM Helper didn't
+        // already read motherboard fans/temps (prevents dual LPC I/O contention!).
         let helper_available = crate::sensors::helper_executable().is_some();
         let pawn_io_srv = crate::sensors::pawn_io_state();
         let helper_mobo_count = guard
             .last_frame
             .as_ref()
-            .map_or(0, |f| f.fans.iter().filter(|x| x.category != "gpu").count());
+            .map_or(0, |f| {
+                f.fans.iter().filter(|x| x.category != "gpu").count()
+                    + f.controls.iter().filter(|x| x.category != "gpu").count()
+            });
+        let helper_owns_superio = guard.session.is_some() && elevated && helper_mobo_count > 0;
+        let pawnio_sio = if self.smoke_test || !elevated || helper_owns_superio {
+            Ok(None)
+        } else {
+            read_pawnio_superio()
+        };
+
+        // Track active hybrid providers (displayed as status pills at top of Thermal Lab)
         let mut providers = vec![
             ProviderStatus {
                 id: "nvml",
@@ -1063,20 +1095,28 @@ impl ThermalEngine {
             ProviderStatus {
                 id: "pawnio_sio",
                 name: "PawnIO SuperIO",
-                state: match &pawnio_sio {
-                    Ok(Some(_)) => "active",
-                    Ok(None) if !elevated => "admin_required",
-                    Ok(None) => "standby",
-                    Err(_) if !elevated => "admin_required",
-                    Err(_) => "unavailable",
-                },
-                detail: match &pawnio_sio {
-                    Ok(Some(fr)) => fr.detail.clone(),
-                    Ok(None) if !elevated => {
-                        format!("Restart as Admin to read motherboard SuperIO & AIO headers (PawnIO: {pawn_io_srv})")
+                state: if helper_owns_superio {
+                    "active"
+                } else {
+                    match &pawnio_sio {
+                        Ok(Some(_)) => "active",
+                        Ok(None) if !elevated => "admin_required",
+                        Ok(None) => "standby",
+                        Err(_) if !elevated => "admin_required",
+                        Err(_) => "unavailable",
                     }
-                    Ok(None) => "No direct ITE SuperIO chip reported on LPC slots".into(),
-                    Err(e) => e.clone(),
+                },
+                detail: if helper_owns_superio {
+                    format!("Active via LHM Helper + PawnIO kernel driver ({pawn_io_srv}) — full SuperIO & PWM control unlocked")
+                } else {
+                    match &pawnio_sio {
+                        Ok(Some(fr)) => fr.detail.clone(),
+                        Ok(None) if !elevated => {
+                            format!("Restart as Admin to read motherboard SuperIO & AIO headers (PawnIO: {pawn_io_srv})")
+                        }
+                        Ok(None) => "No direct ITE SuperIO chip reported on LPC slots".into(),
+                        Err(e) => e.clone(),
+                    }
                 },
             },
             ProviderStatus {
@@ -1582,25 +1622,40 @@ impl ThermalEngine {
                     }
                 }
 
-                // Curve evaluation
-                if controllable
-                    && let Some(ref cid) = control_id
-                    && let ControlMode::Curve(ref curve) = mode
-                {
-                    let sensor_temp = temp_lookup
-                        .get(&curve.sensor_id)
-                        .copied()
-                        .or(host_temp);
-                    if let Some(st) = sensor_temp {
-                        let raw_target = interpolate_curve(curve, st, tracker.last_curve_out);
-                        let safe_target = enforce_pump_floor(role, raw_target)
-                            .clamp(effective_min, max_pct.max(effective_min));
-                        if tracker
-                            .last_curve_out
-                            .is_none_or(|(_, prev)| prev != safe_target)
-                        {
-                            tracker.last_curve_out = Some((st, safe_target));
-                            commands_to_apply.push((cid.clone(), safe_target));
+                // Curve or restored Manual PWM enforcement
+                if controllable && let Some(ref cid) = control_id {
+                    match mode {
+                        ControlMode::Curve(ref curve) => {
+                            let sensor_temp = temp_lookup
+                                .get(&curve.sensor_id)
+                                .copied()
+                                .or(host_temp);
+                            if let Some(st) = sensor_temp {
+                                let raw_target = interpolate_curve(curve, st, tracker.last_curve_out);
+                                let safe_target = enforce_pump_floor(role, raw_target)
+                                    .clamp(effective_min, max_pct.max(effective_min));
+                                if tracker
+                                    .last_curve_out
+                                    .is_none_or(|(_, prev)| prev != safe_target)
+                                {
+                                    tracker.last_curve_out = Some((st, safe_target));
+                                    commands_to_apply.push((cid.clone(), safe_target));
+                                }
+                            }
+                        }
+                        ControlMode::Manual { percent } => {
+                            let safe_target = enforce_pump_floor(role, percent)
+                                .clamp(effective_min, max_pct.max(effective_min));
+                            if tracker
+                                .last_curve_out
+                                .is_none_or(|(_, prev)| prev != safe_target)
+                            {
+                                tracker.last_curve_out = Some((0.0, safe_target));
+                                commands_to_apply.push((cid.clone(), safe_target));
+                            }
+                        }
+                        ControlMode::Auto => {
+                            tracker.last_curve_out = None;
                         }
                     }
                 }
@@ -1620,29 +1675,31 @@ impl ThermalEngine {
                 (eval, rpm_min, rpm_max, rpm_history)
             };
 
-            // Learn healthy RPM-vs-PWM baseline when fan is healthy and steady
+            // Learn healthy RPM-vs-PWM (or tach-only) baseline when fan is healthy and spinning
+            let mut baseline_samples_now = eval.baseline_samples;
             if eval.score >= 90
-                && let (Some(r), Some(p)) = (rpm, pwm_pct)
-                && r >= 350
-                && p >= 25.0
+                && let Some(r) = rpm
+                && r >= 250
             {
-                let b = pwm_bucket(p);
-                let entry = guard
-                    .baselines
-                    .entry(id.clone())
-                    .or_default()
-                    .buckets
-                    .entry(b)
-                    .or_insert((f64::from(r), 0));
-                if entry.1 == 0 {
-                    entry.0 = f64::from(r);
-                } else if entry.1 < 200 {
-                    // Slow EMA so normal variance settles while gradual degradation remains detectable
-                    entry.0 = entry.0 * 0.96 + f64::from(r) * 0.04;
-                }
-                entry.1 = entry.1.saturating_add(1);
-                if entry.1.is_multiple_of(10) {
-                    baselines_dirty = true;
+                let bucket_opt = match pwm_pct {
+                    Some(p) if p >= 10.0 => Some(pwm_bucket(p)),
+                    None => Some(255u8),
+                    _ => None,
+                };
+                if let Some(b) = bucket_opt {
+                    let base = guard.baselines.entry(id.clone()).or_default();
+                    let entry = base.buckets.entry(b).or_insert((f64::from(r), 0));
+                    if entry.1 == 0 {
+                        entry.0 = f64::from(r);
+                    } else if entry.1 < 200 {
+                        // Slow EMA so normal variance settles while gradual degradation remains detectable
+                        entry.0 = entry.0 * 0.96 + f64::from(r) * 0.04;
+                    }
+                    entry.1 = entry.1.saturating_add(1);
+                    if entry.1 == 1 || entry.1 == 5 || entry.1.is_multiple_of(10) {
+                        baselines_dirty = true;
+                    }
+                    baseline_samples_now = base.buckets.values().map(|v| v.1).sum();
                 }
             }
 
@@ -1671,10 +1728,32 @@ impl ThermalEngine {
                 health_status: eval.status,
                 expected_rpm: eval.expected_rpm,
                 rpm_jitter_pct: eval.jitter_pct,
-                baseline_samples: eval.baseline_samples,
+                baseline_samples: baseline_samples_now,
                 issues: eval.issues,
             });
         }
+
+        // Order channels logically: AIO Pumps -> CPU -> Radiator -> Spinning Chassis -> GPU -> Idle/Unplugged headers
+        fans_out.sort_by(|a, b| {
+            let rank = |f: &FanChannel| -> u8 {
+                if f.role == "pump" {
+                    0
+                } else if f.role == "cpu" {
+                    1
+                } else if f.role == "cooler" {
+                    2
+                } else if f.health_status == "Idle / No Tach" {
+                    6
+                } else if f.role == "gpu" {
+                    4
+                } else if f.rpm.is_some_and(|r| r > 0) {
+                    3
+                } else {
+                    5
+                }
+            };
+            rank(a).cmp(&rank(b)).then_with(|| a.name.cmp(&b.name))
+        });
 
         // Apply any curve-computed PWM updates to the helper
         if let Some(ref mut sess) = guard.session {
@@ -2309,11 +2388,20 @@ mod tests {
             zero_streak: 4,
             ..Default::default()
         };
-        // Silent GPU at 38°C & 0% PWM => healthy 0-dB Idle
+        // Silent GPU at 38°C & 0% PWM (both 0 RPM and tach-less NVML) => healthy 0-dB Idle
         let idle = evaluate_channel_health("GPU Fan 1", "gpu", Some(0), Some(0.0), Some(38.0), &tracker, None);
         assert_eq!(idle.status, "0-dB Idle");
         assert_eq!(idle.score, 100);
         assert!(idle.issues.is_empty());
+        let idle_no_tach = evaluate_channel_health("GPU Fan 2", "gpu", None, Some(0.0), Some(39.0), &tracker, None);
+        assert_eq!(idle_no_tach.status, "0-dB Idle");
+        assert_eq!(idle_no_tach.score, 100);
+
+        // Unplugged motherboard chassis header (never spun) => Idle / No Tach (no false stall)
+        let unplugged = evaluate_channel_health("Fan #6", "chassis", Some(0), Some(50.0), Some(42.0), &tracker, None);
+        assert_eq!(unplugged.status, "Idle / No Tach");
+        assert_eq!(unplugged.score, 100);
+        assert!(unplugged.issues.is_empty());
 
         // Stalled CPU fan at 60% PWM => Critical stall alert
         let stalled = evaluate_channel_health("CPU_FAN", "cpu", Some(0), Some(60.0), Some(72.0), &tracker, None);

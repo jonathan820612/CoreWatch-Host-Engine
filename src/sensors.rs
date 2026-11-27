@@ -582,12 +582,17 @@ impl Session {
         let mut output = BufReader::new(child.stdout.take().expect("piped sensor output"));
         let (send, receive) = mpsc::sync_channel(1);
         thread::spawn(move || {
+            let mut buf = Vec::with_capacity(512);
             loop {
-                let mut line = String::new();
-                match output.read_line(&mut line) {
+                buf.clear();
+                match output.read_until(b'\n', &mut buf) {
                     Ok(0) => break,
-                    Ok(_) if send.send(Ok(line)).is_ok() => continue,
-                    Ok(_) => break,
+                    Ok(_) => {
+                        let line = String::from_utf8_lossy(&buf).into_owned();
+                        if send.send(Ok(line)).is_err() {
+                            break;
+                        }
+                    }
                     Err(error) => {
                         let _ = send.send(Err(error.to_string()));
                         break;

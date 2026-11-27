@@ -503,6 +503,50 @@ type FnPawnioExecute = unsafe extern "system" fn(
 ) -> i32;
 type FnPawnioClose = unsafe extern "system" fn(HANDLE) -> i32;
 
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    fn CreateMutexW(
+        attributes: *const core::ffi::c_void,
+        initial_owner: i32,
+        name: *const u16,
+    ) -> HANDLE;
+    fn WaitForSingleObject(handle: HANDLE, milliseconds: u32) -> u32;
+    fn ReleaseMutex(handle: HANDLE) -> i32;
+}
+
+struct IsaBusLock(HANDLE);
+
+impl IsaBusLock {
+    fn acquire() -> Option<Self> {
+        let name = crate::native::wide(r"Global\Access_ISABus");
+        unsafe {
+            let h = CreateMutexW(ptr::null(), 0, name.as_ptr());
+            if h.is_null() {
+                return None;
+            }
+            let wait = WaitForSingleObject(h, 250);
+            if wait == 0 || wait == 0x0000_0080 {
+                // WAIT_OBJECT_0 or WAIT_ABANDONED
+                Some(Self(h))
+            } else {
+                CloseHandle(h);
+                None
+            }
+        }
+    }
+}
+
+impl Drop for IsaBusLock {
+    fn drop(&mut self) {
+        unsafe {
+            if !self.0.is_null() {
+                ReleaseMutex(self.0);
+                CloseHandle(self.0);
+            }
+        }
+    }
+}
+
 struct PawnIoLpcSession {
     module: HMODULE,
     handle: HANDLE,
@@ -569,26 +613,34 @@ impl PawnIoLpcSession {
                 FreeLibrary(module);
                 return Err(format!("pawnio_load(LpcIO) failed (0x{:08X})", hr_load as u32));
             }
-            let sess = Self {
+            Ok(Self {
                 module,
                 handle,
                 execute: exec_fn,
                 close: close_fn,
-            };
-            sess.call(b"ioctl_find_bars\0", &[], &mut [])?;
-            Ok(sess)
+            })
         }
     }
 
     fn call(&self, name: &[u8], input: &[u64], output: &mut [u64]) -> Result<usize, String> {
         let mut written = 0usize;
+        let mut dummy_in = [0u64; 1];
+        let mut dummy_out = [0u64; 1];
         let hr = unsafe {
             (self.execute)(
                 self.handle,
                 name.as_ptr().cast(),
-                if input.is_empty() { ptr::null() } else { input.as_ptr() },
+                if input.is_empty() {
+                    dummy_in.as_mut_ptr()
+                } else {
+                    input.as_ptr()
+                },
                 input.len(),
-                if output.is_empty() { ptr::null_mut() } else { output.as_mut_ptr() },
+                if output.is_empty() {
+                    dummy_out.as_mut_ptr()
+                } else {
+                    output.as_mut_ptr()
+                },
                 output.len(),
                 &mut written,
             )
@@ -601,6 +653,10 @@ impl PawnIoLpcSession {
 
     fn select_slot(&self, slot: u64) -> Result<(), String> {
         self.call(b"ioctl_select_slot\0", &[slot], &mut []).map(|_| ())
+    }
+
+    fn find_bars(&self) -> Result<(), String> {
+        self.call(b"ioctl_find_bars\0", &[], &mut []).map(|_| ())
     }
 
     fn superio_inb(&self, reg: u8) -> Result<u8, String> {
@@ -631,6 +687,21 @@ impl PawnIoLpcSession {
             .map(|_| ())
     }
 
+    fn it87_enter(&self, slot: u64) -> Result<(), String> {
+        let reg_port = if slot == 0 { 0x2Eu16 } else { 0x4Eu16 };
+        self.pio_outb(reg_port, 0x87)?;
+        self.pio_outb(reg_port, 0x01)?;
+        self.pio_outb(reg_port, 0x55)?;
+        self.pio_outb(reg_port, if slot == 0 { 0x55 } else { 0xAA })
+    }
+
+    fn it87_exit(&self, slot: u64) {
+        if slot == 0 {
+            let _ = self.pio_outb(0x2E, 0x02);
+            let _ = self.pio_outb(0x2F, 0x02);
+        }
+    }
+
     fn read_ec(&self, base: u16, reg: u8) -> Result<u8, String> {
         self.pio_outb(base + 5, reg)?;
         self.pio_inb(base + 6)
@@ -659,6 +730,7 @@ pub fn read_pawnio_superio() -> Result<Option<ProviderFrame>, String> {
     if !crate::native::elevated() {
         return Ok(None);
     }
+    let _isa_lock = IsaBusLock::acquire();
     let sess = PawnIoLpcSession::open()?;
     let mut frame = ProviderFrame::default();
     let mut chips_found = Vec::new();
@@ -667,20 +739,25 @@ pub fn read_pawnio_superio() -> Result<Option<ProviderFrame>, String> {
         if sess.select_slot(slot).is_err() {
             continue;
         }
-        let Ok(chip_id) = sess.superio_inw(0x20) else {
+        // Unlock LPC SuperIO decode BARs for this slot (matches LHM LpcPort sequence)
+        let _ = sess.find_bars();
+        if sess.it87_enter(slot).is_err() {
             continue;
-        };
-        if let Some(chip_name) = ite_chip_name(chip_id) {
-            if sess.superio_outb(0x07, 0x04).is_err() {
-                continue;
-            }
-            if sess.superio_inb(0x30).unwrap_or(0) & 1 == 0 {
-                continue;
-            }
-            let base = sess.superio_inw(0x60).unwrap_or(0) & 0xFFF8;
-            if base < 0x100 || base == 0xFFF8 {
-                continue;
-            }
+        }
+        let chip_id = sess.superio_inw(0x20).unwrap_or(0xFFFF);
+        let mut base = 0u16;
+        if ite_chip_name(chip_id).is_some()
+            && sess.superio_outb(0x07, 0x04).is_ok()
+            && (sess.superio_inb(0x30).unwrap_or(0) & 1) != 0
+        {
+            base = sess.superio_inw(0x60).unwrap_or(0) & 0xFFF8;
+        }
+        sess.it87_exit(slot);
+
+        if let Some(chip_name) = ite_chip_name(chip_id)
+            && base >= 0x100
+            && base != 0xFFF8
+        {
             chips_found.push(format!("{chip_name} @ 0x{base:04X}"));
             let fan_regs: &[(u8, u8, Option<u8>)] = match chip_id {
                 0x8688 | 0x8689 => &[
@@ -711,7 +788,7 @@ pub fn read_pawnio_superio() -> Result<Option<ProviderFrame>, String> {
                 let pwm = pwm_r
                     .and_then(|pr| sess.read_ec(base, pr).ok())
                     .map(|v| ((f64::from(v) / 255.0) * 100.0).round());
-                // Only report populated headers (nonzero RPM or valid active PWM)
+                // Only report populated headers (nonzero RPM or active mid-range PWM)
                 if rpm > 0 || (idx < 3 && pwm.is_some_and(|p| p > 0.0 && p < 100.0)) {
                     frame.fans.push(ProviderFan {
                         id: format!("pawnio/sio/{slot}/fan/{}", idx + 1),

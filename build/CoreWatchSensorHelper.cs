@@ -7,6 +7,11 @@ using LibreHardwareMonitor.Hardware;
 namespace CoreWatchSensorHelper {
     internal static class Program {
         private static int Main(string[] args) {
+            try {
+                UTF8Encoding utf8NoBom = new UTF8Encoding(false);
+                Console.OutputEncoding = utf8NoBom;
+                Console.InputEncoding = utf8NoBom;
+            } catch { }
             bool onceMode = false;
             bool thermalMode = false;
             bool thermalOnce = false;
@@ -251,7 +256,7 @@ namespace CoreWatchSensorHelper {
             string hwName = string.IsNullOrEmpty(hw.Name) ? parentName : hw.Name;
             string displayHw = string.IsNullOrEmpty(parentName) || string.Equals(parentName, hwName, StringComparison.OrdinalIgnoreCase)
                 ? hwName
-                : (parentName + " · " + hwName);
+                : (parentName + " - " + hwName);
 
             if (hw.Sensors != null) {
                 foreach (ISensor s in hw.Sensors) {
@@ -485,7 +490,25 @@ namespace CoreWatchSensorHelper {
 
         private static string EscapeJson(string s) {
             if (string.IsNullOrEmpty(s)) return "";
-            return s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\r", " ").Replace("\n", " ");
+            StringBuilder sb = new StringBuilder(s.Length + 8);
+            for (int i = 0; i < s.Length; i++) {
+                char c = s[i];
+                switch (c) {
+                    case '\\': sb.Append("\\\\"); break;
+                    case '"': sb.Append("\\\""); break;
+                    case '\r':
+                    case '\n':
+                    case '\t': sb.Append(' '); break;
+                    default:
+                        if (c < 0x20 || c > 0x7E) {
+                            sb.Append("\\u").Append(((int)c).ToString("x4", CultureInfo.InvariantCulture));
+                        } else {
+                            sb.Append(c);
+                        }
+                        break;
+                }
+            }
+            return sb.ToString();
         }
     }
 }
