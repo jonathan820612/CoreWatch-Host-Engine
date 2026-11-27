@@ -342,6 +342,7 @@ if ($Global:AlertsModuleAvailable) {
 $initCadence = Get-CoreWatchTelemetryCadence -Profile $Global:AppSettings.telemetry.pollingProfile
 
 $global:SharedData = [hashtable]::Synchronized(@{
+    LatestPsInfo   = $null
     FullPayload    = $null
     FullVersion    = 0
     FastPayload    = $null
@@ -396,6 +397,10 @@ $RunspaceScript = {
         try {
             if ($forceNow) {
                 $SharedData.ForceRefresh = $false
+                if ($null -ne $SharedData.LatestPsInfo -and (Get-Command Sync-PowerShellUpdateCache -ErrorAction SilentlyContinue)) {
+                    Sync-PowerShellUpdateCache -PsInfo $SharedData.LatestPsInfo
+                    $SharedData.LatestPsInfo = $null
+                }
                 if (Get-Command Reset-NetworkMetricsCache -ErrorAction SilentlyContinue) { Reset-NetworkMetricsCache }
                 if (Get-Command Reset-SystemMetricsCache -ErrorAction SilentlyContinue)  { Reset-SystemMetricsCache }
                 if (Get-Command Reset-InfraMetricsCache -ErrorAction SilentlyContinue)   { Reset-InfraMetricsCache }
@@ -1548,6 +1553,9 @@ $HandleUiMessageEvent = {
                             param($RootPath, $RawJson, $SharedData)
                             . (Join-Path $RootPath "modules\telemetry\DashboardControls.ps1")
                             $res = Invoke-DashboardControlAction -RawJson $RawJson -RootPath $RootPath
+                            if ($res -and $res.psInfo) {
+                                $SharedData.LatestPsInfo = $res.psInfo
+                            }
                             $SharedData.ForceRefresh = $true
                             return ($res | ConvertTo-Json -Compress -Depth 4)
                         }

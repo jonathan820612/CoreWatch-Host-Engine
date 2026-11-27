@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Source-controlled, auto-versioned Beta build pipeline for CoreWatch.
     Reads & bumps version.json, stamps Git branch/commit SHA into EXEs & build-info.json,
@@ -143,7 +143,7 @@ $OutIco    = Join-Path $BuildDir "CoreWatch.ico"
 
 if (Test-Path -LiteralPath $SourcePng) {
     Write-Host "[2/7] Generating multi-res CoreWatch.ico..." -ForegroundColor Gray
-    $sizes = @(16, 32, 48, 64, 128, 256)
+    $sizes = @(16, 20, 24, 32, 48, 64, 128, 256)
     $srcImg = [System.Drawing.Image]::FromFile($SourcePng)
     $pngBlobs = New-Object System.Collections.Generic.List[byte[]]
 
@@ -155,7 +155,14 @@ if (Test-Path -LiteralPath $SourcePng) {
             $g.SmoothingMode     = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
             $g.PixelOffsetMode   = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
             $g.Clear([System.Drawing.Color]::Transparent)
-            $g.DrawImage($srcImg, 0, 0, $sz, $sz)
+            if ($sz -le 24 -and $srcImg.Width -ge 128 -and $srcImg.Height -ge 128) {
+                $inset = [int][math]::Round($srcImg.Width * 0.015)
+                $srcRect = New-Object System.Drawing.Rectangle($inset, $inset, ($srcImg.Width - $inset * 2), ($srcImg.Height - $inset * 2))
+                $dstRect = New-Object System.Drawing.Rectangle(0, 0, $sz, $sz)
+                $g.DrawImage($srcImg, $dstRect, $srcRect, [System.Drawing.GraphicsUnit]::Pixel)
+            } else {
+                $g.DrawImage($srcImg, 0, 0, $sz, $sz)
+            }
             $g.Dispose()
 
             $ms = New-Object System.IO.MemoryStream

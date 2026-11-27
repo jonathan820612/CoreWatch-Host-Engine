@@ -1,4 +1,4 @@
-# File: modules/telemetry/GetInfraMetrics.ps1
+﻿# File: modules/telemetry/GetInfraMetrics.ps1
 
 . (Join-Path $PSScriptRoot "GetDisplayMetrics.ps1")
 
@@ -71,6 +71,17 @@ function Reset-InfraMetricsCache {
     $script:LastDynamicInfra   = [datetime]::MinValue
     $script:LastDisplayCheck   = [datetime]::MinValue
     $script:LastStabilityCheck = [datetime]::MinValue
+}
+
+function Sync-PowerShellUpdateCache {
+    param($PsInfo)
+    if ($null -eq $PsInfo) { return }
+    if ($null -ne $PsInfo.PsLatestVersion)  { $script:CachedPsLatest       = [string]$PsInfo.PsLatestVersion }
+    if ($null -ne $PsInfo.PsMissedUpdates)  { $script:CachedPsMissed       = [int]$PsInfo.PsMissedUpdates }
+    if ($null -ne $PsInfo.PsVersionTier)    { $script:CachedPsVerTier      = [string]$PsInfo.PsVersionTier }
+    if ($null -ne $PsInfo.PsLatestHasMsi)   { $script:CachedPsHasMsi       = [bool]$PsInfo.PsLatestHasMsi }
+    if ($null -ne $PsInfo.PsUpdateDetail)   { $script:CachedPsUpdateDetail = [string]$PsInfo.PsUpdateDetail }
+    $script:LastPsUpdateCheck = [datetime]::Now
 }
 
 # =========================================================================
