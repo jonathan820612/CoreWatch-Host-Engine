@@ -117,7 +117,7 @@ const detailsLabels = {
     board: "lblMotherboard", bios: "lblBiosVersion", powerPlan: "lblPowerPlan",
     audioOutput: "lblAudioOutput", audioInput: "lblAudioInput", ipv4: "lblIntIPv4",
     subnet: "lblSubnetMask", gateway: "lblGateway", assignment: "lblNetAssignment",
-    wifiSsid: "lblWlanSsid", link: "lblLinkCap",
+    wifiSsid: "lblWlanSsid", link: "lblLinkCap", mac: "lblMacAddress",
     ethernet: "lblEthernet", wifi: "lblWifi"
 };
 
@@ -557,7 +557,28 @@ function log(message) {
         : /saved|updated|connected|finished|copied|applied|restored|flushed|synced/i.test(text) ? "log-ok" : "";
     const line = element("div", cls, "[" + new Date().toLocaleTimeString() + "] " + text);
     box.append(line);
-    if (box.childElementCount > 250) box.firstElementChild.remove();
+    if (box.childElementCount > 400) box.firstElementChild.remove();
+    if (stick) box.scrollTop = box.scrollHeight;
+}
+
+function appendLiveSystemLog(entry) {
+    const box = byId("console-box");
+    if (!box || !entry) return;
+    const stick = box.scrollHeight - box.scrollTop - box.clientHeight < 28;
+    const lvlCls = entry.level === "crit" || entry.level === "err" ? "log-err"
+        : entry.level === "warn" ? "log-warn"
+        : entry.level === "ok" ? "log-ok" : "";
+    const row = element("div", ("log-sys " + lvlCls).trim());
+    const ts = entry.timeMs ? new Date(entry.timeMs).toLocaleTimeString() : new Date().toLocaleTimeString();
+    const src = String(entry.source || "SYS").toUpperCase();
+    const badge = element("span", `console-src-tag src-${src.toLowerCase()}`, src);
+    row.append(
+        document.createTextNode(`[${ts}] `),
+        badge,
+        document.createTextNode(String(entry.message || ""))
+    );
+    box.append(row);
+    if (box.childElementCount > 400) box.firstElementChild.remove();
     if (stick) box.scrollTop = box.scrollHeight;
 }
 
@@ -565,6 +586,7 @@ let networkView;
 let dashboardNetwork;
 let dashboardControls;
 let rgbStudio;
+let thermalLab;
 let invokeDashboard;
 
 async function dashboardCommand(name, args, success) {
@@ -891,7 +913,8 @@ async function start() {
         ["diskmap", "tabDiskMap", "viewDiskMapPanel", "diskmap", "tabSystemMenu"],
         ["devices", "tabDevices", "viewSystemDevicesPanel", "devices", "tabSystemMenu"],
         ["organizer", "tabOrganizer", "viewFileOrganizerPanel", "organizer", "tabSystemMenu"],
-        ["rgbstudio", "tabRgbStudio", "viewRgbStudioPanel", "rgbstudio", "tabSystemMenu"]
+        ["rgbstudio", "tabRgbStudio", "viewRgbStudioPanel", "rgbstudio", "tabSystemMenu"],
+        ["thermal", "tabThermalLab", "viewThermalLabPanel", "thermal", "tabSystemMenu"]
     ];
 
     const dropdownPairs = [
@@ -960,10 +983,57 @@ async function start() {
     const modulesHub = createModulesHub(invoke, { closeDropdowns });
     const extraModules = createExtraModules(invoke);
     rgbStudio = createRgbStudio(invoke);
+    thermalLab = createThermalLab(invoke);
+    let liveConsoleActive = false;
+    let liveConsoleTimer = null;
+    let liveConsoleBusy = false;
+    async function pollLiveConsole(seed) {
+        if (!liveConsoleActive || liveConsoleBusy) return;
+        liveConsoleBusy = true;
+        try {
+            const entries = await invoke("live_system_logs", { seed: Boolean(seed) });
+            if (liveConsoleActive && Array.isArray(entries)) {
+                for (const entry of entries) appendLiveSystemLog(entry);
+            }
+        } catch (err) {
+            if (seed) log("Live System Console: " + String(err));
+        } finally {
+            liveConsoleBusy = false;
+        }
+    }
+    async function setLiveSystemConsole(enabled, persist = true) {
+        const next = Boolean(enabled);
+        const changed = next !== liveConsoleActive;
+        liveConsoleActive = next;
+        const btn = byId("console-live-toggle");
+        const lbl = byId("console-live-label");
+        if (btn) {
+            btn.classList.toggle("is-on", next);
+            btn.setAttribute("aria-pressed", String(next));
+        }
+        if (lbl) lbl.textContent = next ? "Live System: ON" : "Live System: OFF";
+        clearInterval(liveConsoleTimer);
+        liveConsoleTimer = null;
+        if (next) {
+            if (changed) await pollLiveConsole(true);
+            liveConsoleTimer = setInterval(() => {
+                if (liveConsoleActive && !document.hidden && currentView === "dashboard") {
+                    void pollLiveConsole(false);
+                }
+            }, 2500);
+        } else if (changed) {
+            void invoke("live_system_logs_reset").catch(() => {});
+            log("Live System Console mode paused.");
+        }
+        if (persist && changed) {
+            void preferences.setLiveSystemConsole(next);
+        }
+    }
     const preferences = createDashboardPreferences(tauri.core, nativeWindow, (unit) => {
         temperatureUnit = unit;
         renderTemperatures();
         rgbStudio?.setTemperatureUnit?.(unit);
+        thermalLab?.setTemperatureUnit?.(unit);
     }, (disabled) => {
         hiddenModules = disabled;
         diskMapAvailable = !disabled.includes("diskmap");
@@ -1003,7 +1073,7 @@ async function start() {
         github: "🐙 GitHub", jira: "📋 Jira", wsl: "🐧 WSL", docker: "🐳 Docker", sshcerts: "🔐 SSH", homelab: "🌐 Homelab",
         alerts: "🔔 Alerts", updates: "🔄 Updates", snapshots: "📸 Snapshots", backupsync: "💾 Backup", battery: "🔋 Battery", security: "🛡️ Security",
         profiles: "⚡ Profiles", startup: "🚀 Startup", sharing: "📂 Sharing", apps: "📦 Apps", appstore: "⬇️ Installer",
-        diskmap: "🗺️ Disk Map", devices: "🧩 Devices", organizer: "🗂️ Organizer", rgbstudio: "🌈 RGB Studio"
+        diskmap: "🗺️ Disk Map", devices: "🧩 Devices", organizer: "🗂️ Organizer", rgbstudio: "🌈 RGB Studio", thermal: "🌡️ Thermal Lab"
     };
 
     let viewSeq = 0;
@@ -1015,6 +1085,7 @@ async function start() {
         closeDropdowns();
         if (prevView && prevView !== name) {
             if (prevView === "diskmap") diskMap.leave?.();
+            if (prevView === "thermal") thermalLab.leave?.();
             modulesHub.leave?.(prevView);
             extraModules.leave?.(prevView);
         }
@@ -1042,6 +1113,7 @@ async function start() {
         if (name === "network") await networkView.select(subview ?? "adapters");
         else if (name === "diskmap") await diskMap.show(subview);
         else if (name === "rgbstudio") await rgbStudio.show(true);
+        else if (name === "thermal") await thermalLab.show();
         else {
             await modulesHub.show(name);
             if (seq !== viewSeq) return;
@@ -1124,6 +1196,10 @@ async function start() {
         { cat: "RGB", label: "🌡️ RGB Preset: Thermal GPU Guard", hint: "Color hardware by live GPU temperature", hidden: () => hiddenModules.includes("rgbstudio"), run: () => void rgbStudio.applyPreset?.("thermal-gpu").then((ok) => showToast(ok ? "RGB: Thermal GPU Guard" : "RGB preset failed", ok ? "ok" : "crit")) },
         { cat: "RGB", label: "🌈 RGB Preset: Rainbow Wave", hint: "Smooth 15 Hz spectrum wave", hidden: () => hiddenModules.includes("rgbstudio"), run: () => void rgbStudio.applyPreset?.("rainbow-wave").then((ok) => showToast(ok ? "RGB: Rainbow Wave" : "RGB preset failed", ok ? "ok" : "crit")) },
         // Actions & Tools
+        { cat: "Action", label: "🌡️ Thermal & Cooling Lab", hint: "All temps, AIO/pump, PWM curves & fan health", hidden: () => hiddenModules.includes("thermal"), run: () => void selectView("thermal") },
+        { cat: "Action", label: "🩺 Run Fan & Pump Health Check", hint: "Verify PWM response & detect worn fan bearings", hidden: () => hiddenModules.includes("thermal"), run: () => { void selectView("thermal").then(() => byId("thermal-run-check")?.click()); } },
+        { cat: "Action", label: "↩ Reset All Fans to Hardware Auto", hint: "Restore BIOS/firmware fan curves immediately", hidden: () => hiddenModules.includes("thermal"), run: () => void invoke("thermal_action", { action: { kind: "reset_all_auto" } }).then(() => showToast("All fans restored to Auto", "ok")).catch((e) => showToast(String(e), "crit")) },
+        { cat: "Action", label: "📑 Toggle Live System Console Mode", hint: "Stream live Windows Event Logs, processes & services", run: () => { void selectView("dashboard").then(() => void setLiveSystemConsole(!liveConsoleActive, true)); } },
         { cat: "Action", label: "💿 Disk Partitioner (Floating)", hint: "Pauses live telemetry while open", run: () => void diskPartitioner.open() },
         { cat: "Action", label: "🧹 Flush Windows DNS Cache", hint: "Native DnsFlushResolverCache", run: () => void dashboardCommand("check_dns", { flush: true }, "Windows DNS cache flushed.") },
         { cat: "Action", label: "↻ Refresh Telemetry Now", hint: "Force immediate sensor & metric poll", run: () => byId("refresh").click() },
@@ -1258,7 +1334,7 @@ async function start() {
         }
     }
     byId("btnRefreshExtIpv4")?.addEventListener("click", () => void refreshExternalIpv4(false));
-    for (const id of ["lblIntIPv4", "lblGateway", "lblExtIPv4", "lblHostName", "lblWorkgroup"]) {
+    for (const id of ["lblIntIPv4", "lblGateway", "lblExtIPv4", "lblMacAddress", "lblHostName", "lblWorkgroup"]) {
         byId(id)?.addEventListener("click", async () => {
             const el = byId(id);
             const value = el.textContent;
@@ -1370,10 +1446,15 @@ async function start() {
     }
     const setStatus = (message) => show("status", message);
     byId("selMonitorPicker").addEventListener("change", renderSelectedDisplay);
+    byId("console-live-toggle")?.addEventListener("click", () => {
+        void setLiveSystemConsole(!liveConsoleActive, true);
+    });
     for (const btn of document.querySelectorAll("[data-log-filter]")) {
         btn.addEventListener("click", () => {
             const mode = btn.dataset.logFilter;
-            byId("console-box").classList.toggle("filter-errors", mode === "errors");
+            const box = byId("console-box");
+            box.classList.toggle("filter-errors", mode === "errors");
+            box.classList.toggle("filter-system", mode === "system");
             for (const other of document.querySelectorAll("[data-log-filter]")) {
                 other.classList.toggle("active", other === btn);
             }
@@ -1438,6 +1519,9 @@ async function start() {
     });
 
     await preferences.restore();
+    if (preferences.isLiveSystemConsoleEnabled?.()) {
+        void setLiveSystemConsole(true, false);
+    }
     let revision = 0;
     let connected = false;
     let notes = new Set();
@@ -1689,9 +1773,9 @@ async function start() {
                     await invoke("set_window_lock_mode", { mode: "position" });
                     await invoke("set_window_lock_mode", { mode: "all" });
                     await invoke("set_window_lock_mode", { mode: "none" });
-                    // Verify newly translated native Rust module views (all remaining modules including RGB Studio)
+                    // Verify newly translated native Rust module views (all remaining modules including RGB Studio & Thermal Lab)
                     const viewPanels = new Map(views.map(([v, , p]) => [v, p]));
-                    for (const viewName of ["profiles", "startup", "alerts", "snapshots", "backupsync", "battery", "security", "docker", "wsl", "sshcerts", "homelab", "apps", "appstore", "devices", "organizer", "github", "jira", "sharing", "rgbstudio"]) {
+                    for (const viewName of ["profiles", "startup", "alerts", "snapshots", "backupsync", "battery", "security", "docker", "wsl", "sshcerts", "homelab", "apps", "appstore", "devices", "organizer", "github", "jira", "sharing", "rgbstudio", "thermal"]) {
                         await selectView(viewName);
                         const panelEl = byId(viewPanels.get(viewName));
                         if (!panelEl || !panelEl.getClientRects().length) {
@@ -1701,7 +1785,22 @@ async function start() {
                     if (!byId("rgb-presets-list").querySelector(".rgb-preset-chip") || !byId("rgb-effects-grid").querySelector(".rgb-effect-btn")) {
                         throw new Error("RGB Studio did not render its effects and lighting presets.");
                     }
+                    if (!byId("thermal-overall-pill") || !byId("thermal-aio-strip").textContent.includes("AIO")) {
+                        throw new Error("Thermal & Cooling Lab did not render its health and AIO sections.");
+                    }
                     await selectView("dashboard");
+                    // Verify Network MAC cell & Live System Console toggle ON/OFF
+                    if (!byId("lblMacAddress") || byId("lblDnsServers").closest(".net-node")?.classList.contains("net-node-span2")) {
+                        throw new Error("Network Profile balanced MAC cell was not rendered cleanly.");
+                    }
+                    await setLiveSystemConsole(true, false);
+                    if (!byId("console-live-toggle").classList.contains("is-on") || !byId("console-box").querySelector(".log-sys")) {
+                        throw new Error("Live System Console mode did not activate and append live entries.");
+                    }
+                    await setLiveSystemConsole(false, false);
+                    if (byId("console-live-toggle").classList.contains("is-on")) {
+                        throw new Error("Live System Console mode did not turn off cleanly.");
+                    }
                     // Verify Launch Privilege Mode setting round-trip and First-Launch Setup Wizard all 4 steps
                     byId("preferences-toggle").click();
                     byId("settings-tab-general").click();
@@ -1734,8 +1833,8 @@ async function start() {
                         throw new Error("Setup Wizard Step 3 did not render privilege mode and telemetry options.");
                     }
                     byId("cwWizardNext").click();
-                    if (wizard.querySelectorAll("[data-wizard-module]").length !== 24) {
-                        throw new Error("Setup Wizard Step 4 did not render all 24 modular tabs.");
+                    if (wizard.querySelectorAll("[data-wizard-module]").length !== 25) {
+                        throw new Error("Setup Wizard Step 4 did not render all 25 modular tabs.");
                     }
                     preferences.closeSetupWizardWithoutSave();
                     if (wizard.open) {

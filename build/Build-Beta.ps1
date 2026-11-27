@@ -207,9 +207,9 @@ function New-WizardSideBanner {
         $bSub  = New-Object System.Drawing.SolidBrush($fgSub)
         $feats = @(
             "Native Rust + Win32 Telemetry",
-            "24 Modular Tabs & Suites",
+            "25 Modular Tabs & Suites",
+            "Thermal Lab & Fan Health Engine",
             "Standalone Native RGB Engine",
-            "UltimaDiagX & WizTree Disk Map",
             "Zero Background Console Window"
         )
         $y = 376

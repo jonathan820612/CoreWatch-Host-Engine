@@ -31,10 +31,10 @@ function createSetupWizard(core, callbacks) {
 
     const moduleRolePresets = {
         all: null, // All catalog modules
-        essentials: ["tasksports", "diagx", "alerts", "updates", "snapshots", "backupsync", "battery", "security", "profiles", "startup", "apps", "appstore", "diskmap", "organizer", "rgbstudio"],
-        gamer: ["netmanager", "tasksports", "diagx", "alerts", "updates", "profiles", "startup", "diskmap", "rgbstudio"],
-        developer: ["netmanager", "tasksports", "diagx", "github", "jira", "wsl", "docker", "sshcerts", "homelab", "alerts", "updates", "backupsync", "profiles", "startup", "apps", "appstore", "diskmap", "rgbstudio"],
-        itpro: ["netmanager", "tasksports", "diagx", "sshcerts", "homelab", "alerts", "updates", "snapshots", "backupsync", "security", "profiles", "startup", "sharing", "apps", "appstore", "diskmap", "devices"],
+        essentials: ["tasksports", "diagx", "alerts", "updates", "snapshots", "backupsync", "battery", "security", "profiles", "startup", "apps", "appstore", "diskmap", "organizer", "rgbstudio", "thermal"],
+        gamer: ["netmanager", "tasksports", "diagx", "alerts", "updates", "profiles", "startup", "diskmap", "rgbstudio", "thermal"],
+        developer: ["netmanager", "tasksports", "diagx", "github", "jira", "wsl", "docker", "sshcerts", "homelab", "alerts", "updates", "backupsync", "profiles", "startup", "apps", "appstore", "diskmap", "rgbstudio", "thermal"],
+        itpro: ["netmanager", "tasksports", "diagx", "sshcerts", "homelab", "alerts", "updates", "snapshots", "backupsync", "security", "profiles", "startup", "sharing", "apps", "appstore", "diskmap", "devices", "thermal"],
         minimal: []
     };
 

@@ -321,6 +321,7 @@ pub const INSTALLED_MODULES: &[&str] = &[
     "devices",
     "organizer",
     "rgbstudio",
+    "thermal",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -368,6 +369,7 @@ pub struct General {
     pub low_memory_mode: bool,
     pub run_as_admin: bool,
     pub onboarding_completed: bool,
+    pub live_system_console: bool,
     pub font_size: FontSize,
 }
 
@@ -382,6 +384,7 @@ impl Default for General {
             low_memory_mode: false,
             run_as_admin: false,
             onboarding_completed: false,
+            live_system_console: false,
             font_size: FontSize::Normal,
         }
     }
@@ -472,6 +475,7 @@ pub struct Changes {
     pub low_memory_mode: Option<bool>,
     pub run_as_admin: Option<bool>,
     pub onboarding_completed: Option<bool>,
+    pub live_system_console: Option<bool>,
     directories: Option<Directories>,
     pub modules: Option<Modules>,
     #[serde(skip)]
@@ -515,6 +519,9 @@ impl Changes {
         }
         if let Some(completed) = self.onboarding_completed {
             settings.general.onboarding_completed = completed;
+        }
+        if let Some(live_console) = self.live_system_console {
+            settings.general.live_system_console = live_console;
         }
         if let Some(directories) = self.directories {
             settings.directories = directories;
@@ -707,6 +714,7 @@ impl Store {
             imported.low_memory_mode = current.settings.general.low_memory_mode;
             imported.run_as_admin = current.settings.general.run_as_admin;
             imported.onboarding_completed = current.settings.general.onboarding_completed;
+            imported.live_system_console = current.settings.general.live_system_console;
             imported
         });
         Ok(Changes {

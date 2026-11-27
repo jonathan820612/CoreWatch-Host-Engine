@@ -1,0 +1,447 @@
+/* Thermal & Cooling Lab Styles */
+
+.thermal-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.thermal-presets-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 10px;
+    background: var(--cw-bg-inset);
+    border: 1px solid var(--cw-border);
+    border-radius: 4px;
+}
+.thermal-preset-group {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px;
+}
+.thermal-preset-label {
+    font-size: calc(10px * var(--cw-font-scale, 1));
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--cw-text-muted);
+    font-weight: 700;
+    margin-right: 4px;
+}
+
+.thermal-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+}
+.thermal-kpi-card {
+    background: var(--cw-bg-inset);
+    border: 1px solid var(--cw-border);
+    border-radius: 5px;
+    padding: 9px 11px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+.thermal-kpi-label {
+    font-size: calc(9.5px * var(--cw-font-scale, 1));
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--cw-text-muted);
+}
+.thermal-kpi-value {
+    font-size: calc(17px * var(--cw-font-scale, 1));
+    font-weight: 700;
+    font-family: 'Consolas', monospace;
+    color: var(--cw-text-primary);
+    line-height: 1.2;
+}
+.thermal-kpi-sub {
+    font-size: calc(10px * var(--cw-font-scale, 1));
+    color: var(--cw-text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.thermal-banner {
+    padding: 8px 11px;
+    border-radius: 4px;
+    border: 1px solid color-mix(in srgb, var(--cw-accent) 45%, var(--cw-border));
+    background: color-mix(in srgb, var(--cw-accent) 10%, var(--cw-bg-inset));
+    color: var(--cw-text-secondary);
+    font-size: calc(11px * var(--cw-font-scale, 1));
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+.thermal-banner[hidden] { display: none; }
+
+.thermal-findings-list {
+    display: grid;
+    gap: 6px;
+}
+.thermal-finding {
+    border: 1px solid var(--cw-border);
+    border-left: 3px solid #ecc94b;
+    border-radius: 4px;
+    background: rgba(236, 201, 75, 0.08);
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+.thermal-finding.is-crit {
+    border-left-color: #fc8181;
+    background: rgba(245, 101, 101, 0.11);
+}
+.thermal-finding-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+.thermal-finding-head strong {
+    font-size: calc(11.5px * var(--cw-font-scale, 1));
+    color: var(--cw-text-primary);
+}
+.thermal-finding p {
+    margin: 0;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
+    color: var(--cw-text-secondary);
+    line-height: 1.35;
+}
+.thermal-finding small {
+    color: var(--cw-text-muted);
+    font-size: calc(10px * var(--cw-font-scale, 1));
+}
+
+.thermal-section-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    border-bottom: 1px solid var(--cw-border);
+    padding-bottom: 4px;
+    margin-top: 2px;
+}
+.thermal-section-title h3 {
+    margin: 0;
+    font-size: calc(11.5px * var(--cw-font-scale, 1));
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--cw-accent-soft);
+}
+.thermal-section-title span {
+    font-size: calc(10px * var(--cw-font-scale, 1));
+    color: var(--cw-text-muted);
+}
+
+/* AIO / Liquid Loop Strip */
+.thermal-aio-card {
+    background: var(--cw-bg-inset);
+    border: 1px solid var(--cw-border);
+    border-left: 3px solid #38bdf8;
+    border-radius: 5px;
+    padding: 9px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.thermal-aio-metrics {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    font-size: calc(11px * var(--cw-font-scale, 1));
+    color: var(--cw-text-secondary);
+}
+.thermal-aio-metrics strong {
+    font-family: 'Consolas', monospace;
+    color: var(--cw-text-primary);
+}
+
+/* Fan & Pump Control Cards */
+.thermal-fans-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+    gap: 9px;
+}
+.thermal-fan-card {
+    background: var(--cw-bg-inset);
+    border: 1px solid var(--cw-border);
+    border-radius: 5px;
+    padding: 10px 11px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.thermal-fan-card.is-warn { border-color: rgba(236, 201, 75, 0.55); }
+.thermal-fan-card.is-crit { border-color: rgba(245, 101, 101, 0.65); }
+.thermal-fan-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+}
+.thermal-fan-title {
+    min-width: 0;
+}
+.thermal-fan-title strong {
+    display: block;
+    font-size: calc(12px * var(--cw-font-scale, 1));
+    color: var(--cw-text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.thermal-fan-title small {
+    display: block;
+    font-size: calc(9.5px * var(--cw-font-scale, 1));
+    color: var(--cw-text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.thermal-fan-readout {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+.thermal-rpm-big {
+    font-family: 'Consolas', monospace;
+    font-size: calc(16px * var(--cw-font-scale, 1));
+    font-weight: 700;
+    color: var(--cw-text-primary);
+}
+.thermal-rpm-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
+    color: var(--cw-text-muted);
+}
+.thermal-spark {
+    width: 78px;
+    height: 20px;
+    display: block;
+    flex-shrink: 0;
+}
+.thermal-health-row {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+.thermal-health-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: calc(10px * var(--cw-font-scale, 1));
+    color: var(--cw-text-muted);
+}
+.thermal-health-track {
+    height: 5px;
+    background: var(--cw-bg-control);
+    border-radius: 3px;
+    overflow: hidden;
+}
+.thermal-health-fill {
+    height: 100%;
+    border-radius: 3px;
+    background: #48bb78;
+    transition: width 0.25s ease;
+}
+.thermal-health-fill.is-warn { background: #ecc94b; }
+.thermal-health-fill.is-crit { background: #fc8181; }
+
+.thermal-ctrl-block {
+    border-top: 1px dashed var(--cw-border);
+    padding-top: 7px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.thermal-mode-pills {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+.thermal-slider-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) 42px auto;
+    align-items: center;
+    gap: 6px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
+    color: var(--cw-text-secondary);
+}
+.thermal-slider-row input[type="range"] {
+    width: 100%;
+    margin: 0;
+    accent-color: var(--cw-accent);
+}
+.thermal-slider-row output {
+    font-family: 'Consolas', monospace;
+    text-align: right;
+    color: var(--cw-text-primary);
+}
+
+/* Inline Curve Editor */
+.thermal-curve-box {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 7px;
+    border: 1px solid var(--cw-border);
+    border-radius: 4px;
+    background: var(--cw-bg-surface);
+}
+.thermal-curve-svg {
+    width: 100%;
+    height: 82px;
+    display: block;
+    background: var(--cw-bg-inset);
+    border: 1px solid var(--cw-border);
+    border-radius: 3px;
+}
+.thermal-curve-points {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 4px;
+}
+.thermal-curve-pt {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: calc(9.5px * var(--cw-font-scale, 1));
+    color: var(--cw-text-muted);
+}
+.thermal-curve-pt input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 2px 4px;
+    font-family: 'Consolas', monospace;
+    font-size: calc(10px * var(--cw-font-scale, 1));
+    background: var(--cw-bg-control);
+    color: var(--cw-text-primary);
+    border: 1px solid var(--cw-border-strong);
+    border-radius: 2px;
+}
+
+/* System-Wide Temperature Grid */
+.thermal-temps-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.thermal-temp-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 7px;
+}
+.thermal-temp-card {
+    background: var(--cw-bg-inset);
+    border: 1px solid var(--cw-border);
+    border-radius: 4px;
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.thermal-temp-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 6px;
+}
+.thermal-temp-name {
+    font-size: calc(11px * var(--cw-font-scale, 1));
+    font-weight: 600;
+    color: var(--cw-text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.thermal-temp-hw {
+    font-size: calc(9.5px * var(--cw-font-scale, 1));
+    color: var(--cw-text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.thermal-temp-val {
+    font-family: 'Consolas', monospace;
+    font-size: calc(15px * var(--cw-font-scale, 1));
+    font-weight: 700;
+    white-space: nowrap;
+}
+.thermal-temp-val.is-cool { color: #38b2ac; }
+.thermal-temp-val.is-warm { color: #ecc94b; }
+.thermal-temp-val.is-hot  { color: #fc8181; }
+.thermal-temp-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: calc(9.5px * var(--cw-font-scale, 1));
+    color: var(--cw-text-muted);
+    font-family: 'Consolas', monospace;
+}
+
+/* Live System Console Mode Controls & Badges */
+.console-live-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+.console-live-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--cw-text-muted);
+    display: inline-block;
+}
+.console-live-btn.is-on {
+    border-color: rgba(72, 187, 120, 0.65);
+    background: rgba(72, 187, 120, 0.16);
+    color: #68d391;
+}
+.console-live-btn.is-on .console-live-dot {
+    background: #48bb78;
+    box-shadow: 0 0 6px #48bb78;
+}
+.console-src-tag {
+    display: inline-block;
+    font-size: calc(9px * var(--cw-font-scale, 1));
+    font-weight: 700;
+    padding: 0 4px;
+    margin-right: 5px;
+    border-radius: 2px;
+    background: rgba(var(--cw-accent-rgb), 0.18);
+    color: var(--cw-accent-soft);
+    vertical-align: baseline;
+}
+.console-src-tag.src-sys  { background: rgba(66, 153, 225, 0.2); color: #63b3ed; }
+.console-src-tag.src-app  { background: rgba(159, 122, 234, 0.2); color: #b794f4; }
+.console-src-tag.src-proc { background: rgba(56, 178, 172, 0.2); color: #4fd1c5; }
+.console-src-tag.src-svc  { background: rgba(236, 201, 75, 0.2); color: #ecc94b; }
+.console-src-tag.src-def  { background: rgba(245, 101, 101, 0.2); color: #fc8181; }
+.console-src-tag.src-net  { background: rgba(72, 187, 120, 0.2); color: #68d391; }
+.console-src-tag.src-hw   { background: rgba(237, 137, 54, 0.2); color: #f6ad55; }
+.console-box.filter-system > div:not(.log-sys) { display: none; }
+
+@media (max-width: 820px) {
+    .thermal-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 520px) {
+    .thermal-kpi-grid { grid-template-columns: 1fr; }
+    .thermal-fans-grid { grid-template-columns: 1fr; }
+}

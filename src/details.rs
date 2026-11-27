@@ -634,6 +634,12 @@ impl Collector {
                 put(f, "gateway", Some(gateway.to_string()));
                 *neighbor = native::gateway_neighbor(gateway, nic.index, false).ok();
             }
+            if let Some(mac) = &nic.mac {
+                put(f, "mac", Some(mac.clone()));
+            }
+            if !nic.name.is_empty() {
+                put(f, "uplinkName", Some(nic.name.clone()));
+            }
             if nic.link_bps > 0 && nic.link_bps != u64::MAX {
                 put(
                     f,

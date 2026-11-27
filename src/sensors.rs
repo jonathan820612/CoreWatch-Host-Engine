@@ -152,6 +152,11 @@ mod nvml {
     type FnGetPowerUsage = unsafe extern "C" fn(*mut c_void, *mut c_uint) -> c_uint;
     type FnGetUtilization = unsafe extern "C" fn(*mut c_void, *mut NvmlUtilization) -> c_uint;
     type FnGetMemoryInfo = unsafe extern "C" fn(*mut c_void, *mut NvmlMemory) -> c_uint;
+    type FnGetFanSpeed = unsafe extern "C" fn(*mut c_void, *mut c_uint) -> c_uint;
+    type FnGetFanSpeedV2 = unsafe extern "C" fn(*mut c_void, c_uint, *mut c_uint) -> c_uint;
+    type FnGetNumFans = unsafe extern "C" fn(*mut c_void, *mut c_uint) -> c_uint;
+    type FnGetThrottleReasons = unsafe extern "C" fn(*mut c_void, *mut u64) -> c_uint;
+    type FnGetName = unsafe extern "C" fn(*mut c_void, *mut i8, c_uint) -> c_uint;
 
     struct NvmlApi {
         get_handle: FnGetHandleByIndexV2,
@@ -159,6 +164,11 @@ mod nvml {
         get_power: Option<FnGetPowerUsage>,
         get_util: Option<FnGetUtilization>,
         get_memory: Option<FnGetMemoryInfo>,
+        get_fan: Option<FnGetFanSpeed>,
+        get_fan_v2: Option<FnGetFanSpeedV2>,
+        get_num_fans: Option<FnGetNumFans>,
+        get_throttle: Option<FnGetThrottleReasons>,
+        get_name: Option<FnGetName>,
     }
 
     unsafe impl Send for NvmlApi {}
@@ -213,12 +223,23 @@ mod nvml {
             let get_power: Option<FnGetPowerUsage> = sym(module, b"nvmlDeviceGetPowerUsage\0");
             let get_util: Option<FnGetUtilization> = sym(module, b"nvmlDeviceGetUtilizationRates\0");
             let get_memory: Option<FnGetMemoryInfo> = sym(module, b"nvmlDeviceGetMemoryInfo\0");
+            let get_fan: Option<FnGetFanSpeed> = sym(module, b"nvmlDeviceGetFanSpeed\0");
+            let get_fan_v2: Option<FnGetFanSpeedV2> = sym(module, b"nvmlDeviceGetFanSpeed_v2\0");
+            let get_num_fans: Option<FnGetNumFans> = sym(module, b"nvmlDeviceGetNumFans\0");
+            let get_throttle: Option<FnGetThrottleReasons> =
+                sym(module, b"nvmlDeviceGetCurrentClocksThrottleReasons\0");
+            let get_name: Option<FnGetName> = sym(module, b"nvmlDeviceGetName\0");
             Some(NvmlApi {
                 get_handle,
                 get_temp,
                 get_power,
                 get_util,
                 get_memory,
+                get_fan,
+                get_fan_v2,
+                get_num_fans,
+                get_throttle,
+                get_name,
             })
         })
         .as_ref()
@@ -276,6 +297,101 @@ mod nvml {
             })
         }
     }
+    #[derive(Clone, Default)]
+    pub struct GpuThermalDetails {
+        pub name: String,
+        pub temp_c: Option<f64>,
+        pub power_w: Option<f64>,
+        pub fan_percents: Vec<u32>,
+        pub throttle_reason: Option<String>,
+    }
+
+    pub fn sample_gpu0_thermal() -> Option<GpuThermalDetails> {
+        let api = api()?;
+        unsafe {
+            let mut dev: *mut c_void = std::ptr::null_mut();
+            if (api.get_handle)(0, &mut dev) != 0 || dev.is_null() {
+                return None;
+            }
+            let mut name_buf = [0i8; 96];
+            let name = if let Some(get_name) = api.get_name
+                && get_name(dev, name_buf.as_mut_ptr(), name_buf.len() as c_uint) == 0
+            {
+                let bytes: Vec<u8> = name_buf
+                    .iter()
+                    .take_while(|&&b| b != 0)
+                    .map(|&b| b as u8)
+                    .collect();
+                String::from_utf8_lossy(&bytes).trim().to_owned()
+            } else {
+                "NVIDIA GPU".to_owned()
+            };
+            let mut temp_raw: c_uint = 0;
+            let temp_c = ((api.get_temp)(dev, 0, &mut temp_raw) == 0
+                && (10..=125).contains(&temp_raw))
+            .then_some(f64::from(temp_raw));
+            let power_w = api.get_power.and_then(|f| {
+                let mut mw: c_uint = 0;
+                (f(dev, &mut mw) == 0 && mw <= 1_000_000).then_some(f64::from(mw) / 1000.0)
+            });
+            let mut fan_percents = Vec::new();
+            let fan_count = api
+                .get_num_fans
+                .and_then(|f| {
+                    let mut n: c_uint = 0;
+                    (f(dev, &mut n) == 0 && n > 0 && n <= 8).then_some(n)
+                })
+                .unwrap_or(0);
+            if fan_count > 0
+                && let Some(get_v2) = api.get_fan_v2
+            {
+                for idx in 0..fan_count {
+                    let mut pct: c_uint = 0;
+                    if get_v2(dev, idx, &mut pct) == 0 && pct <= 100 {
+                        fan_percents.push(pct);
+                    }
+                }
+            }
+            if fan_percents.is_empty()
+                && let Some(get_fan) = api.get_fan
+            {
+                let mut pct: c_uint = 0;
+                if get_fan(dev, &mut pct) == 0 && pct <= 100 {
+                    fan_percents.push(pct);
+                }
+            }
+            let throttle_reason = api.get_throttle.and_then(|f| {
+                let mut mask: u64 = 0;
+                if f(dev, &mut mask) != 0 {
+                    return None;
+                }
+                let mut reasons = Vec::new();
+                if mask & 0x0000_0000_0000_0020 != 0 {
+                    reasons.push("SW Thermal Slowdown");
+                }
+                if mask & 0x0000_0000_0000_0040 != 0 {
+                    reasons.push("HW Thermal Slowdown");
+                }
+                if mask & 0x0000_0000_0000_0008 != 0 {
+                    reasons.push("HW Power Brake");
+                }
+                (!reasons.is_empty()).then(|| reasons.join(" · "))
+            });
+            Some(GpuThermalDetails {
+                name,
+                temp_c,
+                power_w,
+                fan_percents,
+                throttle_reason,
+            })
+        }
+    }
+}
+
+pub use nvml::GpuThermalDetails;
+
+pub fn nvml_gpu_thermal() -> Option<GpuThermalDetails> {
+    nvml::sample_gpu0_thermal()
 }
 
 pub fn nvml_available() -> bool {
@@ -628,6 +744,14 @@ fn helper_path_from_dir(root: &Path) -> Option<PathBuf> {
         }
     }
     candidates.into_iter().find(|path| helper_present(path))
+}
+
+pub fn pawn_io_state() -> &'static str {
+    pawn_io_status()
+}
+
+pub fn helper_executable() -> Option<PathBuf> {
+    helper_path()
 }
 
 fn helper_path() -> Option<PathBuf> {

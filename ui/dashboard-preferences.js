@@ -277,6 +277,13 @@ function createDashboardPreferences(core, nativeWindow, temperatureChanged, modu
         openPanel: open,
         openSetupWizard,
         closeSetupWizardWithoutSave: () => setupWizard?.closeWithoutSave(),
+        isLiveSystemConsoleEnabled: () => Boolean(settingsPanel.getSettings()?.general?.liveSystemConsole),
+        setLiveSystemConsole: async (enabled) => {
+            const cur = settingsPanel.getSettings();
+            if (!cur) return;
+            const saved = await save({ general: { ...cur.general, liveSystemConsole: Boolean(enabled) }, liveSystemConsole: Boolean(enabled) });
+            settingsPanel.apply(saved);
+        },
         cycleLockMode,
         togglePin,
         toggleDock: () => layout.toggleDock(),
@@ -497,8 +504,8 @@ async function verifyDashboardPreferences(core, preferences) {
     byId("settings-tab-directories").click();
     require(!byId("settings-pane-directories").hidden && document.querySelectorAll("[data-directory]").length === 5, "Directory settings did not open.");
     byId("settings-tab-modules").click();
-    require(!byId("settings-pane-modules").hidden && byId("settings-modules").querySelectorAll(".settings-module-row").length === 24 && !byId("settings-modules").textContent.includes("Not Installed"),
-        "Module catalog did not render all 24 installed RustCoreWatch modules.");
+    require(!byId("settings-pane-modules").hidden && byId("settings-modules").querySelectorAll(".settings-module-row").length === 25 && !byId("settings-modules").textContent.includes("Not Installed"),
+        "Module catalog did not render all 25 installed RustCoreWatch modules.");
     const taskModule = () => document.querySelector('[data-module="tasksports"]');
     require(taskModule(), "Tasks & Ports was missing from Modules & Tabs.");
     taskModule().click();

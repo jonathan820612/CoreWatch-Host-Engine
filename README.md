@@ -40,12 +40,13 @@ I want a lot of feedback so I can refine my app for any user type out there.
 ### Build Modular Beta Installer & Portable Package
 
 ```powershell
-# Runs Clippy + unit tests + optimized Release build + stages optional CPU sensor helper,
+# Runs Clippy + unit tests + optimized Release build + stages optional CPU/thermal sensor helper,
 # renders high-DPI Light/Dark wizard artwork, and compiles:
 #   - dist\RustCoreWatch-1.0.0-beta.1-Setup.exe     (Modular Windows 11 Dark/Light Installer)
 #   - dist\RustCoreWatch-1.0.0-beta.1-Portable.zip  (Self-contained portable package)
 #   - dist\RustCoreWatch-1.0.0-beta.1-SHA256SUMS.txt
 .\build\Build-Beta.ps1
+.\build\Build-Beta.ps1 -Bump beta   # Bump version (beta|patch|minor|major) across Cargo.toml, Cargo.lock & tauri.conf.json
 ```
 
 ### Build & Launch Optimized Release (`RustCoreWatch.exe`)
@@ -82,18 +83,22 @@ cargo build --locked
 
 ---
 
-## Key Features (Dashboard + 24 Native Rust Modules + Floating Disk Partitioner)
+## Key Features (Dashboard + 25 Native Rust Modules + Floating Disk Partitioner)
 
 ### Live Telemetry Dashboard (`📟 Dashboard`)
 - **Hardware Metrics**: Real-time CPU load, boost clock, thermal/power throttle badge, 20s inline SVG sparklines, L1/L2/L3 Cache Matrix (including AMD 3D V-Cache), GPU load/power/temp/VRAM, RAM & Pagefile commitment, and live Top Resource Consumer inspector.
-- **System Identity & Infrastructure**: Click-to-copy Hostname & Domain/Workgroup, Windows edition & UBR, genuine OS **Pending Reboot** registry detection, smart MSI/MSIX PowerShell 7 version/update tracker, Java runtime switcher, Windows Telemetry toggle, 1-click Admin relaunch, last BSOD/KP-41 crash jump, Motherboard/BIOS, Power Plan switcher, Uptime, Audio devices, and multi-monitor Display controls (**Identify**, **Refresh Rate**, **DPI Scale**, **Orientation**, **HDR**, **Night Light** + warmth slider).
-- **Network Profile & Storage**: Live IPv4/CIDR/Gateway/External IPv4, WLAN SSID + signal badge, Firewall & Tamper-aware Windows Defender status pills (`🔒`), DNS preset switcher, ARP gateway reachability, Cloudflare speed/jitter/loss test, live dual-direction RX/TX throughput sparkline, Storage volumes with SMART health/wear/temp/I/O, inline relabeling, 1-click **Disk Map** jump, and floating **Disk Partitioner** (pauses live telemetry while open with strict System/Boot/`C:`/EFI/Recovery protection and typed `DISK N` wipe guardrails).
+- **System Identity & Infrastructure**: Click-to-copy Hostname & Domain/Workgroup, Windows edition & UBR, genuine OS **Pending Reboot** registry detection, smart MSI/MSIX PowerShell 7 version/update tracker, inline Java runtime dropdown, Windows Telemetry toggle, 1-click Admin/User relaunch, last BSOD/KP-41 crash jump, Motherboard/BIOS, inline Power Plan dropdown, Uptime, Audio devices, and multi-monitor Display controls (**Identify**, inline **Refresh Rate** / **DPI Scale** / **Orientation** dropdowns, **HDR**, **Night Light** + warmth slider).
+- **Network Profile, Storage & Live System Console**: Live IPv4/CIDR/Gateway/External IPv4, click-to-copy active MAC address, WLAN SSID, Firewall & Tamper-aware Windows Defender status pills (`🔒`), DNS preset switcher, ARP gateway reachability, Cloudflare speed/jitter/loss test, live dual-direction RX/TX throughput sparkline, Storage volumes with SMART health/wear/temp/I/O, 1-click **Disk Map** jump, floating **Disk Partitioner**, and a **Log Profile Console** with a live **Live System Console Mode** toggle (streaming Windows Event Logs, process launches/exits, SCM service transitions & volume mounts in real time).
 - **Modern Shell & Personalization**:
+  - **4-Step First-Launch Setup Wizard**: Live-preview onboarding for Themes/Colors, Dashboard Layout, Telemetry, Admin vs. Standard User Launch Mode, and visible Tabs (plus 1-click legacy PowerShell import).
+  - **Admin vs. Standard User Launch Mode**: Selectable in Setup and Settings → General with automatic elevated Task Scheduler logon sync (`RustCoreWatch_AutoStart`) and 1-click restart in either privilege mode.
   - **Console-Free Native Launch & Single-Instance Guard**: Launches cleanly with `#![windows_subsystem = "windows"]` and restores/focuses any existing (or tray-hidden) window on relaunch.
-  - **`⌘ Ctrl+K` Command Palette (50+ Actions)** & global `/` instant search focus.
-  - **4-Size Interface Font Scaling** (`Small 88%`, `Normal 100%`, `Large 112%`, `Extra Large 124%`) preserving layout across wide and `480px` narrow modes.
-  - **Theme Studio 2.0** (10 presets including light-mode *Daylight Slate*, 12 live color pickers, card translucency/blur, local wallpaper with fit/fade controls, and 1-click **Theme → RGB Sync**).
-  - **Telemetry Dock 2.0**, **3-State Window Lock** (`🔓`/`🔒`/`🔐`), **Always on Top (`📌`)**, **Tray Watchdog & Mode Switcher**, and global toast notifications.
+  - **`⌘ Ctrl+K` Command Palette (55+ Actions)**, **4-Size Font Scaling**, **Theme Studio 2.0**, **Movable Telemetry Dock 2.0**, **3-State Window Lock**, **Always on Top (`📌`)**, and **Tray Watchdog**.
+
+### 🌡️ Thermal & Cooling Lab (System Temps, AIO/Pump, Fan Control & Bearing Health)
+- **Full-System Telemetry**: Live CPU package/CCD/cores, GPU Core/Hot Spot/VRAM Junction, Motherboard VRM/PCH/System, AIO Liquid/Coolant & Flow Rate, NVMe/SATA SMART drives, and DDR DIMM temperatures with session Min/Max and sparklines.
+- **Fan & AIO Pump Control**: Hardware **Auto (BIOS)**, **Manual PWM sliders**, interactive **Custom Temp-to-PWM Curves** with hysteresis, Quick Cooling Presets (*Silent / Balanced / Performance / Max 100%*), enforced **35% AIO Pump safety floor**, and automatic restore-to-Auto on app exit.
+- **Mechanical & Hydraulic Failure Diagnostics**: Automated detection for **Stalled / 0-RPM Fans** (smartly excluding GPU 0-dB idle mode), **Bearing Drag / End-of-Life RPM Deficit** (compared against learned persistent RPM-vs-PWM baselines), **Bearing Wobble / Tachometer Jitter**, **AIO Pump Cavitation / Low-RPM / Heat-Soak Delta**, **Unresponsive PWM Headers**, plus a 1-click **Fan & Pump Health Stress Check**.
 
 ### 🌈 RGB Lighting Studio (RustCoreWatch Exclusive — Zero OpenRGB Required)
 Standalone native Rust hardware lighting engine with parallel bus discovery, auto-restore on launch, per-device pin/override, Smart Alert critical-flash pulses, live CPU/GPU thermal reactive gradients, System Profile auto-sync, and a **Hardware Diagnostics & Live Readback** drawer:

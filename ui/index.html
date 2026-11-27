@@ -13,6 +13,7 @@
     <link rel="stylesheet" href="diagnostics.css">
     <link rel="stylesheet" href="modules-hub.css">
     <link rel="stylesheet" href="rgb-studio.css">
+    <link rel="stylesheet" href="thermal-lab.css">
     <link rel="stylesheet" href="setup-wizard.css">
     <script src="dashboard.js" defer></script>
     <script src="network.js" defer></script>
@@ -30,6 +31,7 @@
     <script src="modules-hub.js" defer></script>
     <script src="modules-extra.js" defer></script>
     <script src="rgb-studio.js" defer></script>
+    <script src="thermal-lab.js" defer></script>
 </head>
 <body>
     <div id="cwWallpaperLayer" aria-hidden="true"></div>
@@ -86,6 +88,7 @@
                     <button id="tabDevices" class="nav-menu-item" type="button" role="menuitem"><span class="nav-mi-icon">🧩</span><span class="nav-mi-body"><strong>Devices &amp; Drivers</strong><small>Signed hardware drivers, driver age &amp; error inspector</small></span></button>
                     <button id="tabOrganizer" class="nav-menu-item" type="button" role="menuitem"><span class="nav-mi-icon">🗂️</span><span class="nav-mi-body"><strong>File Organizer</strong><small>Automated rule-based file sorting with dry-run &amp; undo</small></span></button>
                     <button id="tabRgbStudio" class="nav-menu-item" type="button" role="menuitem"><span class="nav-mi-icon">🌈</span><span class="nav-mi-body"><strong>RGB Lighting Studio</strong><small>Standalone Native USB HID, GPU NVAPI, RAM SMBus &amp; Thermal Reactive</small></span></button>
+                    <button id="tabThermalLab" class="nav-menu-item" type="button" role="menuitem"><span class="nav-mi-icon">🌡️</span><span class="nav-mi-body"><strong>Thermal &amp; Cooling Lab</strong><small>System-wide temps, AIO/pump telemetry, PWM/curve control &amp; fan wear diagnostics</small></span></button>
                 </div>
             </div>
         </nav>
@@ -302,8 +305,9 @@
                 <div class="net-node" data-metric-key="net-defender"><span>🧠</span> Behavior Mon: <button id="lblBehaviorMonitor" class="diag-pill diag-neutral clickable-pill" type="button" aria-label="Behavior Monitoring" disabled>—</button></div>
                 <div class="net-node" data-metric-key="net-defender"><span>☁️</span> Cloud Protect: <button id="lblCloudProtection" class="diag-pill diag-neutral clickable-pill" type="button" aria-label="Cloud-delivered Protection" disabled>—</button></div>
                 <div class="net-node" data-metric-key="net-defender"><span>📥</span> IOAV Scan: <button id="lblIoavProtection" class="diag-pill diag-neutral clickable-pill" type="button" aria-label="Download and Attachment Scanning" disabled>—</button></div>
-                <!-- [DIAGNOSTIC ADDITION] DNS servers, DNS resolution check, and gateway ARP status -->
-                <div class="net-node net-node-span2 dashboard-dns-node" data-metric-key="net-dnsarp"><span>🔎</span> DNS Servers: <button id="lblDnsServers" class="value-action clickable-value" type="button" title="View or configure active adapter DNS">—</button></div>
+                <!-- [DIAGNOSTIC ADDITION] DNS servers, active MAC address, DNS resolution check, and gateway ARP status -->
+                <div class="net-node dashboard-dns-node" data-metric-key="net-dnsarp"><span>🔎</span> DNS Servers: <button id="lblDnsServers" class="value-action clickable-value" type="button" title="View or configure active adapter DNS">—</button></div>
+                <div class="net-node" data-metric-key="net-dnsarp"><span>🪪</span> MAC Address: <button id="lblMacAddress" class="value-action clickable-value" type="button" title="Copy active adapter physical MAC address">—</button></div>
                 <div class="net-node" data-metric-key="net-dnsarp"><span>🌐</span> DNS Check: <button id="lblDnsStatus" class="diag-pill diag-neutral clickable-pill" type="button" title="Flush the Windows DNS cache and run a live lookup">Test</button></div>
                 <div class="net-node" data-metric-key="net-dnsarp"><span>🔗</span> ARP GW: <button id="lblArpStatus" class="diag-pill diag-neutral clickable-pill" type="button" title="Resolve the active IPv4 gateway again">—</button></div>
                 <div class="net-node multi-driver-row" data-metric-key="net-drivers">
@@ -353,7 +357,9 @@
             <div class="console-header-row">
                 <h2>📑 LOG PROFILE CONSOLE</h2>
                 <div class="mod-toolbar">
+                    <button id="console-live-toggle" type="button" class="console-clear-btn console-live-btn" aria-pressed="false" title="Toggle Live System Console Mode: stream Windows Event Logs, process launches/exits, service changes &amp; volume mounts"><span class="console-live-dot" aria-hidden="true"></span><span id="console-live-label">Live System: OFF</span></button>
                     <button id="console-filter-all" type="button" class="filter-pill active" data-log-filter="all">All</button>
+                    <button id="console-filter-system" type="button" class="filter-pill" data-log-filter="system">System</button>
                     <button id="console-filter-errors" type="button" class="filter-pill" data-log-filter="errors">Errors</button>
                     <button id="copy-logs" type="button" class="console-clear-btn">Copy Logs</button>
                     <button id="clear-logs" type="button" class="console-clear-btn">Clear Logs</button>
@@ -1276,6 +1282,54 @@
         </div>
     </section>
 
+    <!-- THERMAL & COOLING LAB (System Temps, AIO/Pump, Fan Control & Bearing Health) -->
+    <section id="viewThermalLabPanel" class="tab-view-panel sharing-panel thermal-panel" hidden aria-labelledby="thermalLabTitle">
+        <div class="console-header-row">
+            <h2 id="thermalLabTitle">🌡️ THERMAL &amp; COOLING LAB</h2>
+            <div class="panel-actions">
+                <span id="thermal-overall-pill" class="diag-pill diag-ok">Cooling Health: 100% · Healthy</span>
+                <button id="thermal-run-check" type="button" class="console-clear-btn btn-accent-action">🩺 Run Fan &amp; Pump Health Check</button>
+                <button id="thermal-reset-auto" type="button" class="console-clear-btn">↩ Reset All Auto</button>
+                <button id="thermal-refresh" type="button" class="console-clear-btn">↻ Refresh</button>
+            </div>
+        </div>
+        <div class="thermal-presets-bar">
+            <div class="thermal-preset-group" role="group" aria-label="Cooling presets">
+                <span class="thermal-preset-label">Cooling Preset</span>
+                <button type="button" class="filter-pill active" data-thermal-preset="auto">Auto (BIOS)</button>
+                <button type="button" class="filter-pill" data-thermal-preset="silent">🤫 Silent</button>
+                <button type="button" class="filter-pill" data-thermal-preset="balanced">⚖️ Balanced</button>
+                <button type="button" class="filter-pill" data-thermal-preset="performance">⚡ Performance</button>
+                <button type="button" class="filter-pill" data-thermal-preset="max">🌀 Max 100%</button>
+            </div>
+            <button id="thermal-reset-baselines" type="button" class="console-clear-btn" title="Clear learned healthy RPM-vs-PWM baselines and recalibrate">Reset Baselines</button>
+        </div>
+        <div id="thermal-banner" class="thermal-banner" hidden>
+            <span id="thermal-banner-text"></span>
+            <button id="thermal-banner-elevate" type="button" class="console-clear-btn btn-accent-action" hidden>🛡️ Restart as Administrator</button>
+        </div>
+        <div class="thermal-kpi-grid">
+            <div class="thermal-kpi-card"><span class="thermal-kpi-label">Hottest Sensor</span><span id="thermal-kpi-hot" class="thermal-kpi-value">—</span><span id="thermal-kpi-hot-sub" class="thermal-kpi-sub">Sampling…</span></div>
+            <div class="thermal-kpi-card"><span class="thermal-kpi-label">Cooling Health</span><span id="thermal-kpi-health" class="thermal-kpi-value">100%</span><span id="thermal-kpi-health-sub" class="thermal-kpi-sub">All sensors normal</span></div>
+            <div class="thermal-kpi-card"><span class="thermal-kpi-label">Fans &amp; Pumps</span><span id="thermal-kpi-fans" class="thermal-kpi-value">0 ch</span><span id="thermal-kpi-fans-sub" class="thermal-kpi-sub">Detecting headers…</span></div>
+            <div class="thermal-kpi-card"><span class="thermal-kpi-label">AIO / Liquid Loop</span><span id="thermal-kpi-aio" class="thermal-kpi-value">—</span><span id="thermal-kpi-aio-sub" class="thermal-kpi-sub">Checking loop…</span></div>
+        </div>
+        <div id="thermal-findings-wrap" hidden>
+            <div class="thermal-section-title"><h3>🚨 Fan, Pump &amp; Thermal Diagnostics</h3><span>Live end-of-life, stall, wobble &amp; cavitation detection</span></div>
+            <div id="thermal-findings" class="thermal-findings-list"></div>
+        </div>
+        <div id="thermal-aio-strip" class="thermal-aio-card"></div>
+        <div>
+            <div class="thermal-section-title"><h3>🌀 Cooling Fans, AIO Pumps &amp; PWM Control</h3><span id="thermal-fans-count">0 detected</span></div>
+            <div id="thermal-fans-grid" class="thermal-fans-grid"></div>
+        </div>
+        <div>
+            <div class="thermal-section-title"><h3>🌡️ System-Wide Temperature Sensors</h3><span id="thermal-temps-count">0 live sensors</span></div>
+            <div id="thermal-temps-groups" class="thermal-temps-groups"></div>
+        </div>
+        <div id="thermal-powers-strip" class="panel-actions" hidden></div>
+    </section>
+
     <!-- FLOATING CUSTOM DISK PARTITIONER (Pauses Telemetry While Open) -->
     <section id="diskPartitionerModal" class="dashboard-panel" popover="manual" aria-labelledby="dpModalTitle" role="dialog">
         <header class="dashboard-panel-header draggable-panel-header">
@@ -1528,7 +1582,7 @@
         </div>
         <div class="dashboard-panel-body" id="settings-pane-modules" role="tabpanel" aria-labelledby="settings-tab-modules" hidden>
             <div class="mod-toolbar">
-                <input id="settings-modules-search" class="tab-search-input" type="search" placeholder="Filter 24 modules by name or group…" aria-label="Filter modules">
+                <input id="settings-modules-search" class="tab-search-input" type="search" placeholder="Filter 25 modules by name or group…" aria-label="Filter modules">
                 <button id="settings-modules-enable-all" class="console-clear-btn" type="button">Enable All</button>
             </div>
             <div id="settings-modules" class="settings-modules"></div>
@@ -1659,10 +1713,10 @@
             <section class="cw-wizard-pane" data-wizard-pane="3" hidden>
                 <div class="cw-wizard-section-head">
                     <h3>🧩 Show or Hide Tabs &amp; Modules</h3>
-                    <span id="cwWizardModCount" class="diag-pill diag-ok">24 of 24 tabs enabled</span>
+                    <span id="cwWizardModCount" class="diag-pill diag-ok">25 of 25 tabs enabled</span>
                 </div>
                 <div class="cw-wizard-mod-presets">
-                    <button type="button" class="filter-pill" data-wizard-mod-preset="all">All 24 Tabs</button>
+                    <button type="button" class="filter-pill" data-wizard-mod-preset="all">All 25 Tabs</button>
                     <button type="button" class="filter-pill" data-wizard-mod-preset="essentials">Home &amp; Essentials</button>
                     <button type="button" class="filter-pill" data-wizard-mod-preset="gamer">Gamer &amp; RGB</button>
                     <button type="button" class="filter-pill" data-wizard-mod-preset="developer">Developer</button>

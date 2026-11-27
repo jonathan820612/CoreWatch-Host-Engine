@@ -3,8 +3,8 @@
   "presets": [
     {
       "id": "full",
-      "name": "Full Installation — All 24 Tabs & Modules (Recommended)",
-      "description": "Installs RustCoreWatch Dashboard plus all 24 built-in native Rust modules across Network, System, Ops & Guard, Dev & Work, and RGB Studio."
+      "name": "Full Installation — All 25 Tabs & Modules (Recommended)",
+      "description": "Installs RustCoreWatch Dashboard plus all 25 built-in native Rust modules across Network, System, Ops & Guard, Dev & Work, RGB Studio, and Thermal & Cooling Lab."
     },
     {
       "id": "essentials",
@@ -415,6 +415,22 @@
         "src\\rgb_smbus.rs"
       ],
       "installerTypes": ["full", "essentials", "gamer", "developer"],
+      "defaultEnabled": true
+    },
+    {
+      "id": "thermal",
+      "name": "Thermal & Cooling Lab (Temps, AIO/Pump & Fan Health)",
+      "shortName": "Thermal Lab",
+      "icon": "🌡️",
+      "group": "System & Administration",
+      "navSlot": "system",
+      "tabButtonId": "tabThermalLab",
+      "panelId": "viewThermalLabPanel",
+      "description": "System-wide CPU/GPU/VRM/NVMe/AIO coolant telemetry, manual PWM & custom fan curves, and automated fan bearing wear / pump stall & cavitation diagnostics.",
+      "files": [
+        "src\\thermal.rs"
+      ],
+      "installerTypes": ["full", "essentials", "gamer", "itpro", "developer"],
       "defaultEnabled": true
     }
   ]

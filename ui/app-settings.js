@@ -26,7 +26,7 @@ function createAppSettings(core, save, modulesChanged, status, onOpenWizard) {
         "netmanager", "tasksports", "diskmap", "diagx",
         "github", "jira", "wsl", "docker", "sshcerts", "homelab",
         "alerts", "updates", "snapshots", "backupsync", "battery", "security",
-        "profiles", "startup", "sharing", "apps", "appstore", "devices", "organizer", "rgbstudio"
+        "profiles", "startup", "sharing", "apps", "appstore", "devices", "organizer", "rgbstudio", "thermal"
     ]);
     function formatHeaderVersion(version) {
         if (!version) return "v1.0 Beta";

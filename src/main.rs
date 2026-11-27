@@ -42,7 +42,9 @@ mod ssh_certs;
 mod startup;
 mod storage;
 mod system_controls;
+mod system_log;
 mod tasks;
+mod thermal;
 mod update_center;
 mod wsl;
 
@@ -1217,6 +1219,45 @@ async fn rgb_action(
 }
 
 #[tauri::command]
+async fn thermal_state(
+    engine: State<'_, Arc<thermal::ThermalEngine>>,
+) -> Result<thermal::ThermalSnapshot, String> {
+    let engine = engine.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || engine.snapshot())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn thermal_action(
+    engine: State<'_, Arc<thermal::ThermalEngine>>,
+    action: thermal::ThermalAction,
+) -> Result<thermal::ThermalSnapshot, String> {
+    let engine = engine.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || engine.execute(action))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn live_system_logs(
+    tailer: State<'_, Arc<system_log::SystemLogTailer>>,
+    dashboard: State<'_, Arc<Dashboard>>,
+    seed: bool,
+) -> Result<Vec<system_log::LiveLogEntry>, String> {
+    let tailer = tailer.inner().clone();
+    let smoke = dashboard.smoke_test;
+    tauri::async_runtime::spawn_blocking(move || tailer.poll(seed, smoke))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn live_system_logs_reset(tailer: State<'_, Arc<system_log::SystemLogTailer>>) {
+    tailer.reset();
+}
+
+#[tauri::command]
 fn alerts_state(engine: State<'_, Arc<smart_alerts::AlertsEngine>>) -> smart_alerts::AlertsStore {
     engine.snapshot()
 }
@@ -2227,6 +2268,10 @@ fn main() {
             profiles_action,
             rgb_state,
             rgb_action,
+            thermal_state,
+            thermal_action,
+            live_system_logs,
+            live_system_logs_reset,
             alerts_state,
             alerts_action,
             battery_snapshot,
@@ -2394,6 +2439,8 @@ fn main() {
             let data_dir = store.directory().map(std::path::Path::to_path_buf);
             let profiles_mgr = Arc::new(profiles::ProfileManager::open(data_dir.as_deref()));
             let rgb_engine = rgb_studio::RgbEngine::open(data_dir.as_deref(), state.smoke_test);
+            let thermal_engine = thermal::ThermalEngine::open(data_dir.as_deref(), state.smoke_test);
+            let log_tailer = Arc::new(system_log::SystemLogTailer::default());
             let alerts_engine = Arc::new(smart_alerts::AlertsEngine::open(data_dir.as_deref()));
             let backup_mgr = Arc::new(backup_sync::BackupManager::open(data_dir.as_deref()));
             let homelab_mgr = Arc::new(homelab::HomelabManager::open(data_dir.as_deref()));
@@ -2405,6 +2452,8 @@ fn main() {
             app.manage(store);
             app.manage(profiles_mgr);
             app.manage(rgb_engine.clone());
+            app.manage(thermal_engine);
+            app.manage(log_tailer);
             app.manage(alerts_engine.clone());
             app.manage(backup_mgr);
             app.manage(homelab_mgr);
@@ -2483,6 +2532,7 @@ fn main() {
         .run(|app, event| {
             if matches!(event, tauri::RunEvent::Exit) {
                 app.state::<Arc<Dashboard>>().sensors.stop();
+                app.state::<Arc<thermal::ThermalEngine>>().stop();
                 app.state::<Arc<rgb_studio::RgbEngine>>().stop();
                 app.state::<Arc<profiles::ProfileManager>>()
                     .release_keep_awake_on_exit();

@@ -71,7 +71,7 @@ SelectComponentsDesc=Choose a preset or pick the exact tabs and modules you want
 SelectComponentsLabel2=Unselected tabs stay clean and hidden out of the box (you can always re-enable any module later in Settings or by re-running Setup).
 
 [Types]
-Name: "full"; Description: "Full Suite — All 24 Tabs & Modules (Recommended)"
+Name: "full"; Description: "Full Suite — All 25 Tabs & Modules (Recommended)"
 Name: "essentials"; Description: "Home & Essentials — Telemetry, Diagnostics, Protection, Storage & RGB"
 Name: "gamer"; Description: "Gamer & RGB Enthusiast — Telemetry, RGB Studio, Profiles, Network & Alerts"
 Name: "developer"; Description: "Developer Workstation — Full Dev & Work, Network, Diagnostics & RGB"
@@ -114,6 +114,7 @@ Name: "tabs\system\diskmap"; Description: "Disk Map (Visual Treemap)"; Types: fu
 Name: "tabs\system\devices"; Description: "Devices & Drivers Tree"; Types: full itpro
 Name: "tabs\system\organizer"; Description: "File Organizer"; Types: full essentials
 Name: "tabs\system\rgbstudio"; Description: "RGB Lighting Studio (Direct USB HID / NVAPI / SMBus)"; Types: full essentials gamer developer
+Name: "tabs\system\thermal"; Description: "Thermal & Cooling Lab (Temps, AIO/Pump, Fan Control & Health Diagnostics)"; Types: full essentials gamer developer itpro
 
 ; Optional Runtime Components (physically omitted when unchecked)
 Name: "extras"; Description: "Optional Hardware Components"; Types: full essentials gamer developer itpro
@@ -310,6 +311,7 @@ begin
     AppendModuleIfSelected('tabs\system\devices', 'devices', ModList, NotFirst);
     AppendModuleIfSelected('tabs\system\organizer', 'organizer', ModList, NotFirst);
     AppendModuleIfSelected('tabs\system\rgbstudio', 'rgbstudio', ModList, NotFirst);
+    AppendModuleIfSelected('tabs\system\thermal', 'thermal', ModList, NotFirst);
 
     if not WizardIsComponentSelected('extras\sensors') then
       DelTree(ExpandConstant('{app}\sensors'), True, True, True);
