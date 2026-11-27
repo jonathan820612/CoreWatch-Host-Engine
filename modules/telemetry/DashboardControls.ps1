@@ -480,6 +480,14 @@ namespace CoreWatch {
                     control = $cmd
                     state   = $info.tier
                     message = $info.detail
+                    psInfo  = [PSCustomObject]@{
+                        PsLatestVersion  = [string]$info.latest
+                        PsMissedUpdates  = [int]$info.missed
+                        PsVersionTier    = [string]$info.tier
+                        PsLatestHasMsi   = [bool]$info.hasMsi
+                        PsInstallChannel = [string]$info.channel
+                        PsUpdateDetail   = [string]$info.detail
+                    }
                 }
             }
 

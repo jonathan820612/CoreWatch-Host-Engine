@@ -268,6 +268,61 @@ fn normalize_hex(value: &str) -> Option<String> {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FontSize {
+    Small,
+    #[default]
+    Normal,
+    Large,
+    Xlarge,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WindowLockMode {
+    #[default]
+    None,
+    Position,
+    All,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowBounds {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
+pub const INSTALLED_MODULES: &[&str] = &[
+    "netmanager",
+    "tasksports",
+    "diskmap",
+    "diagx",
+    "github",
+    "jira",
+    "wsl",
+    "docker",
+    "sshcerts",
+    "homelab",
+    "alerts",
+    "updates",
+    "snapshots",
+    "backupsync",
+    "battery",
+    "security",
+    "profiles",
+    "startup",
+    "sharing",
+    "apps",
+    "appstore",
+    "devices",
+    "organizer",
+    "rgbstudio",
+];
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Settings {
@@ -275,10 +330,13 @@ pub struct Settings {
     pub telemetry: Telemetry,
     pub theme: Theme,
     pub always_on_top: bool,
+    pub window_lock_mode: WindowLockMode,
+    pub window_bounds: Option<WindowBounds>,
     pub opacity: u8,
     pub general: General,
     pub directories: Directories,
     pub modules: Modules,
+    pub diagx_dismissed: Vec<crate::event_log::Key>,
 }
 
 impl Default for Settings {
@@ -288,10 +346,13 @@ impl Default for Settings {
             telemetry: Telemetry::default(),
             theme: Theme::default(),
             always_on_top: false,
+            window_lock_mode: WindowLockMode::None,
+            window_bounds: None,
             opacity: 100,
             general: General::default(),
             directories: Directories::default(),
             modules: Modules::default(),
+            diagx_dismissed: Vec::new(),
         }
     }
 }
@@ -304,6 +365,7 @@ pub struct General {
     pub minimize_to_tray_on_close: bool,
     pub confirm_destructive_actions: bool,
     pub auto_check_core_watch_updates: bool,
+    pub font_size: FontSize,
 }
 
 impl Default for General {
@@ -314,6 +376,7 @@ impl Default for General {
             minimize_to_tray_on_close: false,
             confirm_destructive_actions: true,
             auto_check_core_watch_updates: true,
+            font_size: FontSize::Normal,
         }
     }
 }
@@ -357,7 +420,18 @@ impl Settings {
         self.layout.normalize();
         self.theme.normalize();
         self.opacity = self.opacity.clamp(50, 100);
-        retain_unique(&mut self.modules.disabled, &["netmanager", "tasksports"]);
+        if let Some(bounds) = self.window_bounds.as_mut() {
+            bounds.width = bounds.width.clamp(480, 3840);
+            bounds.height = bounds.height.clamp(480, 3840);
+        }
+        retain_unique(&mut self.modules.disabled, INSTALLED_MODULES);
+        let mut seen = HashSet::new();
+        self.diagx_dismissed
+            .retain(|key| crate::diagnostics::valid_key(key) && seen.insert(key.clone()));
+        if self.diagx_dismissed.len() > 1024 {
+            self.diagx_dismissed
+                .drain(..self.diagx_dismissed.len() - 1024);
+        }
     }
 }
 
@@ -368,11 +442,15 @@ pub struct Changes {
     telemetry: Option<Telemetry>,
     theme: Option<Theme>,
     pub always_on_top: Option<bool>,
+    pub window_lock_mode: Option<WindowLockMode>,
+    pub window_bounds: Option<WindowBounds>,
     pub opacity: Option<u8>,
     pub general: Option<General>,
     pub start_with_windows: Option<bool>,
     directories: Option<Directories>,
     modules: Option<Modules>,
+    #[serde(skip)]
+    pub diagnostic_mark: Option<(crate::event_log::Key, bool)>,
 }
 
 impl Changes {
@@ -389,6 +467,12 @@ impl Changes {
         if let Some(always_on_top) = self.always_on_top {
             settings.always_on_top = always_on_top;
         }
+        if let Some(lock_mode) = self.window_lock_mode {
+            settings.window_lock_mode = lock_mode;
+        }
+        if let Some(bounds) = self.window_bounds {
+            settings.window_bounds = Some(bounds);
+        }
         if let Some(opacity) = self.opacity {
             settings.opacity = opacity;
         }
@@ -403,6 +487,12 @@ impl Changes {
         }
         if let Some(modules) = self.modules {
             settings.modules = modules;
+        }
+        if let Some((key, solved)) = self.diagnostic_mark {
+            settings.diagx_dismissed.retain(|current| *current != key);
+            if solved {
+                settings.diagx_dismissed.push(key);
+            }
         }
         settings.normalize();
     }
@@ -523,14 +613,18 @@ impl Store {
 
     pub fn legacy_changes(&self) -> io::Result<Changes> {
         #[derive(Default, Deserialize)]
+        #[serde(rename_all = "camelCase")]
         struct LegacyUi {
             layout: Option<Layout>,
             theme: Option<Theme>,
+            window_lock_mode: Option<WindowLockMode>,
         }
         #[derive(Default, Deserialize)]
+        #[serde(rename_all = "camelCase")]
         struct LegacyApp {
             telemetry: Option<Telemetry>,
             directories: Option<Directories>,
+            general: Option<General>,
         }
         let path = self.legacy_directory.as_ref().ok_or_else(|| {
             io::Error::other("CoreWatch's PowerShell preferences are unavailable.")
@@ -539,8 +633,10 @@ impl Store {
         let app: LegacyApp = read_json(&path.join("settings.json"))?.unwrap_or_default();
         if ui.layout.is_none()
             && ui.theme.is_none()
+            && ui.window_lock_mode.is_none()
             && app.telemetry.is_none()
             && app.directories.is_none()
+            && app.general.is_none()
         {
             return Err(io::Error::other(
                 "No dashboard preferences were found in the PowerShell version.",
@@ -549,8 +645,10 @@ impl Store {
         Ok(Changes {
             layout: ui.layout,
             theme: ui.theme,
+            window_lock_mode: ui.window_lock_mode,
             telemetry: app.telemetry,
             directories: app.directories,
+            general: app.general,
             always_on_top: None,
             ..Changes::default()
         })
@@ -745,5 +843,37 @@ mod tests {
                 .wallpaper_version
                 .is_none()
         );
+    }
+
+    #[test]
+    fn persists_font_size_window_lock_and_bounds() {
+        let path = tempfile::tempdir().unwrap();
+        let store = Store::open(Some(path.path().into()), None);
+        let general = General {
+            font_size: FontSize::Large,
+            ..General::default()
+        };
+        let next = store
+            .update(
+                Changes {
+                    general: Some(general),
+                    window_lock_mode: Some(WindowLockMode::Position),
+                    window_bounds: Some(WindowBounds {
+                        x: 100,
+                        y: 50,
+                        width: 1200,
+                        height: 900,
+                    }),
+                    ..Changes::default()
+                },
+                |_| {},
+            )
+            .unwrap();
+        assert_eq!(next.general.font_size, FontSize::Large);
+        assert_eq!(next.window_lock_mode, WindowLockMode::Position);
+        assert_eq!(next.window_bounds.unwrap().width, 1200);
+        let reloaded = Store::open(Some(path.path().into()), None).state().settings;
+        assert_eq!(reloaded.general.font_size, FontSize::Large);
+        assert_eq!(reloaded.window_lock_mode, WindowLockMode::Position);
     }
 }

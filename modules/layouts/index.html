@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>CoreWatch Dashboard</title>
+    <link rel="icon" type="image/png" href="../../Images/Icon.png">
     <link rel="stylesheet" href="style.css">
     <script src="app.js" defer></script>
 </head>
@@ -32,9 +33,9 @@ APP HEADER NAVIGATION DECK
 ========================================================================= -->
     <div class="app-header-deck">
         <div class="header-left-group">
-            <div class="icon-square-frame">
+            <button type="button" class="icon-square-frame" onclick="OpenExternalHttpsUrl('https://github.com/jonathan820612/CoreWatch-Host-Engine')" title="Open CoreWatch on GitHub (https://github.com/jonathan820612/CoreWatch-Host-Engine)" aria-label="Open CoreWatch GitHub repository">
                 <img src="../../Images/Icon.png" class="header-corner-brand" alt="CoreWatch Logo">
-            </div>
+            </button>
             <span class="header-brand-title" title="CoreWatch Host Engine">COREWATCH</span>
             <button type="button" class="tab-btn nav-cmdk-btn" onclick="OpenCommandPalette()" title="Quick Command Palette (Ctrl+K)">⌘ <span class="nav-btn-label">Ctrl+K</span></button>
         </div>
@@ -2618,6 +2619,37 @@ VIEW 13: DISK MAP — WIZTREE-STYLE VISUAL STORAGE EXPLORER & TREEMAP
                             <input type="checkbox" id="chkSetAutoCheckUpdates">
                             <span><strong>Check for CoreWatch updates on launch</strong><small>Checks GitHub Releases silently and notifies you when a newer version is available</small></span>
                         </label>
+                    </div>
+
+                    <div class="cw-set-card">
+                        <div class="cw-set-sec-title">🔤 Interface Font Size</div>
+                        <div class="cw-font-size-grid" role="radiogroup" aria-label="Interface Font Size">
+                            <label class="cw-font-card" title="Compact 88% typography — fits more rows and details on smaller windows">
+                                <input type="radio" name="setFontSize" value="small" onchange="PreviewCoreWatchFontSize(this.value)">
+                                <span class="cw-font-sample cw-font-sample-sm">Aa</span>
+                                <strong>Small</strong>
+                                <small>88% · Compact</small>
+                            </label>
+                            <label class="cw-font-card" title="Default 100% CoreWatch typography balance">
+                                <input type="radio" name="setFontSize" value="normal" checked onchange="PreviewCoreWatchFontSize(this.value)">
+                                <span class="cw-font-sample cw-font-sample-md">Aa</span>
+                                <strong>Normal</strong>
+                                <small>100% · Default</small>
+                            </label>
+                            <label class="cw-font-card" title="Larger 112% typography for comfortable viewing while preserving dashboard layout">
+                                <input type="radio" name="setFontSize" value="large" onchange="PreviewCoreWatchFontSize(this.value)">
+                                <span class="cw-font-sample cw-font-sample-lg">Aa</span>
+                                <strong>Large</strong>
+                                <small>112% · Comfort</small>
+                            </label>
+                            <label class="cw-font-card" title="Extra Large 124% typography for maximum legibility on high-res or secondary displays">
+                                <input type="radio" name="setFontSize" value="xlarge" onchange="PreviewCoreWatchFontSize(this.value)">
+                                <span class="cw-font-sample cw-font-sample-xl">Aa</span>
+                                <strong>Extra Large</strong>
+                                <small>124% · Max</small>
+                            </label>
+                        </div>
+                        <div class="cw-settings-sub" style="margin-top: 6px;">Scales all dashboard metrics, tables, and tab text smoothly while keeping your card grid and header layout intact. Click a size to preview live, then Save Settings.</div>
                     </div>
 
                     <div class="cw-set-card">

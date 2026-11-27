@@ -18,12 +18,14 @@ function createDashboardNetwork(invoke) {
     let current = null;
     let shown = null;
     let gateway = null;
+    let lastNeighbor = null;
     let elevated = false;
     let applied = false;
     let saving = false;
     let probing = false;
     let resolvingGateway = false;
     let profile = "";
+    let autoProbed = false;
 
     const firewallGroups = [
         ["discovery", "lblDiscovery", "Network Discovery"],
@@ -103,6 +105,7 @@ function createDashboardNetwork(invoke) {
     }
 
     dnsButton.addEventListener("click", () => {
+        if (dialog.open) return;
         shown = current;
         applied = false;
         preset.value = "";
@@ -190,25 +193,32 @@ function createDashboardNetwork(invoke) {
             log("Gateway ARP: " + String(error));
         } finally {
             resolvingGateway = false;
+            if (address !== gateway) showNeighbor(lastNeighbor, gateway);
             arpButton.disabled = !gateway;
         }
     });
 
     return {
-        update(details) {
+        update(details, isSmoke = false) {
             current = details.dns_uplink;
             gateway = details.fields.gateway;
+            lastNeighbor = details.gateway_neighbor;
             elevated = details.fields.elevation === "Administrator";
             for (const updateGroup of firewallGroups) updateGroup(details.fields);
             const next = JSON.stringify([adapterKey(current), current?.ipv4, current?.ipv6]);
             if (profile !== next) {
                 profile = next;
                 badge("lblDnsStatus", "Test", false, "Flush the Windows DNS cache and run a live lookup", "diag-neutral");
+                if (!isSmoke && current && !autoProbed) {
+                    autoProbed = true;
+                    void probe();
+                }
             }
             const caption = current?.ipv4.length ? current.ipv4.slice(0, 2).join(", ")
                 : current?.ipv6.length ? "IPv6 only" : current ? "None reported" : "No IPv4 route";
             show("lblDnsServers", caption);
-            dnsButton.title = (current ? current.name + " · " : "") + "View or configure DNS";
+            dnsButton.title = [current?.name, current && [...current.ipv4, ...current.ipv6].join(", "), "View or configure DNS"]
+                .filter(Boolean).join("\n");
             if (!resolvingGateway) showNeighbor(details.gateway_neighbor, gateway);
             if (dialog.open) {
                 if (current && adapterKey(shown) === adapterKey(current)) {

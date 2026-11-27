@@ -3,11 +3,16 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>CoreWatch · RUST Vers.</title>
+    <title>RustCoreWatch</title>
+    <link rel="icon" type="image/png" href="icon.png">
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="dashboard.css">
     <link rel="stylesheet" href="dashboard-preferences.css">
     <link rel="stylesheet" href="tasks.css">
+    <link rel="stylesheet" href="disk-map.css">
+    <link rel="stylesheet" href="diagnostics.css">
+    <link rel="stylesheet" href="modules-hub.css">
+    <link rel="stylesheet" href="rgb-studio.css">
     <script src="dashboard.js" defer></script>
     <script src="network.js" defer></script>
     <script src="dashboard-network.js" defer></script>
@@ -17,36 +22,94 @@
     <script src="dashboard-preferences.js" defer></script>
     <script src="app-settings.js" defer></script>
     <script src="tasks.js" defer></script>
+    <script src="disk-map.js" defer></script>
+    <script src="diagnostics.js" defer></script>
+    <script src="disk-partitioner.js" defer></script>
+    <script src="modules-hub.js" defer></script>
+    <script src="modules-extra.js" defer></script>
+    <script src="rgb-studio.js" defer></script>
 </head>
 <body>
     <div id="cwWallpaperLayer" aria-hidden="true"></div>
     <div id="cwWallpaperFade" aria-hidden="true"></div>
     <header class="app-header-deck" data-tauri-drag-region>
         <div class="header-left-group" data-tauri-drag-region>
-            <div class="icon-square-frame" data-tauri-drag-region><img src="icon.png" class="header-corner-brand" alt="CoreWatch" draggable="false" data-tauri-drag-region></div>
-            <span class="header-brand-title" data-tauri-drag-region>COREWATCH</span>
-            <small class="rust-version" data-tauri-drag-region>RUST Vers.</small>
+            <button id="corewatch-project" class="icon-square-frame" type="button" aria-label="Open RustCoreWatch on GitHub" title="Open CoreWatch on GitHub (https://github.com/jonathan820612/CoreWatch-Host-Engine)"><img src="icon.png" class="header-corner-brand" alt="" draggable="false"></button>
+            <span class="header-brand-title" data-tauri-drag-region>RUSTCOREWATCH</span>
+            <small class="rust-version" data-tauri-drag-region>v0.1 Beta</small>
+            <button id="cmd-palette-toggle" class="tab-btn nav-cmdk-btn" type="button" title="Quick Command Palette (Ctrl+K)" aria-label="Quick Command Palette">⌘ <span class="nav-btn-label">Ctrl+K</span></button>
         </div>
-        <nav class="modular-tabs" aria-label="CoreWatch views">
+        <nav class="modular-tabs" aria-label="RustCoreWatch views">
             <button id="tabDashboard" class="tab-btn active" type="button" aria-controls="viewDashboardGrid" aria-pressed="true">📟 Dashboard</button>
             <button id="tabNetwork" class="tab-btn" type="button" aria-controls="viewNetworkManagerPanel" aria-pressed="false">📡 Network</button>
             <button id="tabTasksPorts" class="tab-btn" type="button" aria-controls="viewTasksPortsPanel" aria-pressed="false">🧭 Tasks &amp; Ports</button>
+            <button id="tabUltimaDiagX" class="tab-btn" type="button" aria-controls="viewUltimaDiagXPanel" aria-pressed="false">🩺 UltimaDiagX</button>
+            <div class="nav-dropdown" id="navDevDropdown">
+                <button id="tabDevMenu" class="tab-btn nav-dropdown-trigger" type="button" aria-haspopup="true" aria-expanded="false" title="Developer &amp; Infrastructure Tools">
+                    <span id="lblDevMenuText">💻 Dev &amp; Work</span> <span class="nav-caret">▾</span>
+                </button>
+                <div class="nav-dropdown-menu" id="navDevMenu" role="menu">
+                    <button id="tabGitHubManager" class="nav-menu-item" type="button" role="menuitem"><span class="nav-mi-icon">🐙</span><span class="nav-mi-body"><strong>GitHub Manager</strong><small>Local Git repos, VS Code/Terminal launcher, clone &amp; releases</small></span></button>
+                    <button id="tabJiraManager" class="nav-menu-item" type="button" role="menuitem"><span class="nav-mi-icon">📋</span><span class="nav-mi-body"><strong>Jira Manager</strong><small>Assigned Jira Cloud/DC tasks, comments &amp; JQL queries</small></span></button>
+                    <button id="tabWslManager" class="nav-menu-item" type="button" role="menuitem"><span class="nav-mi-icon">🐧</span><span class="nav-mi-body"><strong>WSL Manager</strong><small>Linux distros, terminal launch, catalog &amp; .wslconfig</small></span></button>
+                    <button id="tabDockerServices" class="nav-menu-item" type="button" role="menuitem"><span class="nav-mi-icon">🐳</span><span class="nav-mi-body"><strong>Docker &amp; Dev Services</strong><small>Containers, logs, prune &amp; local dev services</small></span></button>
+                    <button id="tabSshCerts" class="nav-menu-item" type="button" role="menuitem"><span class="nav-mi-icon">🔐</span><span class="nav-mi-body"><strong>SSH &amp; Certificates</strong><small>~/.ssh/config launcher, keys &amp; Windows cert expiry</small></span></button>
+                    <button id="tabHomelab" class="nav-menu-item" type="button" role="menuitem"><span class="nav-mi-icon">🌐</span><span class="nav-mi-body"><strong>Multi-PC / Homelab</strong><small>Probe &amp; monitor remote servers, desktops &amp; NAS</small></span></button>
+                </div>
+            </div>
+            <div class="nav-dropdown" id="navOpsDropdown">
+                <button id="tabOpsMenu" class="tab-btn nav-dropdown-trigger" type="button" aria-haspopup="true" aria-expanded="false" title="Protection, Updates, Backups, Power &amp; Security">
+                    <span id="lblOpsMenuText">🛡️ Ops &amp; Guard</span> <span class="nav-caret">▾</span>
+                </button>
+                <div class="nav-dropdown-menu" id="navOpsMenu" role="menu">
+                    <button id="tabSmartAlerts" class="nav-menu-item" type="button" role="menuitem"><span class="nav-mi-icon">🔔</span><span class="nav-mi-body"><strong>Smart Alerts &amp; Watchdog</strong><small>Thermal, RAM, storage &amp; network rules + toasts</small></span></button>
+                    <button id="tabUpdateCenter" class="nav-menu-item" type="button" role="menuitem"><span class="nav-mi-icon">🔄</span><span class="nav-mi-body"><strong>Unified Update Center</strong><small>WinGet upgrades, pin/ignore, PowerShell &amp; CoreWatch</small></span></button>
+                    <button id="tabSnapshots" class="nav-menu-item" type="button" role="menuitem"><span class="nav-mi-icon">📸</span><span class="nav-mi-body"><strong>System Snapshots &amp; Diff</strong><small>Restore Points + Before/After system state diff</small></span></button>
+                    <button id="tabBackupSync" class="nav-menu-item" type="button" role="menuitem"><span class="nav-mi-icon">💾</span><span class="nav-mi-body"><strong>Backup &amp; Folder Sync</strong><small>Robocopy incremental/mirror sync with dry-run</small></span></button>
+                    <button id="tabBatteryPeripherals" class="nav-menu-item" type="button" role="menuitem"><span class="nav-mi-icon">🔋</span><span class="nav-mi-body"><strong>Battery &amp; Peripherals</strong><small>Battery health, wear, reports &amp; Bluetooth power</small></span></button>
+                    <button id="tabSecurityRepair" class="nav-menu-item" type="button" role="menuitem"><span class="nav-mi-icon">🛡️</span><span class="nav-mi-body"><strong>Security &amp; Repair</strong><small>Secure Boot, HVCI, BitLocker, hosts &amp; SFC/DISM</small></span></button>
+                </div>
+            </div>
+            <div class="nav-dropdown" id="navSystemDropdown">
+                <button id="tabSystemMenu" class="tab-btn nav-dropdown-trigger" type="button" aria-haspopup="true" aria-expanded="false" title="System &amp; Administration Tools">
+                    <span id="lblSystemMenuText">🧰 System</span> <span class="nav-caret">▾</span>
+                </button>
+                <div class="nav-dropdown-menu" id="navSystemMenu" role="menu">
+                    <button id="tabProfiles" class="nav-menu-item" type="button" role="menuitem"><span class="nav-mi-icon">⚡</span><span class="nav-mi-body"><strong>System Profiles &amp; Modes</strong><small>Normal, Work, Gaming, Streaming, Night &amp; custom</small></span></button>
+                    <button id="tabStartup" class="nav-menu-item" type="button" role="menuitem"><span class="nav-mi-icon">🚀</span><span class="nav-mi-body"><strong>Startup Apps</strong><small>Windows boot registry &amp; Startup folder entries</small></span></button>
+                    <button id="tabSharing" class="nav-menu-item" type="button" role="menuitem"><span class="nav-mi-icon">📂</span><span class="nav-mi-body"><strong>Sharing Center</strong><small>Windows SMB folder shares &amp; network permissions</small></span></button>
+                    <button id="tabInstalledApps" class="nav-menu-item" type="button" role="menuitem"><span class="nav-mi-icon">📦</span><span class="nav-mi-body"><strong>Installed Apps</strong><small>Software inventory, folder &amp; uninstaller launcher</small></span></button>
+                    <button id="tabAppStore" class="nav-menu-item" type="button" role="menuitem"><span class="nav-mi-icon">⬇️</span><span class="nav-mi-body"><strong>App Installer</strong><small>Curated catalog, WinGet search &amp; batch installs</small></span></button>
+                    <button id="tabDiskMap" class="nav-menu-item" type="button" role="menuitem" aria-controls="viewDiskMapPanel"><span class="nav-mi-icon">🗺️</span><span class="nav-mi-body"><strong>Disk Map (Visual Treemap)</strong><small>Fast visual storage treemap, largest files &amp; extensions</small></span></button>
+                    <button id="tabDevices" class="nav-menu-item" type="button" role="menuitem"><span class="nav-mi-icon">🧩</span><span class="nav-mi-body"><strong>Devices &amp; Drivers</strong><small>Signed hardware drivers, driver age &amp; error inspector</small></span></button>
+                    <button id="tabOrganizer" class="nav-menu-item" type="button" role="menuitem"><span class="nav-mi-icon">🗂️</span><span class="nav-mi-body"><strong>File Organizer</strong><small>Automated rule-based file sorting with dry-run &amp; undo</small></span></button>
+                    <button id="tabRgbStudio" class="nav-menu-item" type="button" role="menuitem"><span class="nav-mi-icon">🌈</span><span class="nav-mi-body"><strong>RGB Lighting Studio</strong><small>Standalone Native USB HID, GPU NVAPI, RAM SMBus &amp; Thermal Reactive</small></span></button>
+                </div>
+            </div>
         </nav>
         <div class="header-drag-space" data-tauri-drag-region></div>
         <div class="header-right-group">
             <span id="status" role="status">Starting telemetry…</span>
+            <div class="nav-dropdown nav-mode-dropdown" id="navModePillDropdown">
+                <button id="btnHeaderModePill" class="tab-btn nav-mode-pill" type="button" aria-haspopup="true" aria-expanded="false" title="Switch Active System Profile / Mode">
+                    <span id="lblHeaderModeText">🖥️ Normal</span> <span class="nav-caret">▾</span>
+                </button>
+                <div class="nav-dropdown-menu nav-mode-menu" id="navModePillMenu" role="menu"></div>
+            </div>
+            <button id="btnHeaderAlertsBell" class="tab-btn nav-alert-btn" type="button" title="Smart Alerts &amp; Watchdog Rules">🔔<span id="lblHeaderAlertsCount" class="nav-alert-count" hidden>0</span></button>
             <button id="dock-toggle" class="tab-btn" type="button" aria-controls="dashboard-dock" aria-expanded="false" title="Telemetry dock" hidden>◫ <span id="dock-count"></span></button>
             <button id="layout-toggle" class="tab-btn nav-util-btn" type="button" aria-label="Dashboard layout" aria-controls="layout-panel" aria-expanded="false" title="Dashboard layout">✏️<span class="nav-btn-label"> Layout</span></button>
-            <button id="appearance-toggle" class="tab-btn" type="button" aria-label="Appearance" aria-controls="appearance-panel" aria-expanded="false" title="Appearance">🎨</button>
-            <button id="refresh" class="tab-btn" type="button" aria-label="Refresh telemetry" title="Refresh telemetry">↻<span class="nav-btn-label"> Refresh</span></button>
+            <button id="appearance-toggle" class="tab-btn" type="button" aria-label="Appearance" aria-controls="appearance-panel" aria-expanded="false" title="Theme &amp; Appearance Studio">🎨</button>
+            <button id="refresh" class="tab-btn" type="button" aria-label="Refresh telemetry" title="Refresh telemetry">↻</button>
+            <button id="lock-window" class="tab-btn nav-lock-btn" type="button" aria-label="Cycle window lock mode" title="Window Unlocked — Click to lock position">🔓</button>
+            <button id="pin" class="tab-btn nav-pin-btn" type="button" aria-label="Keep CoreWatch on top" aria-pressed="false" title="Keep CoreWatch on top">📌</button>
+            <button id="preferences-toggle" class="tab-btn nav-settings-btn" type="button" aria-label="Settings" aria-controls="preferences-panel" aria-expanded="false" title="Application Settings (Ctrl+,)">⚙️</button>
             <button id="minimize" class="tab-btn window-control" type="button" aria-label="Minimize">−</button>
             <button id="maximize" class="tab-btn window-control" type="button" aria-label="Maximize or restore">□</button>
-            <button id="pin" class="tab-btn nav-pin-btn" type="button" aria-label="Keep CoreWatch on top" aria-pressed="false" title="Keep CoreWatch on top">📌</button>
-            <button id="preferences-toggle" class="tab-btn nav-settings-btn" type="button" aria-label="Settings" aria-controls="preferences-panel" aria-expanded="false" title="Settings (Ctrl+K)">⚙️</button>
             <button id="exit" class="exit-system-btn" type="button" aria-label="Exit CoreWatch">⏻<span class="nav-btn-label"> EXIT</span></button>
         </div>
     </header>
-    <div id="viewDashboardGrid" class="dashboard-grid" style="display: grid;">
+    <div id="viewDashboardGrid" class="dashboard-grid">
         
         <!-- HARDWARE METRICS CONTAINER -->
         <div class="dashboard-card" data-card-id="hardware" data-card-title="⚡ Hardware Metrics">
@@ -56,14 +119,13 @@
             <div class="metric-row" data-metric-key="hw-cpu">
                 <div class="metric-metadata">
                     <span id="lblCpuModel">Processor Core</span>
-                    <span id="lblCpuLoad">—</span>
+                    <span class="metric-meta-right"><svg id="sparkCpu" class="cw-sparkline" viewBox="0 0 56 14" aria-hidden="true"></svg><span id="lblCpuLoad">—</span></span>
                 </div>
                 <div class="track-bg">
                     <div id="barCpuLoad" class="track-fill"></div>
                 </div>
-                <div class="hardware-metric-footer-row" style="margin-top: 4px;">
-                    <div class="driver-tag tight-tag">Standard Driver</div>
-                    <div class="cache-badge-deck" style="gap: 4px;">
+                <div class="hardware-metric-footer-row hardware-cpu-footer">
+                    <div class="cache-badge-deck">
                         <span class="hardware-stat-tag" id="badgeThrottleState" title="ACPI thermal-throttling report">Throttle: —</span>
                         <span class="hardware-stat-tag text-speed" id="lblCpuClock">—</span>
                         <button type="button" class="hardware-stat-tag therm-cool cpu-sensor-button" id="badgeCpuTemp" aria-label="CPU temperature and sensor status"><span id="lblCpuTemp">—</span> <span id="lblCpuTempUnit">°C</span></button>
@@ -75,7 +137,7 @@
             <div class="metric-row" data-metric-key="hw-gpu" style="margin-top: 10px;">
                 <div class="metric-metadata">
                     <span id="lblGpuModel">Display Adapter</span>
-                    <span id="lblGpuLoad">—</span>
+                    <span class="metric-meta-right"><svg id="sparkGpu" class="cw-sparkline" viewBox="0 0 56 14" aria-hidden="true"></svg><span id="lblGpuLoad">—</span></span>
                 </div>
                 <div class="track-bg">
                     <div id="barGpuLoad" class="track-fill"></div>
@@ -91,7 +153,7 @@
                 <div class="vram-sub-row" data-metric-key="hw-vram">
                     <div class="vram-sub-meta">
                         <span>🎞️ VRAM Allocation</span>
-                        <span id="lblGpuVram">-- / -- GB</span>
+                        <span id="lblGpuVram">—</span>
                     </div>
                     <div class="track-bg track-bg-thin">
                         <div id="barGpuVram" class="track-fill vram-fill"></div>
@@ -103,7 +165,7 @@
             <div class="metric-row" data-metric-key="hw-ram" style="margin-top: 10px;">
                 <div class="metric-metadata">
                     <span>📟 RAM Memory Allocation</span>
-                    <span id="lblRamUsage">—</span>
+                    <span class="metric-meta-right"><svg id="sparkRam" class="cw-sparkline" viewBox="0 0 56 14" aria-hidden="true"></svg><span id="lblRamUsage">—</span></span>
                 </div>
                 <div class="track-bg">
                     <div id="barRamUsage" class="track-fill"></div>
@@ -132,7 +194,7 @@
             <!-- [DIAGNOSTIC ADDITION] Top active process -->
             <div class="top-process-strip" id="topProcessStrip" data-metric-key="hw-topproc">
                 <span class="top-proc-label">🔥 Top Process:</span>
-                <strong id="lblTopProcess" class="top-proc-value">—</strong>
+                <button id="lblTopProcess" class="top-proc-value value-action clickable-value" type="button" disabled>—</button>
             </div>
         </div>
 
@@ -140,8 +202,8 @@
         <div class="dashboard-card" data-card-id="identity" data-card-title="👤 System Identity">
             <h2>👤 SYSTEM IDENTITY</h2>
             <div class="metric-group" data-metric-key="id-host">
-                <div class="data-field"><span>🖥️</span> Host: <strong id="lblHostName">—</strong></div>
-                <div class="data-field"><span>🌐</span> Domain/WG: <strong id="lblWorkgroup">—</strong></div>
+                <div class="data-field"><span>🖥️</span> Host: <button id="lblHostName" class="value-action clickable-value" type="button" title="Click to copy hostname">—</button></div>
+                <div class="data-field"><span>🌐</span> Domain/WG: <button id="lblWorkgroup" class="value-action clickable-value" type="button" title="Click to copy domain or workgroup">—</button></div>
             </div>
             <div class="metric-group" data-metric-key="id-os">
                 <div class="data-field"><span>🪟</span> <strong id="lblOsEdition">—</strong></div>
@@ -159,7 +221,7 @@
             <div class="identity-diag-group" data-metric-key="id-stability">
                 <div class="data-field"><span>🛡️</span> Privilege: <button id="lblElevation" class="diag-pill diag-neutral clickable-pill" type="button" title="Restart CoreWatch as administrator">—</button></div>
                 <div class="data-field"><span>🔄</span> Pending Reboot: <button id="lblPendingReboot" class="diag-pill diag-neutral clickable-pill" type="button" disabled>—</button></div>
-                <div class="data-field"><span>💥</span> Last Crash/BSOD: <strong id="lblLastCrash" class="diag-crash-val" title="Kernel-Power (41) / BugCheck (1001)">—</strong></div>
+                <div class="data-field"><span>💥</span> Last Crash/BSOD: <button id="lblLastCrash" class="diag-crash-val value-action clickable-value" type="button" disabled>—</button></div>
             </div>
         </div>
 
@@ -168,6 +230,10 @@
             <h2>💾 STORAGE</h2>
             <div id="storageVolumeContainer" class="storage-dynamic-mesh-grid">
                 <div class="driver-text-node">Reading volumes…</div>
+            </div>
+            <div class="storage-card-footer">
+                <span id="lblStorageTelemetryPaused" class="dp-card-paused-hint" hidden>⏸ Telemetry paused</span>
+                <button type="button" id="btnOpenDiskPartitioner" class="storage-part-btn" title="Open floating Disk Partitioner (pauses live telemetry while open and resumes when closed)">💿 Disk Partitioner</button>
             </div>
         </div>
 
@@ -198,15 +264,19 @@
                 </div>
                 <div class="video-metrics-grid">
                     <div class="video-metric-item"><span>Resolution:</span> <strong id="lblMonResolution">--</strong></div>
-                    <div class="video-metric-item"><span>Refresh Rate:</span> <button id="lblMonRefresh" class="display-setting" type="button" title="Choose a driver-supported refresh rate">—</button></div>
+                    <div class="video-metric-item"><span>Refresh Rate:</span> <button id="lblMonRefresh" class="infra-refresh-select display-setting" type="button" title="Choose a driver-supported refresh rate">—</button></div>
                     <div class="video-metric-item"><span>Connection:</span> <strong id="lblMonConnection">--</strong></div>
-                    <div class="video-metric-item"><span>Scale:</span> <button id="lblMonScale" class="display-setting" type="button" title="Change the selected display scale">—</button></div>
-                    <div class="video-metric-item"><span>Orientation:</span> <button id="lblMonOrientation" class="display-setting" type="button" title="Choose display orientation">—</button></div>
-                    <div class="video-metric-item"><span>HDR / Color:</span> <button id="lblMonHdr" class="diag-pill diag-neutral clickable-pill" type="button" title="Change Windows Advanced Color">—</button></div>
+                    <div class="video-metric-item"><span>Scale:</span> <button id="lblMonScale" class="infra-refresh-select display-setting" type="button" title="Change the selected display scale">—</button></div>
+                    <div class="video-metric-item"><span>Orientation:</span> <button id="lblMonOrientation" class="infra-refresh-select display-setting" type="button" title="Choose display orientation">—</button></div>
+                    <div class="video-metric-item"><span>HDR Status:</span> <button id="lblMonHdr" class="diag-pill diag-neutral clickable-pill" type="button" title="Change Windows Advanced Color">—</button></div>
                     <div class="video-metric-item"><span>Night Light:</span> <button id="night-light-settings" class="diag-pill diag-neutral clickable-pill" type="button" aria-label="Night Light" disabled>—</button></div>
                     <div class="video-metric-item"><span>Color Profile:</span> <strong id="lblMonColorProfile" class="video-truncate">--</strong></div>
                 </div>
-                <label class="night-warmth" for="night-warmth"><span>🌙 Blue Light</span><input id="night-warmth" type="range" min="0" max="100" value="32" disabled><output id="night-warmth-value" for="night-warmth">—</output></label>
+                <div id="night-warmth-row" class="nightlight-slider-row is-disabled">
+                    <label class="nl-slider-label" for="night-warmth">🌙 Blue Light:</label>
+                    <input id="night-warmth" class="nl-range-slider" type="range" min="0" max="100" value="32" disabled>
+                    <output id="night-warmth-value" class="nl-slider-val" for="night-warmth">—</output>
+                </div>
             </div>
         </div>
         <!-- NETWORK PROFILE SYSTEM -->
@@ -219,7 +289,7 @@
                 <div class="net-node"><span>⚙️</span> IP Assignment: <button id="lblNetAssignment" class="toggle-pill-btn state-purple" type="button" title="Open Adapters &amp; IP">—</button></div>
                 <div class="net-node"><span>🛡️</span> Profile Status: <button id="lblNetworkStatus" class="diag-pill diag-neutral clickable-pill" type="button" disabled>—</button></div>
                 <div class="net-node"><span>📶</span> WLAN SSID: <strong id="lblWlanSsid">—</strong></div>
-                <div class="net-node"><span>🌍</span> Ext IPv4: <button id="lblExtIPv4" class="value-action clickable-value" type="button" title="Look up or copy external IPv4">—</button></div>
+                <div class="net-node"><span>🌍</span> Ext IPv4: <button id="lblExtIPv4" class="value-action clickable-value" type="button" title="Click to copy External IPv4 (or resolve if unavailable)">—</button><button id="btnRefreshExtIpv4" class="ext-ip-refresh-btn" type="button" title="Refresh External IPv4" aria-label="Refresh External IPv4">↻</button></div>
                 <div class="net-node"><span>🚀</span> Link Capacity: <strong id="lblLinkCap">—</strong></div>
                 <div class="net-node"><span>🧱</span> Firewall: <button id="lblFirewall" class="diag-pill diag-neutral clickable-pill" type="button" aria-label="Windows Firewall" disabled>—</button></div>
                 <div class="net-node"><span>👁️</span> Realtime Protection: <button id="lblRealtime" class="diag-pill diag-neutral clickable-pill" type="button" aria-label="Real-time Protection" disabled>—</button></div>
@@ -262,6 +332,7 @@
                 <div class="activity-metadata">
                     <span>📊 Transmit/Receive Data Mesh Pipeline Activity</span>
                     <div class="activity-values">
+                        <svg id="sparkNet" class="cw-sparkline cw-sparkline-net" viewBox="0 0 64 14" aria-hidden="true"></svg>
                         <span class="rx-numeric-text">📥 <span id="lblNetRx">0.00 KB/s</span></span>
                         <span class="tx-numeric-text">📤 <span id="lblNetTx">0.00 KB/s</span></span>
                     </div>
@@ -279,9 +350,11 @@
         <div class="dashboard-card wide-sub-console log-console-card" data-card-id="console" data-card-title="📑 Log Profile Console">
             <div class="console-header-row">
                 <h2>📑 LOG PROFILE CONSOLE</h2>
-                <div style="display: flex; gap: 5px;">
-                    <button id="copy-logs" class="console-clear-btn">Copy Logs</button>
-                    <button id="clear-logs" class="console-clear-btn">Clear Logs</button>
+                <div class="mod-toolbar">
+                    <button id="console-filter-all" type="button" class="filter-pill active" data-log-filter="all">All</button>
+                    <button id="console-filter-errors" type="button" class="filter-pill" data-log-filter="errors">Errors</button>
+                    <button id="copy-logs" type="button" class="console-clear-btn">Copy Logs</button>
+                    <button id="clear-logs" type="button" class="console-clear-btn">Clear Logs</button>
                 </div>
             </div>
             <div id="console-box" class="console-box"></div>
@@ -337,8 +410,8 @@
                 <div class="net-diag-secondary-grid">
                     <div class="net-diag-mini-box">
                         <span class="net-diag-mini-label">TCP Port Test:</span>
-                        <input type="text" id="netDiagPortsInput" class="tab-search-input" value="443" inputmode="numeric" aria-label="TCP port">
-                        <button type="button" class="console-clear-btn" data-diagnostic="port">Test Port</button>
+                        <input type="text" id="netDiagPortsInput" class="tab-search-input" value="80,443,3389,22" placeholder="80,443,3389,22" aria-label="TCP ports">
+                        <button type="button" class="console-clear-btn" data-diagnostic="port">Test Ports</button>
                     </div>
                     <div class="net-diag-mini-box">
                         <span class="net-diag-mini-label">DNS Lookup:</span>
@@ -351,6 +424,8 @@
                             <option value="CNAME">CNAME</option>
                             <option value="SOA">SOA</option>
                             <option value="PTR">PTR</option>
+                            <option value="SRV">SRV</option>
+                            <option value="ANY">ANY</option>
                         </select>
                         <input type="text" id="netDiagDnsServer" class="tab-search-input" style="max-width: 115px;" aria-label="Optional DNS server IP address" placeholder="DNS (opt)">
                         <button type="button" class="console-clear-btn" data-diagnostic="dns">Lookup</button>
@@ -424,8 +499,824 @@
         <p id="tasks-status" class="sharing-status" role="status">Loading local snapshot…</p>
         <div class="tasks-scroll" tabindex="0" aria-label="Task inspector results"><table class="tasks-table"><thead id="tasks-columns"></thead><tbody id="tasks-rows"></tbody></table></div>
     </section>
+    <section id="viewUltimaDiagXPanel" class="tab-view-panel tasks-panel diag-panel" hidden aria-labelledby="diag-title">
+        <header class="tasks-header">
+            <h2 id="diag-title">🩺 UltimaDiagX · System Diagnostics &amp; Crash Analysis</h2>
+            <div class="panel-actions">
+                <button type="button" id="diag-open-ev" class="console-clear-btn" title="Open Windows Event Viewer">Event Viewer</button>
+                <button type="button" id="diag-open-rel" class="console-clear-btn" title="Open Windows Reliability Monitor">Reliability Mon</button>
+                <button type="button" id="diag-live" class="console-clear-btn" aria-pressed="false">Live Watch: OFF</button>
+                <button type="button" id="diag-export" class="console-clear-btn" disabled>Export Report</button>
+                <button type="button" id="diag-refresh" class="console-clear-btn btn-accent-action">Run Scan</button>
+            </div>
+        </header>
+        <div class="diag-controls">
+            <label>Window <select id="diag-hours" class="tab-sort-select"><option value="1">Last hour</option><option value="24" selected>Last 24 hours</option><option value="168">Last 7 days</option><option value="720">Last 30 days</option></select></label>
+            <label><input type="checkbox" id="diag-warnings" checked> Include warnings</label>
+            <label><input type="checkbox" id="diag-benign"> Hide known benign events</label>
+            <label><input type="checkbox" id="diag-solved"> Show solved</label>
+            <button type="button" id="diag-restore-all" class="console-clear-btn" hidden>↩ Restore All Solved</button>
+            <button type="button" id="diag-nearby-chip" class="filter-pill active" hidden title="Clear ±5 min correlation window"></button>
+            <button type="button" id="diag-subsys-chip" class="filter-pill active" hidden title="Clear subsystem filter"></button>
+        </div>
+        <div class="diag-synopsis">
+            <div class="diag-score"><strong id="diag-score">—</strong><span id="diag-grade">—</span></div>
+            <div class="diag-synopsis-body">
+                <h3>System Diagnostic Synopsis</h3>
+                <p id="diag-summary" class="dashboard-hint">Run a scan to read the Windows event channels.</p>
+                <p id="diag-formula" class="diag-formula"></p>
+                <div id="diag-counts" class="tasks-summary"></div>
+                <div id="diag-histogram" class="diag-histogram" aria-label="Event density timeline"></div>
+            </div>
+        </div>
+        <div id="diag-matrix" class="diag-matrix" aria-label="8-Subsystem Health Matrix"></div>
+        <div id="diag-findings" class="diag-findings" hidden aria-label="Automated root-cause findings"></div>
+        <div class="diag-tools">
+            <details><summary>Channel coverage</summary><ul id="diag-channels"></ul></details>
+            <details><summary>Recurring events</summary><ul id="diag-recurring"></ul></details>
+            <details><summary>Crash dumps</summary><ul id="diag-dumps"></ul></details>
+            <details id="diag-code-details"><summary>Windows code translator</summary><form id="diag-code-form" class="panel-actions"><input id="diag-code-input" class="tab-search-input" aria-label="Hex or decimal Windows error code" placeholder="0x80070005, 0x00000124, or 5" maxlength="24" required><button type="submit" class="console-clear-btn">Translate</button></form><output id="diag-code-result" role="status"></output><p id="diag-code-fix" class="diag-fix-box" hidden></p></details>
+        </div>
+        <div class="diag-controls diag-filters">
+            <input id="diag-search" class="tab-search-input" type="search" aria-label="Search diagnostic events" placeholder="Search provider, event ID, subsystem, or message…">
+            <label>Severity <select id="diag-level" class="tab-sort-select"><option value="">All severities</option><option value="1">Critical</option><option value="2">Error</option><option value="3">Warning</option></select></label>
+            <label>Channel <select id="diag-channel" class="tab-sort-select"><option value="">All channels</option></select></label>
+        </div>
+        <p id="diag-status" class="sharing-status" role="status">Ready</p>
+        <div class="diag-results">
+            <div class="tasks-scroll" tabindex="0" aria-label="Windows event timeline"><table class="tasks-table diag-events"><thead id="diag-thead"><tr><th data-sort="time">Time ▼</th><th data-sort="level">Severity</th><th data-sort="provider">Provider / Event</th><th data-sort="subsystem">Subsystem</th></tr></thead><tbody id="diag-rows"></tbody></table></div>
+            <article id="diag-detail" class="diag-detail" aria-labelledby="diag-detail-title" hidden>
+                <header class="tasks-header"><h3 id="diag-detail-title">Event Details</h3><button type="button" id="diag-detail-close" class="console-clear-btn" aria-label="Close event details">✕</button></header>
+                <p id="diag-detail-facts"></p>
+                <p id="diag-detail-summary"></p>
+                <p id="diag-detail-fix" class="diag-fix-box" hidden></p>
+                <div id="diag-detail-codes" class="panel-actions" hidden></div>
+                <pre id="diag-detail-message"></pre>
+                <div class="panel-actions">
+                    <button type="button" id="diag-detail-nearby" class="console-clear-btn" title="Show events within ±5 minutes">🕐 Nearby (±5m)</button>
+                    <button type="button" id="diag-detail-copy" class="console-clear-btn">Copy Event</button>
+                    <button type="button" id="diag-detail-mark" class="console-clear-btn">Mark Solved</button>
+                </div>
+            </article>
+        </div>
+    </section>
+    <section id="viewDiskMapPanel" class="tab-view-panel tasks-panel" hidden aria-labelledby="disk-map-title">
+        <header class="tasks-header">
+            <h2 id="disk-map-title">🗺️ Disk Map &amp; Storage Inspector</h2>
+            <div class="panel-actions"><button id="disk-map-refresh" class="console-clear-btn" type="button">Refresh Drives</button><button id="disk-map-scan" class="console-clear-btn btn-accent-action" type="button">Scan Now</button><button id="disk-map-cancel" class="console-clear-btn" type="button" hidden>Cancel Scan</button></div>
+        </header>
+        <div id="disk-map-drives-strip" class="disk-map-drives-strip" aria-label="Quick drive selector"></div>
+        <div class="disk-map-controls">
+            <label>Volume <select id="disk-map-drive" class="tab-sort-select"></select></label>
+            <label>Scan path <input id="disk-map-path" class="tab-search-input" type="text" spellcheck="false"></label>
+            <button id="disk-map-browse" class="console-clear-btn" type="button">Browse…</button>
+            <label>Filter <input id="disk-map-filter" class="tab-search-input" type="search" placeholder="Name, path, or extension"></label>
+        </div>
+        <div id="disk-map-stats" class="tasks-summary"></div>
+        <div class="disk-map-navigation">
+            <div class="panel-actions" aria-label="Disk Map view">
+                <button class="filter-pill active" type="button" data-disk-mode="entries">Directory Tree</button>
+                <button class="filter-pill" type="button" data-disk-mode="largest">Largest Files</button>
+                <button class="filter-pill" type="button" data-disk-mode="extensions">Extensions</button>
+                <button id="disk-map-ext-chip" class="filter-pill active" type="button" hidden title="Clear active extension filter"></button>
+            </div>
+            <div id="disk-map-breadcrumbs" class="disk-map-breadcrumbs" aria-label="Path breadcrumbs"></div>
+            <div class="panel-actions"><button id="disk-map-up" class="console-clear-btn" type="button" disabled>↑ Up</button><button id="disk-map-root" class="console-clear-btn" type="button" disabled>↶ Root</button></div>
+        </div>
+        <div id="disk-map-selection" class="disk-map-selection" hidden>
+            <span id="disk-map-sel-label" class="disk-map-sel-label"></span>
+            <div class="panel-actions">
+                <button id="disk-map-sel-zoom" class="console-clear-btn btn-accent-action" type="button">📂 Zoom In</button>
+                <button id="disk-map-sel-open" class="console-clear-btn" type="button">📁 Reveal</button>
+                <button id="disk-map-sel-copy" class="console-clear-btn" type="button">📋 Copy Path</button>
+                <button id="disk-map-sel-recycle" class="console-clear-btn btn-danger" type="button">🗑 Recycle</button>
+            </div>
+        </div>
+        <p id="disk-map-status" class="sharing-status" role="status">Choose a local volume or folder to scan.</p>
+        <div id="disk-map-treemap" class="disk-map-treemap" aria-label="Interactive squarified treemap" hidden>
+            <canvas id="disk-map-canvas"></canvas>
+            <div id="disk-map-tooltip" class="disk-map-tooltip" hidden></div>
+        </div>
+        <div class="tasks-scroll" tabindex="0" aria-label="Disk Map results" id="disk-map-table" hidden>
+            <table class="tasks-table"><thead id="disk-map-thead"><tr><th data-sort="name">Item / Path</th><th data-sort="bytes">Size ▼</th><th data-sort="pct">%</th><th data-sort="info">Files / Info</th><th data-sort="modified">Modified</th><th>Actions</th></tr></thead><tbody id="disk-map-rows"></tbody></table>
+        </div>
+    </section>
+
+    <!-- NEWLY TRANSLATED NATIVE RUST MODULE PANELS -->
+    <section id="viewProfilesPanel" class="tab-view-panel mod-panel" hidden>
+        <div class="mod-head">
+            <h2>⚡ SYSTEM PROFILES &amp; MODES</h2>
+            <div class="mod-toolbar">
+                <button id="profiles-awake-btn" class="console-clear-btn" type="button">☕ Keep Awake: OFF</button>
+                <button id="profiles-revert-btn" class="console-clear-btn btn-danger" type="button" hidden>↩️ Revert Baseline</button>
+            </div>
+        </div>
+        <p id="profiles-status" class="mod-status" role="status">Choose a system profile to apply Power Plan, Do Not Disturb, Keep Awake, and Night Light in one click.</p>
+        <div class="mod-scroll">
+            <div id="profiles-grid" class="mod-grid"></div>
+            <details class="dashboard-option-group mod-collapsible">
+                <summary>+ Create Custom Mode</summary>
+                <form id="profiles-add-form" class="mod-form">
+                    <label>Custom Name<input name="name" class="tab-search-input" placeholder="e.g. Deep Focus" required></label>
+                    <label>Icon<input name="icon" class="tab-search-input" value="⚡" maxlength="4"></label>
+                    <label>Description<input name="description" class="tab-search-input" placeholder="Optional note"></label>
+                    <label>Power Plan<select name="powerPlan" class="tab-sort-select"><option value="balanced">Balanced</option><option value="high">High Performance</option><option value="saver">Power Saver</option><option value="keep">Keep Current</option></select></label>
+                    <label>Do Not Disturb<select name="dnd" class="tab-sort-select"><option value="">No Change</option><option value="true">Enable DnD</option><option value="false">Disable DnD</option></select></label>
+                    <label>Night Light<select name="nightLight" class="tab-sort-select"><option value="">No Change</option><option value="true">On</option><option value="false">Off</option></select></label>
+                    <label class="settings-check"><input name="keepAwake" type="checkbox"> Keep Screen Awake</label>
+                    <button class="console-clear-btn btn-accent-action" type="submit">+ Save Custom Mode</button>
+                </form>
+            </details>
+        </div>
+    </section>
+
+    <section id="viewStartupPanel" class="tab-view-panel mod-panel" hidden>
+        <div class="mod-head">
+            <h2>🚀 STARTUP APPS MANAGER</h2>
+            <div class="mod-toolbar">
+                <input id="startup-search" class="tab-search-input" aria-label="Filter startup entries" placeholder="Filter startup entries… (/)">
+                <button id="startup-refresh-btn" class="console-clear-btn" type="button">↻ Refresh</button>
+            </div>
+        </div>
+        <p id="startup-status" class="mod-status" role="status">Loading startup entries…</p>
+        <div id="startup-kpi" class="mod-kpi-strip"></div>
+        <div id="startup-filter-bar" class="mod-filter-bar" role="group" aria-label="Filter startup state">
+            <button type="button" class="mod-filter-pill active" data-startup-filter="all">All</button>
+            <button type="button" class="mod-filter-pill" data-startup-filter="enabled">Enabled</button>
+            <button type="button" class="mod-filter-pill" data-startup-filter="disabled">Disabled</button>
+            <button type="button" class="mod-filter-pill" data-startup-filter="broken">⚠ Missing Target</button>
+        </div>
+        <div class="mod-scroll">
+            <details class="dashboard-option-group mod-collapsible">
+                <summary>+ Add HKCU Startup Entry</summary>
+                <form id="startup-add-form" class="mod-form">
+                    <label>Entry Name<input name="name" class="tab-search-input" placeholder="MyApp" required></label>
+                    <label>Executable / Command<input name="command" class="tab-search-input" placeholder="C:\Path\To\App.exe" required></label>
+                    <button class="console-clear-btn btn-accent-action" type="submit">+ Add HKCU Startup Entry</button>
+                </form>
+            </details>
+            <div class="mod-table-wrap">
+                <table class="mod-table" id="startup-table"><thead><tr><th data-sort="name">Name</th><th data-sort="enabled">State</th><th data-sort="scope">Scope / Source</th><th data-sort="command">Command</th><th>Actions</th></tr></thead><tbody id="startup-rows"></tbody></table>
+            </div>
+        </div>
+    </section>
+
+    <section id="viewSmartAlertsPanel" class="tab-view-panel mod-panel" hidden>
+        <div class="mod-head">
+            <h2>🔔 SMART ALERTS &amp; WATCHDOG RULES</h2>
+            <div class="mod-toolbar">
+                <button id="alerts-mute-btn" class="console-clear-btn" type="button" aria-pressed="false">🔇 Mute All</button>
+                <button id="alerts-test-btn" class="console-clear-btn btn-accent-action" type="button">🔔 Test Toast</button>
+                <button id="alerts-reset-btn" class="console-clear-btn" type="button">Reset Defaults</button>
+                <button id="alerts-clear-btn" class="console-clear-btn btn-danger" type="button">Clear History</button>
+            </div>
+        </div>
+        <p id="alerts-status" class="mod-status" role="status">Rules are continuously evaluated against live Rust telemetry frames.</p>
+        <div id="alerts-kpi" class="mod-kpi-strip"></div>
+        <div class="mod-scroll">
+            <details class="dashboard-option-group">
+                <summary>+ Add New Watchdog Rule</summary>
+                <form id="alerts-add-form" class="mod-form" style="margin-top: 8px;">
+                    <label>Rule Name<input name="name" class="tab-search-input" placeholder="CPU Temp High" required></label>
+                    <label>Metric<select name="metric" class="tab-sort-select"><option value="cpu_temp">CPU Temp (°C ≥)</option><option value="gpu_temp">GPU Temp (°C ≥)</option><option value="cpu_load">CPU Load (% ≥)</option><option value="ram_pct">RAM Usage (% ≥)</option><option value="drive_free_pct">Drive Free (% ≤)</option><option value="internet_down">Network Route Lost</option></select></label>
+                    <label>Threshold<input name="threshold" type="number" class="tab-search-input" value="85"></label>
+                    <label>Duration (s)<input name="duration" type="number" class="tab-search-input" value="30"></label>
+                    <label>Cooldown (s)<input name="cooldown" type="number" class="tab-search-input" value="300"></label>
+                    <label class="settings-check"><input name="toast" type="checkbox" checked> Windows Toast</label>
+                    <button class="console-clear-btn btn-accent-action" type="submit">Save Rule</button>
+                </form>
+            </details>
+            <div class="mod-table-wrap">
+                <table class="mod-table"><thead><tr><th>Rule</th><th>Metric</th><th>Threshold &amp; Timing</th><th>Status</th><th>Actions</th></tr></thead><tbody id="alerts-rules-rows"></tbody></table>
+            </div>
+            <h3 class="mod-subhead">RECENT ALERT HISTORY</h3>
+            <div class="mod-table-wrap">
+                <table class="mod-table"><thead><tr><th>Time</th><th>Severity</th><th>Rule</th><th>Message</th></tr></thead><tbody id="alerts-history-rows"></tbody></table>
+            </div>
+        </div>
+    </section>
+
+    <section id="viewBatteryPanel" class="tab-view-panel mod-panel" hidden>
+        <div class="mod-head">
+            <h2>🔋 BATTERY HEALTH &amp; WIRELESS PERIPHERALS</h2>
+            <div class="mod-toolbar">
+                <button id="battery-refresh-btn" class="console-clear-btn" type="button">↻ Refresh</button>
+                <button id="battery-report-btn" class="console-clear-btn btn-accent-action" type="button">📄 Battery Report</button>
+                <button id="battery-sleep-btn" class="console-clear-btn" type="button">🌙 SleepStudy</button>
+                <button id="battery-power-btn" class="console-clear-btn" type="button">⚡ Power Settings</button>
+                <button id="battery-bt-btn" class="console-clear-btn" type="button">📶 Bluetooth Settings</button>
+            </div>
+        </div>
+        <p id="battery-status" class="mod-status" role="status">Ready.</p>
+        <div class="mod-scroll">
+            <div id="battery-cards" class="mod-grid"></div>
+            <h3 class="mod-subhead">WIRELESS &amp; BLUETOOTH PERIPHERALS</h3>
+            <div id="battery-peripherals" class="mod-grid"></div>
+        </div>
+    </section>
+
+    <section id="viewSnapshotsPanel" class="tab-view-panel mod-panel" hidden>
+        <div class="mod-head">
+            <h2>📸 SYSTEM SNAPSHOTS &amp; &ldquo;WHAT CHANGED?&rdquo; DIFF</h2>
+            <div class="mod-toolbar">
+                <input id="snap-label-input" class="tab-search-input" placeholder="Snapshot label (e.g. Before GPU Driver)">
+                <label class="settings-check"><input id="snap-restore-point" type="checkbox"> + Restore Point</label>
+                <button id="snap-capture-btn" class="console-clear-btn btn-accent-action" type="button">📸 Capture Snapshot</button>
+            </div>
+        </div>
+        <p id="snapshots-status" class="mod-status" role="status">Capture lightweight native Rust snapshots of apps, startup, services, hosts, network, and signed drivers.</p>
+        <div class="mod-scroll">
+            <div class="mod-table-wrap">
+                <table class="mod-table"><thead><tr><th>Label</th><th>Captured</th><th>Contents</th><th>Actions</th></tr></thead><tbody id="snapshots-rows"></tbody></table>
+            </div>
+            <div class="mod-toolbar">
+                <label>Before <select id="snap-before" class="tab-sort-select"></select></label>
+                <label>After <select id="snap-after" class="tab-sort-select"></select></label>
+                <button id="snap-diff-btn" class="console-clear-btn btn-accent-action" type="button">🔍 Compare Diff</button>
+                <button id="snap-export-btn" class="console-clear-btn" type="button">💾 Export Diff (.md)</button>
+            </div>
+            <div id="snap-diff-visual" class="snap-diff-grid"></div>
+            <details class="dashboard-option-group mod-collapsible">
+                <summary>📄 Raw Diff Text (Exportable Markdown)</summary>
+                <pre id="snap-diff-output" class="mod-pre" style="margin-top:6px;">Select two snapshots (or a snapshot vs. Current Live System) and click Compare Diff.</pre>
+            </details>
+        </div>
+    </section>
+
+    <section id="viewSshCertsPanel" class="tab-view-panel mod-panel" hidden>
+        <div class="mod-head">
+            <h2>🔐 SSH HOST LAUNCHER &amp; CERTIFICATE INSPECTOR</h2>
+            <div class="mod-toolbar">
+                <button id="ssh-keygen-btn" class="console-clear-btn btn-accent-action" type="button">🔑 Generate ED25519 Key</button>
+                <button id="ssh-refresh-btn" class="console-clear-btn" type="button">↻ Refresh</button>
+            </div>
+        </div>
+        <p id="ssh-status" class="mod-status" role="status">Ready.</p>
+        <div class="mod-toolbar" style="justify-content:space-between;">
+            <div id="ssh-tabs" class="mod-filter-bar" role="tablist">
+                <button type="button" class="mod-filter-pill active" data-ssh-tab="all">All Sections</button>
+                <button type="button" class="mod-filter-pill" data-ssh-tab="hosts">🖥️ Hosts</button>
+                <button type="button" class="mod-filter-pill" data-ssh-tab="keys">🔑 Keys</button>
+                <button type="button" class="mod-filter-pill" data-ssh-tab="certs">📜 Certificates</button>
+            </div>
+            <div id="ssh-cert-filter-bar" class="mod-filter-bar">
+                <button type="button" class="mod-filter-pill active" data-cert-filter="all">All Certs</button>
+                <button type="button" class="mod-filter-pill" data-cert-filter="expiring">Expiring ≤90d</button>
+                <button type="button" class="mod-filter-pill" data-cert-filter="expired">Expired</button>
+            </div>
+        </div>
+        <div class="mod-scroll">
+            <div id="ssh-sec-hosts" style="display:flex;flex-direction:column;gap:8px;">
+                <details class="dashboard-option-group mod-collapsible">
+                    <summary>+ Add SSH Host</summary>
+                    <form id="ssh-host-form" class="mod-form">
+                        <label>Alias<input name="alias" class="tab-search-input" placeholder="proxmox" required></label>
+                        <label>HostName / IP<input name="hostName" class="tab-search-input" placeholder="192.168.1.50" required></label>
+                        <label>User<input name="user" class="tab-search-input" placeholder="root"></label>
+                        <label>Port<input name="port" type="number" class="tab-search-input" value="22"></label>
+                        <label>IdentityFile<input name="identityFile" class="tab-search-input" placeholder="~/.ssh/id_ed25519"></label>
+                        <label>ProxyJump<input name="proxyJump" class="tab-search-input" placeholder="bastion (optional)"></label>
+                        <button class="console-clear-btn btn-accent-action" type="submit">+ Save SSH Host</button>
+                    </form>
+                </details>
+                <div id="ssh-hosts-grid" class="mod-grid"></div>
+            </div>
+            <div id="ssh-sec-keys" style="display:flex;flex-direction:column;gap:6px;">
+                <h3 class="mod-subhead">SSH PUBLIC KEYS (~/.ssh/*.pub)</h3>
+                <div id="ssh-keys-list" class="mod-grid"></div>
+            </div>
+            <div id="ssh-sec-certs" style="display:flex;flex-direction:column;gap:6px;">
+                <h3 class="mod-subhead">WINDOWS CERTIFICATE EXPIRY AUDITOR (NATIVE CRYPT32)</h3>
+                <div class="mod-table-wrap">
+                    <table class="mod-table"><thead><tr><th>Status</th><th>Store</th><th>Subject</th><th>Issuer</th><th>Expires</th><th>Thumbprint</th></tr></thead><tbody id="ssh-certs-rows"></tbody></table>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="viewBackupSyncPanel" class="tab-view-panel mod-panel" hidden>
+        <div class="mod-head">
+            <h2>💾 BACKUP &amp; FOLDER SYNC (ROBOCOPY)</h2>
+            <div class="mod-toolbar">
+                <button id="backup-clear-history" class="console-clear-btn" type="button">Clear Run Log</button>
+            </div>
+        </div>
+        <p id="backup-status" class="mod-status" role="status">Native Windows Robocopy incremental &amp; mirror backup jobs with dry-run previews.</p>
+        <div class="mod-scroll">
+            <details class="dashboard-option-group mod-collapsible">
+                <summary>+ Create Backup Job</summary>
+                <form id="backup-add-form" class="mod-form">
+                    <label>Job Name<input name="name" class="tab-search-input" placeholder="Documents to NAS" required></label>
+                    <label>Source Folder<span class="panel-actions"><input name="source" id="backup-src-input" class="tab-search-input flex-fill" placeholder="C:\Users\Me\Documents" required><button id="backup-browse-src" class="console-clear-btn" type="button" aria-label="Browse source folder">…</button></span></label>
+                    <label>Destination Folder<span class="panel-actions"><input name="destination" id="backup-dst-input" class="tab-search-input flex-fill" placeholder="E:\Backups\Documents" required><button id="backup-browse-dst" class="console-clear-btn" type="button" aria-label="Browse destination folder">…</button></span></label>
+                    <label>Mode<select name="mode" class="tab-sort-select"><option value="incremental">Incremental (/E)</option><option value="mirror">Mirror (/MIR)</option></select></label>
+                    <label>Exclude Dirs (comma)<input name="excludes" id="backup-excludes-input" class="tab-search-input" value="node_modules, .git, target"></label>
+                    <div class="mod-filter-bar" style="align-self:end;">
+                        <button type="button" class="mod-filter-pill" data-backup-excl="dev">Dev Preset</button>
+                        <button type="button" class="mod-filter-pill" data-backup-excl="media">Media Preset</button>
+                        <button type="button" class="mod-filter-pill" data-backup-excl="clear">Clear</button>
+                    </div>
+                    <button class="console-clear-btn btn-accent-action" type="submit">+ Save Job</button>
+                </form>
+            </details>
+            <div id="backup-jobs-grid" class="mod-grid"></div>
+            <pre id="backup-history-log" class="mod-pre"></pre>
+        </div>
+    </section>
+
+    <section id="viewSecurityRepairPanel" class="tab-view-panel mod-panel" hidden>
+        <div class="mod-head">
+            <h2>🛡️ SECURITY POSTURE &amp; REPAIR TOOLKIT</h2>
+            <div class="mod-toolbar">
+                <button id="security-refresh-btn" class="console-clear-btn" type="button">↻ Re-Audit</button>
+            </div>
+        </div>
+        <p id="security-status" class="mod-status" role="status">Ready.</p>
+        <div id="security-kpi" class="mod-kpi-strip"></div>
+        <div class="mod-scroll">
+            <div id="security-checks-grid" class="mod-grid"></div>
+            <div class="mod-toolbar">
+                <button class="console-clear-btn" type="button" data-repair-kind="flush_dns">Flush DNS</button>
+                <button class="console-clear-btn" type="button" data-repair-kind="reset_winsock">Reset Winsock</button>
+                <button class="console-clear-btn" type="button" data-repair-kind="reset_ip_stack">Reset IP Stack</button>
+                <button class="console-clear-btn" type="button" data-repair-kind="sfc_verify">SFC /verifyonly</button>
+                <button class="console-clear-btn" type="button" data-repair-kind="sfc_scannow">SFC /scannow</button>
+                <button class="console-clear-btn" type="button" data-repair-kind="dism_check_health">DISM CheckHealth</button>
+                <button class="console-clear-btn btn-accent-action" type="button" data-repair-kind="dism_restore_health">DISM RestoreHealth</button>
+                <button class="console-clear-btn" type="button" data-repair-kind="safe_temp_cleanup">🧹 Clean %TEMP%</button>
+                <button class="console-clear-btn" type="button" data-repair-kind="open_defender">Windows Security</button>
+                <button class="console-clear-btn" type="button" data-repair-kind="open_hosts_folder">Open Hosts Folder</button>
+                <button class="console-clear-btn" type="button" data-repair-kind="open_hosts_notepad">📝 Edit Hosts</button>
+            </div>
+            <pre id="security-repair-output" class="mod-pre">Select a repair tool above to run diagnostics.</pre>
+            <pre id="security-audit-pre" class="mod-pre"></pre>
+        </div>
+    </section>
+
+    <section id="viewDockerPanel" class="tab-view-panel mod-panel" hidden>
+        <div class="mod-head">
+            <h2>🐳 DOCKER / CONTAINERS &amp; LOCAL DEV SERVICES</h2>
+            <div class="mod-toolbar">
+                <button id="docker-refresh-btn" class="console-clear-btn" type="button">↻ Refresh</button>
+                <button id="docker-prune-btn" class="console-clear-btn btn-danger" type="button">🧹 Prune Unused</button>
+            </div>
+        </div>
+        <p id="docker-status" class="mod-status" role="status">Ready.</p>
+        <div class="mod-scroll">
+            <div class="mod-table-wrap">
+                <table class="mod-table"><thead><tr><th>Container</th><th>Image</th><th>State</th><th>Ports</th><th>Actions</th></tr></thead><tbody id="docker-containers-rows"></tbody></table>
+            </div>
+            <pre id="docker-logs-pre" class="mod-pre">Click Logs on any container to inspect recent output.</pre>
+            <h3 class="mod-subhead">CONTAINER IMAGES</h3>
+            <div class="mod-table-wrap">
+                <table class="mod-table"><thead><tr><th>Repository</th><th>Tag</th><th>Image ID</th><th>Size</th><th>Actions</th></tr></thead><tbody id="docker-images-rows"></tbody></table>
+            </div>
+            <h3 class="mod-subhead">LOCAL DEV SERVICES (NATIVE SCM)</h3>
+            <div id="docker-dev-services" class="mod-grid"></div>
+        </div>
+    </section>
+
+    <section id="viewInstalledAppsPanel" class="tab-view-panel mod-panel" hidden>
+        <div class="mod-head">
+            <h2>📦 INSTALLED APPLICATIONS</h2>
+            <div class="mod-toolbar">
+                <input id="apps-search" class="tab-search-input" aria-label="Search installed apps" placeholder="Search apps or publishers… (/)">
+                <button id="apps-refresh-btn" class="console-clear-btn" type="button">↻ Refresh</button>
+            </div>
+        </div>
+        <p id="apps-status" class="mod-status" role="status">Ready.</p>
+        <div id="apps-kpi" class="mod-kpi-strip"></div>
+        <div id="apps-filter-bar" class="mod-filter-bar" role="group" aria-label="Filter application type">
+            <button type="button" class="mod-filter-pill active" data-apps-filter="all">All Apps</button>
+            <button type="button" class="mod-filter-pill" data-apps-filter="user">User Apps</button>
+            <button type="button" class="mod-filter-pill" data-apps-filter="system">System / Runtimes</button>
+        </div>
+        <div class="mod-scroll">
+            <div class="mod-table-wrap">
+                <table class="mod-table" id="apps-table"><thead><tr><th data-sort="name">Application</th><th data-sort="version">Version</th><th data-sort="publisher">Publisher</th><th data-sort="size">Est. Size</th><th>Actions</th></tr></thead><tbody id="apps-rows"></tbody></table>
+            </div>
+            <div id="apps-show-all-wrap" class="mod-show-more-bar" hidden></div>
+        </div>
+    </section>
+
+    <section id="viewUpdateCenterPanel" class="tab-view-panel mod-panel" hidden>
+        <div class="mod-head">
+            <h2>🔄 UNIFIED UPDATE CENTER</h2>
+            <div class="mod-toolbar">
+                <button id="updates-scan-btn" class="console-clear-btn btn-accent-action" type="button">🔍 Scan Updates</button>
+                <button id="updates-upgrade-selected" class="console-clear-btn btn-accent-action" type="button" disabled>⬆️ Upgrade Selected (0)</button>
+                <button id="updates-winupdate-btn" class="console-clear-btn" type="button">🪟 Windows Update</button>
+            </div>
+        </div>
+        <p id="updates-status" class="mod-status" role="status">Click Scan Updates to check WinGet, PowerShell 7, and CoreWatch releases.</p>
+        <div id="updates-kpi" class="mod-kpi-strip"></div>
+        <div class="mod-toolbar">
+            <input id="updates-search" class="tab-search-input flex-fill" aria-label="Filter updates" placeholder="Filter upgrades by package or ID… (/)">
+            <label class="settings-check"><input id="updates-hide-pinned" type="checkbox"> Hide Pinned</label>
+        </div>
+        <div class="mod-scroll">
+            <div id="updates-summary-cards" class="mod-grid"></div>
+            <div class="mod-table-wrap">
+                <table class="mod-table"><thead><tr><th style="width:28px;"><input id="updates-select-all" type="checkbox" aria-label="Select all upgrades"></th><th>Package</th><th>WinGet ID</th><th>Installed</th><th>Available</th><th>Actions</th></tr></thead><tbody id="updates-rows"></tbody></table>
+            </div>
+        </div>
+    </section>
+
+    <section id="viewHomelabPanel" class="tab-view-panel mod-panel" hidden>
+        <div class="mod-head">
+            <h2>🌐 MULTI-PC / HOMELAB MONITOR</h2>
+            <div class="mod-toolbar">
+                <button id="homelab-probe-all" class="console-clear-btn btn-accent-action" type="button">📡 Probe All</button>
+                <button id="homelab-import-ssh" class="console-clear-btn" type="button">📥 Import ~/.ssh/config</button>
+            </div>
+        </div>
+        <p id="homelab-status" class="mod-status" role="status">Monitor secondary desktops, servers, or NAS devices via fast parallel HTTP/HTTPS/ICMP/TCP probes.</p>
+        <div id="homelab-kpi" class="mod-kpi-strip"></div>
+        <div class="mod-scroll">
+            <details class="dashboard-option-group mod-collapsible">
+                <summary>+ Add Homelab Node</summary>
+                <form id="homelab-add-form" class="mod-form">
+                    <label>Name<input name="name" class="tab-search-input" placeholder="TrueNAS" required></label>
+                    <label>Host / IP<input name="host" class="tab-search-input" placeholder="192.168.1.20" required></label>
+                    <label>Protocol<select name="protocol" id="homelab-proto-select" class="tab-sort-select"><option value="ssh">SSH (22)</option><option value="http">HTTP (80)</option><option value="https">HTTPS (443)</option><option value="rdp">RDP (3389)</option><option value="icmp">ICMP Ping</option><option value="winrm">WinRM (5985)</option><option value="tcp">TCP</option></select></label>
+                    <label>Port<input name="port" id="homelab-port-input" type="number" class="tab-search-input" value="22"></label>
+                    <label>Role<input name="role" class="tab-search-input" placeholder="NAS / Server"></label>
+                    <button class="console-clear-btn btn-accent-action" type="submit">+ Add Node</button>
+                </form>
+            </details>
+            <div id="homelab-grid" class="mod-grid"></div>
+        </div>
+    </section>
+
+    <section id="viewWslManagerPanel" class="tab-view-panel mod-panel" hidden>
+        <div class="mod-head">
+            <h2>🐧 WSL MANAGER</h2>
+            <div class="mod-toolbar">
+                <button id="wsl-refresh-btn" class="console-clear-btn" type="button">↻ Refresh</button>
+                <button id="wsl-open-config-btn" class="console-clear-btn" type="button">📝 Open .wslconfig</button>
+                <button id="wsl-online-btn" class="console-clear-btn" type="button">🌐 Online Catalog</button>
+                <button id="wsl-install-btn" class="console-clear-btn btn-accent-action" type="button">+ Install Distro</button>
+                <button id="wsl-shutdown-btn" class="console-clear-btn btn-danger" type="button">⏻ Shutdown All</button>
+            </div>
+        </div>
+        <p id="wsl-status" class="mod-status" role="status">Ready.</p>
+        <div id="wsl-kpi" class="mod-kpi-strip"></div>
+        <div class="mod-scroll">
+            <div class="mod-table-wrap">
+                <table class="mod-table"><thead><tr><th>Distribution</th><th>State</th><th>Version</th><th>Disk (VHDX)</th><th>Actions</th></tr></thead><tbody id="wsl-rows"></tbody></table>
+            </div>
+            <details class="dashboard-option-group mod-collapsible">
+                <summary>⚙️ Global .wslconfig Settings (Non-Destructive Merge)</summary>
+                <form id="wsl-config-form" class="mod-form">
+                    <label>Memory (.wslconfig)<input name="memory" class="tab-search-input" placeholder="e.g. 8GB"></label>
+                    <label>Processors<input name="processors" class="tab-search-input" placeholder="e.g. 4"></label>
+                    <label>Swap<input name="swap" class="tab-search-input" placeholder="e.g. 2GB"></label>
+                    <label>Networking Mode<select name="networkingMode" class="tab-sort-select"><option value="">Default (NAT)</option><option value="mirrored">Mirrored</option><option value="nat">NAT</option></select></label>
+                    <label>Auto Memory Reclaim<select name="autoMemoryReclaim" class="tab-sort-select"><option value="">Default (Off)</option><option value="gradual">Gradual</option><option value="dropcache">DropCache</option><option value="disabled">Disabled</option></select></label>
+                    <label class="settings-check"><input name="localhostForwarding" type="checkbox" checked> Localhost Forwarding</label>
+                    <label class="settings-check"><input name="dnsTunneling" type="checkbox" checked> DNS Tunneling</label>
+                    <label class="settings-check"><input name="firewall" type="checkbox" checked> Hyper-V Firewall</label>
+                    <label class="settings-check"><input name="autoProxy" type="checkbox" checked> Auto Proxy</label>
+                    <label class="settings-check"><input name="guiApplications" type="checkbox" checked> WSLg GUI Apps</label>
+                    <label class="settings-check"><input name="nestedVirtualization" type="checkbox" checked> Nested Virtualization</label>
+                    <label class="settings-check"><input name="sparseVhd" type="checkbox"> Sparse VHD (Auto-Shrink)</label>
+                    <button class="console-clear-btn btn-accent-action" type="submit">Save .wslconfig</button>
+                </form>
+            </details>
+            <pre id="wsl-online-pre" class="mod-pre"></pre>
+        </div>
+    </section>
+
+    <section id="viewSharingPanel" class="tab-view-panel mod-panel" hidden>
+        <div class="mod-head">
+            <h2>📂 SMB SHARING CENTER</h2>
+            <div class="mod-toolbar">
+                <button id="sharing-refresh-btn" class="console-clear-btn" type="button">↻ Refresh</button>
+                <button id="sharing-fsmgmt-btn" class="console-clear-btn" type="button">fsmgmt.msc</button>
+            </div>
+        </div>
+        <p id="sharing-status" class="mod-status" role="status">Ready.</p>
+        <div class="mod-scroll">
+            <details class="dashboard-option-group mod-collapsible">
+                <summary>+ Create SMB Share</summary>
+                <form id="sharing-add-form" class="mod-form">
+                    <label>Share Name<input name="name" class="tab-search-input" placeholder="MediaShare" required></label>
+                    <label>Local Folder Path<span class="panel-actions"><input name="path" id="sharing-path-input" class="tab-search-input flex-fill" placeholder="D:\Shared" required><button id="sharing-browse-path" class="console-clear-btn" type="button" aria-label="Browse share folder">…</button></span></label>
+                    <label>Description<input name="description" class="tab-search-input" placeholder="Optional note"></label>
+                    <label class="settings-check"><input name="fullAccess" type="checkbox"> Grant Full Access (Everyone)</label>
+                    <button class="console-clear-btn btn-accent-action" type="submit">+ Create SMB Share</button>
+                </form>
+            </details>
+            <div class="mod-table-wrap">
+                <table class="mod-table"><thead><tr><th>Share Name</th><th>Type</th><th>Local Path</th><th>Description</th><th>Actions</th></tr></thead><tbody id="sharing-rows"></tbody></table>
+            </div>
+        </div>
+    </section>
+
+    <section id="viewSystemDevicesPanel" class="tab-view-panel mod-panel" hidden>
+        <div class="mod-head">
+            <h2>🧩 DEVICES &amp; DRIVERS INSPECTOR</h2>
+            <div class="mod-toolbar">
+                <input id="devices-search" class="tab-search-input" aria-label="Search devices" placeholder="Search device, class, or vendor… (/)">
+                <select id="devices-class-filter" class="tab-sort-select" aria-label="Filter by device class"><option value="">All Device Classes</option></select>
+                <button id="devices-refresh-btn" class="console-clear-btn" type="button">↻ Refresh</button>
+                <button id="devices-devmgmt-btn" class="console-clear-btn btn-accent-action" type="button">devmgmt.msc</button>
+            </div>
+        </div>
+        <p id="devices-status" class="mod-status" role="status">Ready.</p>
+        <div id="devices-kpi" class="mod-kpi-strip"></div>
+        <div class="mod-toolbar" style="justify-content:space-between;">
+            <div id="devices-filter-bar" class="mod-filter-bar" role="group" aria-label="Filter device health">
+                <button type="button" class="mod-filter-pill active" data-dev-filter="all">All</button>
+                <button type="button" class="mod-filter-pill" data-dev-filter="problems">⚠ Issues</button>
+                <button type="button" class="mod-filter-pill" data-dev-filter="outdated">Aging (&gt;3y)</button>
+                <button type="button" class="mod-filter-pill" data-dev-filter="disabled">Disabled</button>
+            </div>
+            <div class="mod-toolbar">
+                <button class="console-clear-btn" type="button" data-driver-vendor="nvidia">NVIDIA</button>
+                <button class="console-clear-btn" type="button" data-driver-vendor="amd">AMD</button>
+                <button class="console-clear-btn" type="button" data-driver-vendor="intel">Intel</button>
+                <button class="console-clear-btn" type="button" data-driver-vendor="realtek">Realtek</button>
+            </div>
+        </div>
+        <div class="mod-scroll">
+            <div class="mod-table-wrap">
+                <table class="mod-table" id="devices-table"><thead><tr><th data-sort="name">Device Name</th><th data-sort="class">Class</th><th data-sort="manufacturer">Vendor</th><th data-sort="version">Version</th><th data-sort="date">Driver Date</th><th data-sort="status">Status</th></tr></thead><tbody id="devices-rows"></tbody></table>
+            </div>
+            <div id="devices-show-all-wrap" class="mod-show-more-bar" hidden></div>
+        </div>
+    </section>
+
+    <section id="viewFileOrganizerPanel" class="tab-view-panel mod-panel" hidden>
+        <div class="mod-head">
+            <h2>🗂️ FILE ORGANIZER</h2>
+            <div class="mod-toolbar">
+                <button id="org-undo-btn" class="console-clear-btn" type="button" disabled>↩️ Undo Last</button>
+                <button id="org-reset-btn" class="console-clear-btn" type="button">Reset Defaults</button>
+            </div>
+        </div>
+        <p id="org-status" class="mod-status" role="status">Rule-based native Rust file sorter with dry-run preview and 1-click undo.</p>
+        <div id="org-known-folders" class="org-folder-chips"></div>
+        <div class="mod-scroll">
+            <div class="mod-form">
+                <label>Source Folder<span class="panel-actions"><input id="org-source-input" class="tab-search-input flex-fill" placeholder="C:\Users\Me\Downloads"><button id="org-browse-src" class="console-clear-btn" type="button" aria-label="Browse source folder">…</button></span></label>
+                <label>Destination Root (blank = sort inside source)<span class="panel-actions"><input id="org-dest-input" class="tab-search-input flex-fill" placeholder="C:\Users\Me\Organized"><button id="org-browse-dst" class="console-clear-btn" type="button" aria-label="Browse destination folder">…</button></span></label>
+                <label class="settings-check"><input id="org-recursive" type="checkbox"> Include Subfolders</label>
+                <label class="settings-check"><input id="org-skip-dupes" type="checkbox"> Skip Duplicates</label>
+                <button id="org-preview-btn" class="console-clear-btn" type="button">🔍 Dry-Run Preview</button>
+                <button id="org-apply-btn" class="console-clear-btn btn-accent-action" type="button">⚡ Organize Now</button>
+            </div>
+            <pre id="org-preview-pre" class="mod-pre"></pre>
+            <details class="dashboard-option-group mod-collapsible">
+                <summary>+ Add Sorting Rule</summary>
+                <form id="org-add-rule-form" class="mod-form">
+                    <label>Rule Name<input name="name" class="tab-search-input" placeholder="3D Models" required></label>
+                    <label>Subfolder<input name="folder" class="tab-search-input" placeholder="3D" required></label>
+                    <label>Extensions (comma)<input name="extensions" class="tab-search-input" placeholder="stl, obj, 3mf" required></label>
+                    <button class="console-clear-btn btn-accent-action" type="submit">+ Add Rule</button>
+                </form>
+            </details>
+            <div class="mod-table-wrap">
+                <table class="mod-table"><thead><tr><th>Rule</th><th>Target Folder</th><th>Extensions</th><th>State</th><th>Actions</th></tr></thead><tbody id="org-rules-rows"></tbody></table>
+            </div>
+        </div>
+    </section>
+
+    <section id="viewAppInstallerPanel" class="tab-view-panel mod-panel" hidden>
+        <div class="mod-head">
+            <h2>⬇️ APP INSTALLER (WINGET BATCH)</h2>
+            <div class="mod-toolbar">
+                <input id="appstore-local-filter" class="tab-search-input" aria-label="Filter curated apps" placeholder="Filter 57 curated apps… (/)">
+                <select id="appstore-cat-filter" class="tab-sort-select" aria-label="Filter app category"><option value="">All Categories</option></select>
+                <button id="appstore-essentials-btn" class="console-clear-btn" type="button">⭐ Essentials</button>
+                <button id="appstore-clear-sel-btn" class="console-clear-btn" type="button">Clear</button>
+                <button id="appstore-install-btn" class="console-clear-btn btn-accent-action" type="button" disabled>⬇️ Install Selected (0)</button>
+            </div>
+        </div>
+        <p id="appstore-status" class="mod-status" role="status">Select curated apps below for batch WinGet installation, or search the full WinGet catalog.</p>
+        <div class="mod-scroll">
+            <form id="appstore-search-form" class="mod-toolbar">
+                <input id="appstore-search-input" class="tab-search-input flex-fill" aria-label="Search WinGet packages" placeholder="Search full WinGet repository (e.g. obsidian, blender, ffmpeg)…">
+                <button class="console-clear-btn" type="submit">🔍 Search WinGet</button>
+            </form>
+            <div id="appstore-search-wrap" class="mod-table-wrap" hidden>
+                <table class="mod-table"><thead><tr><th>Package</th><th>WinGet ID</th><th>Version</th><th>Action</th></tr></thead><tbody id="appstore-search-rows"></tbody></table>
+            </div>
+            <div id="appstore-catalog-grid" class="mod-grid"></div>
+            <pre id="appstore-log-pre" class="mod-pre"></pre>
+        </div>
+    </section>
+
+    <section id="viewGitHubPanel" class="tab-view-panel mod-panel" hidden>
+        <div class="mod-head">
+            <h2>🐙 GITHUB MANAGER</h2>
+            <div class="mod-toolbar">
+                <input id="github-search" class="tab-search-input" aria-label="Filter local repositories" placeholder="Filter repos or branch… (/)">
+                <button id="github-pull-all-btn" class="console-clear-btn btn-accent-action" type="button">⬇️ Pull All</button>
+                <button id="github-releases-btn" class="console-clear-btn" type="button">🏷️ View Releases</button>
+                <button id="github-refresh-btn" class="console-clear-btn" type="button">↻ Rescan</button>
+            </div>
+        </div>
+        <p id="github-status" class="mod-status" role="status">Ready.</p>
+        <div id="github-kpi" class="mod-kpi-strip"></div>
+        <div class="mod-scroll">
+            <form id="github-clone-form" class="mod-toolbar">
+                <input id="github-clone-url" class="tab-search-input flex-fill" aria-label="Repository URL to clone" placeholder="Clone repo URL (https://github.com/owner/repo.git)">
+                <button class="console-clear-btn btn-accent-action" type="submit">⬇️ Clone into Projects Root</button>
+            </form>
+            <div id="github-repos-grid" class="mod-grid"></div>
+            <pre id="github-output-pre" class="mod-pre"></pre>
+        </div>
+    </section>
+
+    <section id="viewJiraPanel" class="tab-view-panel mod-panel" hidden>
+        <div class="mod-head">
+            <h2>📋 JIRA MANAGER</h2>
+            <div class="mod-toolbar">
+                <button id="jira-fetch-btn" class="console-clear-btn btn-accent-action" type="button">🔄 Fetch Issues</button>
+                <button id="jira-clear-btn" class="console-clear-btn btn-danger" type="button">Sign Out</button>
+            </div>
+        </div>
+        <p id="jira-status" class="mod-status" role="status">Ready.</p>
+        <div id="jira-jql-presets" class="mod-filter-bar" role="group" aria-label="Quick JQL presets">
+            <button type="button" class="mod-filter-pill" data-jql="assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC">My Open</button>
+            <button type="button" class="mod-filter-pill" data-jql="assignee = currentUser() AND statusCategory = &quot;In Progress&quot; ORDER BY updated DESC">In Progress</button>
+            <button type="button" class="mod-filter-pill" data-jql="updated >= -7d ORDER BY updated DESC">Recently Updated (7d)</button>
+            <button type="button" class="mod-filter-pill" data-jql="priority in (Highest, High) AND statusCategory != Done ORDER BY updated DESC">High Priority</button>
+        </div>
+        <div class="mod-scroll">
+            <form id="jira-config-form" class="mod-form">
+                <label>Jira Site URL<input name="baseUrl" class="tab-search-input" placeholder="https://yourteam.atlassian.net" required></label>
+                <label>Email (leave blank for DC PAT)<input name="email" class="tab-search-input" placeholder="you@company.com"></label>
+                <label>API Token / PAT<input name="apiToken" type="password" class="tab-search-input" placeholder="Atlassian API Token"></label>
+                <label>JQL Query<input name="jql" class="tab-search-input" value="assignee = currentUser() ORDER BY updated DESC"></label>
+                <button class="console-clear-btn btn-accent-action" type="submit">Save Connection</button>
+            </form>
+            <div class="mod-table-wrap">
+                <table class="mod-table"><thead><tr><th>Key</th><th>Summary</th><th>Status</th><th>Priority</th><th>Assignee</th><th>Updated</th><th>Actions</th></tr></thead><tbody id="jira-rows"></tbody></table>
+            </div>
+            <div id="jira-detail-panel" class="jira-detail-card" hidden></div>
+        </div>
+    </section>
+
+    <!-- RUSTCOREWATCH EXCLUSIVE: STANDALONE NATIVE RGB STUDIO -->
+    <section id="viewRgbStudioPanel" class="tab-view-panel mod-panel" hidden>
+        <div class="mod-head">
+            <h2>🌈 RGB LIGHTING STUDIO <span class="rgb-exclusive-badge">STANDALONE NATIVE ENGINE</span></h2>
+            <div class="mod-toolbar">
+                <span id="rgb-hid-pill" class="diag-pill diag-neutral">USB HID · 0</span>
+                <span id="rgb-nvapi-pill" class="diag-pill diag-neutral">GPU NVAPI · 0</span>
+                <span id="rgb-smbus-pill" class="diag-pill diag-neutral">RAM SMBus · 0</span>
+                <span id="rgb-win11-pill" class="diag-pill diag-neutral">Win11 HID · 0</span>
+                <button id="rgb-rescan-btn" class="console-clear-btn btn-accent-action" type="button">↻ Rescan Hardware</button>
+                <button id="rgb-blackout-btn" class="console-clear-btn btn-danger" type="button" title="Turn off all connected RGB LEDs">⬛ Blackout</button>
+            </div>
+        </div>
+        <p id="rgb-status" class="mod-status" role="status">Standalone native Rust RGB controller (USB HID · NVIDIA NVAPI · PawnIO SMBus · Win11 Dynamic Lighting).</p>
+        <div class="mod-scroll">
+            <div id="rgb-admin-banner" class="rgb-admin-banner" hidden>
+                <span>🛡️ <strong>RAM RGB (PawnIO SMBus)</strong> requires Administrator privileges to access the motherboard SMBus for Corsair/G.Skill RAM sticks.</span>
+                <button id="rgb-elevate-btn" class="console-clear-btn btn-accent-action" type="button">🛡️ Restart as Administrator</button>
+            </div>
+
+            <div class="rgb-backend-bar">
+                <div class="rgb-backend-group">
+                    <button id="rgb-sync-theme-btn" class="console-clear-btn btn-accent-action" type="button" title="Push active Theme Studio accent color to all RGB devices">🎨 Match Theme Accent</button>
+                    <button id="rgb-win11-settings-btn" class="console-clear-btn" type="button" title="Open Windows 11 Personalization → Dynamic Lighting">⚙️ Win11 Lighting</button>
+                </div>
+                <span id="rgb-backend-summary" class="mod-card-sub">No external RGB software required.</span>
+            </div>
+
+            <div class="rgb-studio-layout">
+                <div class="rgb-deck-card">
+                    <div class="rgb-section-header">
+                        <h3 class="rgb-section-title">🎛️ Master Lighting Deck</h3>
+                        <span id="rgb-thermal-readout" class="mod-card-sub">CPU — · GPU —</span>
+                    </div>
+                    <div id="rgb-live-strip" class="rgb-live-strip" aria-label="Active lighting color preview"></div>
+                    <div class="rgb-color-row">
+                        <label class="rgb-color-pick">Primary <input id="rgb-primary-color" type="color" value="#3182ce"><span id="rgb-primary-hex" class="rgb-hex-code">#3182CE</span></label>
+                        <label class="rgb-color-pick">Secondary <input id="rgb-secondary-color" type="color" value="#9f7aea"><span id="rgb-secondary-hex" class="rgb-hex-code">#9F7AEA</span></label>
+                    </div>
+                    <div id="rgb-swatches" class="rgb-swatches" aria-label="Quick color swatches"></div>
+                    <div id="rgb-effects-grid" class="rgb-effect-grid" aria-label="Lighting effects"></div>
+                    <div class="rgb-slider-grid">
+                        <label class="rgb-slider-field">
+                            <span class="rgb-slider-field-head"><span>☀️ Brightness</span><strong id="rgb-brightness-val">85%</strong></span>
+                            <input id="rgb-brightness" type="range" min="0" max="100" value="85">
+                        </label>
+                        <label class="rgb-slider-field">
+                            <span class="rgb-slider-field-head"><span>⚡ Effect Speed</span><strong id="rgb-speed-val">45%</strong></span>
+                            <input id="rgb-speed" type="range" min="5" max="100" value="45">
+                        </label>
+                    </div>
+                    <div>
+                        <div class="rgb-thermal-bar"></div>
+                        <div class="rgb-thermal-legend"><span>≤40°C Ice Blue</span><span>56°C Mint</span><span>72°C Amber</span><span>≥86°C Hot Red</span></div>
+                    </div>
+                </div>
+
+                <div class="rgb-side-stack">
+                    <div class="rgb-deck-card">
+                        <div class="rgb-section-header">
+                            <h3 class="rgb-section-title">⭐ Lighting Presets</h3>
+                            <form id="rgb-save-preset-form" class="mod-toolbar">
+                                <input id="rgb-preset-name-input" class="tab-search-input rgb-preset-input" aria-label="New preset name" placeholder="Save preset name…">
+                                <button id="rgb-save-preset-btn" class="console-clear-btn" type="submit">+ Save</button>
+                            </form>
+                        </div>
+                        <div id="rgb-presets-list" class="rgb-presets-wrap"></div>
+                    </div>
+
+                    <div class="rgb-deck-card">
+                        <div class="rgb-section-header">
+                            <h3 class="rgb-section-title">⚡ System Profiles → RGB Auto-Sync</h3>
+                            <label class="settings-check rgb-inline-check"><input id="rgb-profile-sync-toggle" type="checkbox"><span>Sync when switching mode</span></label>
+                        </div>
+                        <div id="rgb-profile-bindings" class="rgb-profile-sync-grid"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="rgb-deck-card">
+                <div class="rgb-section-header">
+                    <h3 class="rgb-section-title">💡 Connected RGB Hardware &amp; Zones</h3>
+                    <span id="rgb-device-count" class="diag-pill diag-neutral">0 device(s)</span>
+                </div>
+                <div id="rgb-devices-container"></div>
+            </div>
+
+            <details id="rgb-diag-details" class="rgb-optional-bridge">
+                <summary>🔬 Hardware Diagnostics &amp; Live Readback (HID / NVAPI / SMBus)</summary>
+                <div class="rgb-backend-bar" style="margin-top:8px;">
+                    <div class="rgb-backend-group">
+                        <button id="rgb-diag-btn" class="console-clear-btn btn-accent-action" type="button">🔬 Run Hardware Readback</button>
+                        <button id="rgb-diag-copy-btn" class="console-clear-btn" type="button">📋 Copy JSON</button>
+                    </div>
+                    <span class="mod-card-sub">Queries live USB HID ACK, brightness readback, and NVAPI I2C LED registers.</span>
+                </div>
+                <pre id="rgb-diag-pre" class="mod-pre" style="margin-top:8px;"></pre>
+            </details>
+
+            <details class="rgb-optional-bridge">
+                <summary>🔌 Optional: External OpenRGB SDK Bridge (<span id="rgb-openrgb-pill" class="diag-pill diag-neutral">Offline</span>)</summary>
+                <div class="rgb-backend-bar" style="margin-top:8px;">
+                    <div class="rgb-backend-group">
+                        <span class="mod-card-sub">Server:</span>
+                        <input id="rgb-host-input" class="tab-search-input rgb-host-input" value="127.0.0.1" aria-label="OpenRGB host" placeholder="127.0.0.1">
+                        <input id="rgb-port-input" class="tab-search-input rgb-port-input" type="number" min="1" max="65535" value="6742" aria-label="OpenRGB port">
+                        <button id="rgb-connect-btn" class="console-clear-btn" type="button">🔌 Connect</button>
+                        <button id="rgb-launch-openrgb-btn" class="console-clear-btn" type="button">🚀 Start OpenRGB</button>
+                    </div>
+                    <span class="mod-card-sub">Not required — only for extra third-party hardware not yet in RustCoreWatch's native drivers.</span>
+                </div>
+            </details>
+        </div>
+    </section>
+
+    <!-- FLOATING CUSTOM DISK PARTITIONER (Pauses Telemetry While Open) -->
+    <section id="diskPartitionerModal" class="dashboard-panel" popover="manual" aria-labelledby="dpModalTitle" role="dialog">
+        <header class="dashboard-panel-header draggable-panel-header">
+            <div><h2 id="dpModalTitle">⠿ 💿 RustCoreWatch Disk Partitioner</h2><p class="dashboard-hint">Live Dashboard telemetry is automatically paused while this window is open.</p></div>
+            <div class="panel-actions">
+                <button id="dpRescanBtn" type="button" class="console-clear-btn">↻ Rescan</button>
+                <button id="dpDiskMgmtBtn" type="button" class="console-clear-btn">diskmgmt.msc</button>
+                <button id="dpCloseBtn" type="button" class="console-clear-btn btn-accent-action">Close &amp; Resume</button>
+            </div>
+        </header>
+        <div class="dashboard-panel-body">
+            <p id="dpAdminBanner" class="theme-protected" hidden>🛡️ Standard User session: Viewing disks is read-only. Restart CoreWatch as Administrator to create, format, resize, or delete partitions.</p>
+            <div class="dp-layout-split">
+                <div id="dpDiskList" style="display: flex; flex-direction: column; gap: 8px;"></div>
+                <div id="dpInspector"></div>
+            </div>
+        </div>
+        <footer class="dashboard-panel-footer dp-footer">
+            <span id="dpStatusText" class="dashboard-hint" role="status">Ready.</span>
+            <span class="dashboard-hint">🔒 System, Boot, C:, EFI &amp; Recovery partitions are protected.</span>
+        </footer>
+    </section>
+
+    <!-- QUICK COMMAND PALETTE (Ctrl+K) -->
+    <dialog id="cwCommandPaletteModal" class="dashboard-dialog" aria-labelledby="cmdkTitle">
+        <div class="cmdk-header-row">
+            <h2 id="cmdkTitle" class="cmdk-title">⌘ Quick Command Palette</h2>
+            <span id="cmdkCount" class="dashboard-hint"></span>
+            <button id="cmdkCloseBtn" type="button" class="console-clear-btn">Esc</button>
+        </div>
+        <input id="cmdkSearchInput" class="tab-search-input cmdk-input" aria-label="Search commands and tabs" placeholder="Jump to any tab, mode, theme, RGB preset, or action…">
+        <div id="cmdkResults" class="cmdk-list"></div>
+        <div class="cmdk-footer-hint">↑↓ Navigate · ↵ Run · Ctrl+K / Esc Close</div>
+    </dialog>
+    <button id="sideDockPullTab" class="side-dock-pull-tab" type="button" hidden title="Open Telemetry Dock" aria-label="Open Telemetry Dock">◫<span id="sideDockPullCount"></span></button>
     <aside id="dashboard-dock" class="dashboard-panel" popover="manual" aria-label="Telemetry dock">
-        <header class="dashboard-panel-header"><h2>◫ Telemetry Dock</h2><button id="dock-close" type="button" class="console-clear-btn" aria-label="Close telemetry dock">✕</button></header>
+        <header class="dashboard-panel-header">
+            <div><h2>◫ Telemetry Dock</h2><p class="dashboard-hint">Live frames pinned off-grid</p></div>
+            <div class="panel-actions">
+                <button id="dock-open-layout" type="button" class="console-clear-btn" title="Customize Dashboard Layout">✏️ Layout</button>
+                <button id="dock-close" type="button" class="console-clear-btn" aria-label="Close telemetry dock">✕</button>
+            </div>
+        </header>
         <div id="dock-cards" class="dashboard-panel-body dashboard-grid"></div>
     </aside>
     <dialog id="dashboard-dns-dialog" class="dashboard-dialog" aria-labelledby="dashboard-dns-title">
@@ -472,7 +1363,7 @@
             </div>
         </form>
     </dialog>
-    <dialog id="dashboard-dialog" class="dashboard-dialog">
+    <dialog id="dashboard-dialog" class="dashboard-dialog" aria-labelledby="dialog-title">
         <form method="dialog">
             <h2 id="dialog-title"></h2>
             <p id="dialog-message"></p>
@@ -483,14 +1374,14 @@
                 <select id="dialog-select" class="tab-sort-select"></select>
             </label>
             <div class="network-actions">
-                <button type="submit" class="console-clear-btn" value="cancel" autofocus>Cancel</button>
+                <button id="dialog-cancel-btn" type="button" class="console-clear-btn" value="cancel">Cancel</button>
                 <button type="submit" class="console-clear-btn btn-accent-action" value="confirm">Apply</button>
             </div>
         </form>
     </dialog>
     <section id="layout-panel" class="dashboard-panel" popover="manual" aria-labelledby="layout-panel-title" role="dialog">
-        <header class="dashboard-panel-header">
-            <div><h2 id="layout-panel-title">✏️ Customize Dashboard</h2><p class="dashboard-hint">Drag cards on the grid or adjust frames and sections below.</p></div>
+        <header class="dashboard-panel-header draggable-panel-header">
+            <div><h2 id="layout-panel-title">⠿ ✏️ Customize Dashboard</h2><p class="dashboard-hint">Drag card headers on the grid or adjust frames and sections below.</p></div>
             <button type="button" class="console-clear-btn btn-accent-action panel-dismiss" aria-label="Close layout">Done</button>
         </header>
         <div class="dashboard-panel-body">
@@ -526,8 +1417,16 @@
                 <div class="panel-actions">
                     <button id="choose-wallpaper" type="button" class="console-clear-btn">Choose image…</button>
                     <button id="remove-wallpaper" type="button" class="console-clear-btn" disabled>Remove</button>
+                    <span id="wallpaper-active-label" class="dashboard-hint">No image set</span>
                 </div>
                 <div id="appearance-wallpaper-effects" class="appearance-effects" hidden>
+                    <div class="wallpaper-fit-pills" id="wallpaper-fit-pills" role="group" aria-label="Wallpaper fit mode">
+                        <button type="button" class="filter-pill" data-bg-fit="cover">Cover</button>
+                        <button type="button" class="filter-pill" data-bg-fit="contain">Contain</button>
+                        <button type="button" class="filter-pill" data-bg-fit="stretch">Stretch</button>
+                        <button type="button" class="filter-pill" data-bg-fit="center">Center</button>
+                        <button type="button" class="filter-pill" data-bg-fit="tile">Tile</button>
+                    </div>
                     <label>Fit <select id="wallpaper-fit" name="bgFit">
                         <option value="cover">Cover</option><option value="contain">Contain</option>
                         <option value="stretch">Stretch</option><option value="center">Center</option><option value="tile">Tile</option>
@@ -536,7 +1435,8 @@
                         <option value="none">None</option><option value="uniform">Uniform</option><option value="vignette">Vignette</option>
                         <option value="top">Top</option><option value="bottom">Bottom</option>
                     </select></label>
-                    <label>Opacity <input type="range" name="bgOpacity" min="0" max="100"> <output></output></label>
+                    <label>Image opacity <input type="range" name="bgOpacity" min="0" max="100"> <output></output></label>
+                    <label>Card opacity <input type="range" name="surfaceOpacity" min="35" max="100"> <output></output></label>
                     <label>Blur <input type="range" name="bgBlur" min="0" max="24"> <output></output></label>
                     <label>Fade strength <input type="range" name="bgFadeStrength" min="0" max="95"> <output></output></label>
                 </div>
@@ -545,6 +1445,7 @@
         <footer class="dashboard-panel-footer">
             <span id="appearance-save-status" class="dashboard-hint" role="status"></span>
             <div class="panel-actions">
+                <button id="theme-sync-rgb" type="button" class="console-clear-btn" title="Push current Theme Accent to RGB Studio">🌈 → RGB</button>
                 <button id="export-appearance" type="button" class="console-clear-btn">Export</button><button id="import-appearance" type="button" class="console-clear-btn">Import</button>
                 <button id="reset-appearance" type="button" class="console-clear-btn btn-danger">Reset</button>
             </div>
@@ -552,7 +1453,7 @@
     </section>
     <section id="preferences-panel" class="dashboard-panel" popover="manual" aria-labelledby="preferences-panel-title" role="dialog">
         <header class="dashboard-panel-header">
-            <h2 id="preferences-panel-title">⚙️ CoreWatch Settings</h2>
+            <h2 id="preferences-panel-title">⚙️ RustCoreWatch Settings</h2>
             <button type="button" class="console-clear-btn panel-dismiss" aria-label="Close dashboard settings">✕</button>
         </header>
         <nav id="settings-tabs" class="settings-tabs" role="tablist" aria-label="Settings sections">
@@ -563,8 +1464,26 @@
         </nav>
         <div class="dashboard-panel-body" id="settings-pane-general" role="tabpanel" aria-labelledby="settings-tab-general">
             <fieldset class="dashboard-option-group"><legend>Startup &amp; Behavior</legend><div id="settings-general-fields" class="settings-general-fields"></div></fieldset>
-            <fieldset class="dashboard-option-group"><legend>About</legend><div id="settings-version">CoreWatch Rust</div><p id="settings-update-status" class="dashboard-hint" role="status"></p>
-                <div class="panel-actions"><button class="console-clear-btn" id="settings-check-update" type="button">Check for Updates</button><button class="console-clear-btn" id="settings-open-releases" type="button">Release Notes</button><button class="console-clear-btn" id="settings-data-folder" type="button">Open Data Folder</button></div></fieldset>
+            <fieldset class="dashboard-option-group">
+                <legend>Interface Font Size</legend>
+                <div id="settings-font-size" class="cw-font-size-grid" role="radiogroup" aria-label="Interface font size">
+                    <label class="cw-font-card"><input type="radio" name="cwFontSize" value="small"><span class="cw-font-sample cw-font-sample-sm">Aa</span><strong>Small</strong><small>88%</small></label>
+                    <label class="cw-font-card"><input type="radio" name="cwFontSize" value="normal" checked><span class="cw-font-sample cw-font-sample-md">Aa</span><strong>Normal</strong><small>100%</small></label>
+                    <label class="cw-font-card"><input type="radio" name="cwFontSize" value="large"><span class="cw-font-sample cw-font-sample-lg">Aa</span><strong>Large</strong><small>112%</small></label>
+                    <label class="cw-font-card"><input type="radio" name="cwFontSize" value="xlarge"><span class="cw-font-sample cw-font-sample-xl">Aa</span><strong>Extra Large</strong><small>124%</small></label>
+                </div>
+            </fieldset>
+            <fieldset class="dashboard-option-group"><legend>About</legend>
+                <div id="settings-version">RustCoreWatch</div>
+                <div class="settings-about-grid" id="settings-about-grid">
+                    <div class="settings-about-cell"><span>Engine</span><strong>Native Rust + Win32</strong></div>
+                    <div class="settings-about-cell"><span>Renderer</span><strong>WebView2 + Tauri</strong></div>
+                    <div class="settings-about-cell"><span>Architecture</span><strong>Windows x64</strong></div>
+                    <div class="settings-about-cell"><span>RGB Engine</span><strong>Standalone HID/NVAPI/SMBus</strong></div>
+                </div>
+                <p id="settings-update-status" class="dashboard-hint" role="status"></p>
+                <div class="panel-actions"><button class="console-clear-btn" id="settings-check-update" type="button">Check for Updates</button><button class="console-clear-btn" id="settings-open-releases" type="button">Release Notes</button><button class="console-clear-btn" id="settings-data-folder" type="button">Open Data Folder</button></div>
+            </fieldset>
             <button id="import-dashboard-settings" type="button" class="console-clear-btn">Import from PowerShell version…</button>
         </div>
         <div class="dashboard-panel-body" id="settings-pane-directories" role="tabpanel" aria-labelledby="settings-tab-directories" hidden><div id="settings-directories" class="settings-directories"></div></div>
@@ -586,10 +1505,17 @@
                 </label>
             </fieldset>
         </div>
-        <div class="dashboard-panel-body" id="settings-pane-modules" role="tabpanel" aria-labelledby="settings-tab-modules" hidden><div id="settings-modules" class="settings-modules"></div></div>
+        <div class="dashboard-panel-body" id="settings-pane-modules" role="tabpanel" aria-labelledby="settings-tab-modules" hidden>
+            <div class="mod-toolbar">
+                <input id="settings-modules-search" class="tab-search-input" type="search" placeholder="Filter 24 modules by name or group…" aria-label="Filter modules">
+                <button id="settings-modules-enable-all" class="console-clear-btn" type="button">Enable All</button>
+            </div>
+            <div id="settings-modules" class="settings-modules"></div>
+        </div>
         <footer class="dashboard-panel-footer">
             <span id="preferences-save-status" class="dashboard-hint" role="status"></span>
         </footer>
     </section>
+    <div id="cwToastStack" class="cw-toast-stack" aria-live="polite" aria-atomic="false"></div>
 </body>
 </html>

@@ -2,12 +2,6 @@ use crate::native;
 use serde::Serialize;
 use std::{collections::HashMap, time::Instant};
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
-use windows_sys::Win32::System::Performance::{
-    PDH_CSTATUS_NEW_DATA, PDH_CSTATUS_VALID_DATA, PDH_FMT_COUNTERVALUE, PDH_FMT_DOUBLE,
-    PDH_HCOUNTER, PDH_HQUERY, PdhAddEnglishCounterW, PdhCloseQuery, PdhCollectQueryData,
-    PdhGetFormattedCounterValue, PdhOpenQueryW,
-};
-
 #[derive(Serialize, Default, Clone)]
 pub struct FastSample {
     pub cpu_percent: Option<f32>,
@@ -29,10 +23,63 @@ pub struct Usage {
 
 #[derive(Serialize, Clone)]
 pub struct TopProcess {
+    #[serde(flatten)]
+    process: ResourceConsumer,
+    cpu_spike: bool,
+    top_cpu: Option<ResourceConsumer>,
+    top_ram: ResourceConsumer,
+    token: Option<String>,
+}
+
+#[derive(Serialize, Clone)]
+struct ResourceConsumer {
     name: String,
-    pid: usize,
+    pid: u32,
     cpu_percent: f32,
     memory: u64,
+}
+
+impl ResourceConsumer {
+    fn from_process(process: &sysinfo::Process, cores: f32) -> Self {
+        Self {
+            name: process.name().to_string_lossy().into_owned(),
+            pid: process.pid().as_u32(),
+            cpu_percent: (process.cpu_usage() / cores).clamp(0.0, 100.0),
+            memory: process.memory(),
+        }
+    }
+}
+
+fn top_process(system: &System, cores: f32) -> Option<TopProcess> {
+    let eligible = system.processes().values().filter(|process| {
+        if process.pid().as_u32() <= 4 {
+            return false;
+        }
+        let name = process.name().to_string_lossy().to_ascii_lowercase();
+        !matches!(
+            name.trim_end_matches(".exe"),
+            "idle" | "system" | "memory compression"
+        )
+    });
+    let ram = eligible
+        .clone()
+        .max_by_key(|process| (process.memory(), process.pid()))?;
+    let cpu = eligible
+        .filter(|process| process.cpu_usage().is_finite() && process.cpu_usage() > 0.0)
+        .max_by(|a, b| {
+            a.cpu_usage()
+                .total_cmp(&b.cpu_usage())
+                .then_with(|| a.pid().cmp(&b.pid()))
+        });
+    let spike = cpu.filter(|process| (process.cpu_usage() / cores).round() >= 10.0);
+    let selected = spike.unwrap_or(ram);
+    Some(TopProcess {
+        process: ResourceConsumer::from_process(selected, cores),
+        cpu_spike: spike.is_some(),
+        top_cpu: cpu.map(|cpu| ResourceConsumer::from_process(cpu, cores)),
+        top_ram: ResourceConsumer::from_process(ram, cores),
+        token: crate::tasks::process_token(selected),
+    })
 }
 
 #[derive(Serialize, PartialEq, Debug, Clone)]
@@ -64,14 +111,13 @@ impl Default for Collector {
 }
 
 struct CpuClock {
-    query: PDH_HQUERY,
-    performance: PDH_HCOUNTER,
+    query: crate::pdh::Query,
+    performance: crate::pdh::Counter,
     base_mhz: u32,
 }
 
 impl CpuClock {
     fn open() -> Option<Self> {
-        use std::ptr::{null, null_mut};
         use winreg::{RegKey, enums::HKEY_LOCAL_MACHINE};
         let base_mhz: u32 = RegKey::predef(HKEY_LOCAL_MACHINE)
             .open_subkey(r"HARDWARE\DESCRIPTION\System\CentralProcessor\0")
@@ -81,59 +127,24 @@ impl CpuClock {
         if base_mhz == 0 {
             return None;
         }
-        let mut clock = Self {
-            query: null_mut(),
-            performance: null_mut(),
+        let query = crate::pdh::Query::open()?;
+        let performance = query.add(r"\Processor Information(_Total)\% Processor Performance")?;
+        query.collect();
+        Some(Self {
+            query,
+            performance,
             base_mhz,
-        };
-        let counter = native::wide(r"\Processor Information(_Total)\% Processor Performance");
-        unsafe {
-            if PdhOpenQueryW(null(), 0, &mut clock.query) != 0
-                || PdhAddEnglishCounterW(clock.query, counter.as_ptr(), 0, &mut clock.performance)
-                    != 0
-            {
-                return None;
-            }
-            PdhCollectQueryData(clock.query);
-        }
-        Some(clock)
+        })
     }
 
     fn mhz(&self) -> Option<u64> {
-        use std::ptr::null_mut;
-        // pdh.h's PDH_FMT_NOCAP100 preserves boost above nominal frequency.
-        const PDH_FMT_NOCAP100: u32 = 0x0000_8000;
-        let mut sample = PDH_FMT_COUNTERVALUE::default();
-        unsafe {
-            if PdhCollectQueryData(self.query) != 0
-                || PdhGetFormattedCounterValue(
-                    self.performance,
-                    PDH_FMT_DOUBLE | PDH_FMT_NOCAP100,
-                    null_mut(),
-                    &mut sample,
-                ) != 0
-                || !matches!(
-                    sample.CStatus,
-                    PDH_CSTATUS_VALID_DATA | PDH_CSTATUS_NEW_DATA
-                )
-            {
-                return None;
-            }
-            let performance = sample.Anonymous.doubleValue;
-            (5.0..=300.0)
-                .contains(&performance)
-                .then(|| (f64::from(self.base_mhz) * performance / 100.0).round() as u64)
+        if !self.query.collect() {
+            return None;
         }
-    }
-}
-
-impl Drop for CpuClock {
-    fn drop(&mut self) {
-        if !self.query.is_null() {
-            unsafe {
-                PdhCloseQuery(self.query);
-            }
-        }
+        let performance = self.performance.value()?;
+        (5.0..=300.0)
+            .contains(&performance)
+            .then(|| (f64::from(self.base_mhz) * performance / 100.0).round() as u64)
     }
 }
 
@@ -161,22 +172,7 @@ impl Collector {
                 .filter(|&mhz| mhz > 0)
                 .max();
             let cores = self.system.cpus().len().max(1) as f32;
-            current.top_process = self
-                .system
-                .processes()
-                .values()
-                .filter(|process| process.pid().as_u32() != 0)
-                .max_by(|a, b| {
-                    a.cpu_usage()
-                        .total_cmp(&b.cpu_usage())
-                        .then_with(|| a.memory().cmp(&b.memory()))
-                })
-                .map(|process| TopProcess {
-                    name: process.name().to_string_lossy().into_owned(),
-                    pid: process.pid().as_u32() as usize,
-                    cpu_percent: (process.cpu_usage() / cores).clamp(0.0, 100.0),
-                    memory: process.memory(),
-                });
+            current.top_process = top_process(&self.system, cores);
         } else {
             self.system.refresh_cpu_usage();
         }

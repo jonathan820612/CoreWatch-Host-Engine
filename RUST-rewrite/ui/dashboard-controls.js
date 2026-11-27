@@ -12,8 +12,10 @@ function createDashboardControls() {
     ];
     let fields = {};
     let uplink;
+    let lastPowerShellCheck;
     const busy = new Set();
     const warmth = byId("night-warmth");
+    const warmthRow = byId("night-warmth-row");
     let editingWarmth = false;
     const controls = new Map(toggles.map(([key, id]) => [key, byId(id)]));
     const canAdmin = () => fields.elevation === "Administrator";
@@ -29,12 +31,19 @@ function createDashboardControls() {
         const value = state(key);
         const button = controls.get(key);
         const writing = busy.has(key);
+        const locked = Boolean(value && isDefender(key) && fields.tamper !== "Off");
         const title = !value ? `${label} status is unavailable.` :
-            isDefender(key) && fields.tamper !== "Off" ? "Windows controls changes through Tamper Protection or managed policy." :
+            locked ? "Locked by Windows Tamper Protection — click to open Windows Security." :
             value === "On" || value === "Mixed" ? `Turn off ${label}` : `Turn on ${label}`;
-        badge(id, writing ? "…" : value?.toUpperCase(), value === "On",
+        const caption = writing ? "…" : value ? (locked ? "🔒 " : "") + value.toUpperCase() : null;
+        const theme = writing ? "diag-neutral"
+            : value === "Mixed" ? "diag-warn"
+            : key === "nightLight" && value === "On" ? "diag-warn"
+            : undefined;
+        badge(id, caption, value === "On",
             key === "firewall" && fields.firewall ? `${title} · ${fields.firewall}` : title,
-            writing ? "diag-neutral" : value === "Mixed" ? "diag-warn" : undefined);
+            theme);
+        button.classList.toggle("state-locked", locked && !writing);
         button.disabled = !value || writing;
         if (value) button.setAttribute("aria-pressed", value === "Mixed" ? "mixed" : String(value === "On"));
         else button.removeAttribute("aria-pressed");
@@ -45,6 +54,7 @@ function createDashboardControls() {
         busy.add(key);
         render();
         try { await action(); }
+        catch (err) { log(`Control ${key}: ${err}`); }
         finally { busy.delete(key); render(); }
     }
 
@@ -66,7 +76,9 @@ function createDashboardControls() {
             const current = state(key);
             if (!current) return;
             if (isDefender(key) && fields.tamper !== "Off") {
-                await askDashboard(label, "Windows Tamper Protection or managed policy controls changes to this setting.", null, 0, "Close");
+                if (await askDashboard(label, "Windows Tamper Protection locks this setting against external changes. Open Windows Security to manage it directly?", null, 0, "Open Windows Security")) {
+                    await dashboardCommand("security_repair_action", { action: { kind: "open_defender" } }, "Opened Windows Security.");
+                }
                 return;
             }
             const enabled = current === "Off";
@@ -82,9 +94,11 @@ function createDashboardControls() {
         }));
     }
 
-    byId("lblTamperProtection").addEventListener("click", () => {
-        const state = fields.tamper?.toLowerCase();
-        return askDashboard("Tamper Protection", `Tamper Protection is ${state}. Windows manages this policy.`, null, 0, "Close");
+    byId("lblTamperProtection").addEventListener("click", async () => {
+        const stateText = fields.tamper?.toLowerCase() ?? "unknown";
+        if (await askDashboard("Tamper Protection", `Tamper Protection is ${stateText}. Windows enforces this policy inside Windows Security. Open Virus & Threat Protection settings?`, null, 0, "Open Windows Security")) {
+            await dashboardCommand("security_repair_action", { action: { kind: "open_defender" } }, "Opened Windows Security.");
+        }
     });
 
     byId("lblPendingReboot").addEventListener("click", () => run("restart", async () => {
@@ -106,16 +120,53 @@ function createDashboardControls() {
         }
     }));
 
+    let pendingWarmth = null;
+    async function flushWarmth() {
+        if (busy.has("warmth")) return;
+        busy.add("warmth");
+        try {
+            while (pendingWarmth !== null) {
+                const percent = pendingWarmth;
+                pendingWarmth = null;
+                await apply({ kind: "night_warmth", percent }, `Night Light strength set to ${percent}%.`);
+            }
+        } catch (err) {
+            log("Night Light: " + String(err));
+        } finally {
+            busy.delete("warmth");
+            editingWarmth = false;
+            render();
+        }
+    }
     warmth.addEventListener("input", () => {
         editingWarmth = true;
-        show("night-warmth-value", warmth.value + "%");
+        renderWarmth();
     });
     warmth.addEventListener("change", () => {
-        const percent = Number(warmth.value);
-        editingWarmth = false;
-        void run("warmth", () => apply({ kind: "night_warmth", percent }, `Night Light strength set to ${percent}%.`));
+        pendingWarmth = Number(warmth.value);
+        void flushWarmth();
     });
-    warmth.addEventListener("blur", () => { editingWarmth = false; render(); });
+    warmth.addEventListener("blur", () => {
+        if (pendingWarmth === null && !busy.has("warmth")) {
+            editingWarmth = false;
+            render();
+        }
+    });
+
+    function renderWarmth() {
+        const writing = busy.has("warmth");
+        const adjusting = editingWarmth || writing;
+        const on = fields.nightLight === "On" || writing;
+        const percent = adjusting ? warmth.value : fields.nightWarmth;
+        const kelvin = adjusting ? 6500 - 53 * Number(warmth.value) : fields.nightKelvin;
+        warmth.disabled = !on || percent == null;
+        warmthRow.classList.toggle("is-disabled", !on || percent == null);
+        warmthRow.title = on ? "Adjust Night Light from 6500 K (cool) to 1200 K (warm)." :
+            fields.nightLight === "Off" ? "Turn on Night Light to adjust the blue-light reduction." : "Windows Night Light status is unavailable.";
+        if (!adjusting && percent != null) warmth.value = percent;
+        const caption = kelvin == null || !fields.nightLight ? null : `${on ? `${percent}%` : "Off"} (${kelvin}K)`;
+        show("night-warmth-value", caption);
+    }
 
     byId("lblJavaVersion").addEventListener("click", () => run("java", async () => {
         const runtimes = await dashboardCommand("java_runtimes");
@@ -138,8 +189,10 @@ function createDashboardControls() {
     }));
 
     byId("lblPsVersion").addEventListener("click", () => run("powershell", async () => {
+        const version = fields.powershell;
         const update = await dashboardCommand("powershell_update");
         if (!update) return;
+        lastPowerShellCheck = { version, update };
         if (!update.available) {
             const newer = update.latest_stable && update.latest_stable !== update.version;
             const message = update.install.channel === "portable" ? "A portable PowerShell installation is present. Update that copy through its original installer." :
@@ -168,17 +221,27 @@ function createDashboardControls() {
         byId("lblPendingReboot").disabled = !pending || busy.has("restart");
         const isProfile = Boolean(fields.networkStatus?.includes(" · "));
         const category = fields.networkStatus?.split(" · ")[0];
+        const profileTheme = category === "Private" || category === "Domain" ? "diag-ok"
+            : category === "Public" ? "diag-warn"
+            : fields.networkStatus?.includes("No IPv4") ? "diag-crit" : "diag-neutral";
         badge("lblNetworkStatus", busy.has("profile") ? "…" : isProfile ? category.toUpperCase() : fields.networkStatus,
-            false, fields.networkStatus, "diag-neutral");
+            category === "Private" || category === "Domain", fields.networkStatus, profileTheme);
         byId("lblNetworkStatus").disabled = !uplink || !["Private", "Public"].includes(category) || busy.has("profile");
-        const percent = fields.nightWarmth;
-        warmth.disabled = percent == null || busy.has("warmth") || fields.nightLight !== "On";
-        if (!editingWarmth && !busy.has("warmth") && percent != null) warmth.value = percent;
-        show("night-warmth-value", percent == null ? null : (editingWarmth || busy.has("warmth") ? warmth.value : percent) + "%");
+        renderWarmth();
         badge("lblJavaVersion", busy.has("java") ? "…" : (fields.java ?? "Choose") + " ▾", Boolean(fields.java), "Choose an installed Java version or install a JDK", fields.java ? undefined : "diag-neutral");
         byId("lblJavaVersion").disabled = busy.has("java");
         const ps = fields.powershell;
-        badge("lblPsVersion", busy.has("powershell") ? "…" : ps ?? "Check", Boolean(ps && /^\d/.test(ps)), "Check for PowerShell 7 updates", !ps || !/^\d/.test(ps) ? "diag-neutral" : undefined);
+        const installed = Boolean(ps && /^\d/.test(ps));
+        const checked = lastPowerShellCheck?.version === ps ? lastPowerShellCheck?.update : null;
+        const available = checked?.available;
+        const unmatched = checked?.latest_stable && checked.latest_stable !== checked.version;
+        const checkingPowerShell = busy.has("powershell");
+        const caption = checkingPowerShell ? "…" : (ps ?? "Check") + (available ? " ↑" : "");
+        const title = available ? `PowerShell ${checked.version} (${checked.installer}) is available. Click to review.`
+            : unmatched ? `Latest stable ${checked.latest_stable} has no matching ${checked.installer} package.`
+            : checked?.version ? `Latest matching ${checked.installer}: ${checked.version}. Click to check again.` : "Check for PowerShell 7 updates";
+        badge("lblPsVersion", caption, installed,
+            title, checkingPowerShell || !installed ? "diag-neutral" : available || unmatched ? "diag-warn" : undefined);
         byId("lblPsVersion").disabled = busy.has("powershell");
     }
 

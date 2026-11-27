@@ -29,6 +29,8 @@
     --cw-bg-blur: 0px;
     --cw-bg-scale: 1;
     --cw-bg-fade-overlay: none;
+    --cw-font-scale: 1;
+    --cw-header-font-scale: 1;
 }
 
 html {
@@ -142,7 +144,7 @@ button, input, select {
 .header-brand-title {
     display: none;
     align-items: center;
-    font-size: 12px;
+    font-size: calc(12px * var(--cw-header-font-scale, 1));
     font-weight: 800;
     letter-spacing: 1.3px;
     color: var(--cw-accent-soft);
@@ -186,7 +188,7 @@ button, input, select {
     }
     .modular-tabs > .tab-btn,
     .modular-tabs > .nav-dropdown > .tab-btn {
-        font-size: 11px;
+        font-size: calc(11px * var(--cw-header-font-scale, 1));
         padding: 5px 10px;
     }
 }
@@ -197,7 +199,7 @@ button, input, select {
     }
     .modular-tabs > .tab-btn,
     .modular-tabs > .nav-dropdown > .tab-btn {
-        font-size: 10px;
+        font-size: calc(10px * var(--cw-header-font-scale, 1));
         padding: 4px 8px;
     }
     .nav-dropdown-menu {
@@ -227,7 +229,7 @@ button, input, select {
 /* Control buttons and tab handlers */
 .tab-btn {
     background: var(--cw-bg-control); border: 1px solid var(--cw-border-strong); color: var(--cw-text-muted);
-    font-size: 10.5px; padding: 5px 9px; cursor: pointer; white-space: nowrap;
+    font-size: calc(10.5px * var(--cw-header-font-scale, 1)); padding: 5px 9px; cursor: pointer; white-space: nowrap;
     border-radius: 2px; transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
 .tab-btn:hover { background: var(--cw-bg-control-hover); color: var(--cw-text-primary); border-color: var(--cw-accent-soft); }
@@ -246,7 +248,7 @@ button, input, select {
     gap: 4px;
 }
 .nav-caret {
-    font-size: 9px;
+    font-size: calc(9px * var(--cw-header-font-scale, 1));
     opacity: 0.8;
     transition: transform 0.15s ease;
 }
@@ -294,7 +296,7 @@ button, input, select {
     border-color: var(--cw-accent-light);
 }
 .nav-mi-icon {
-    font-size: 14px;
+    font-size: calc(14px * var(--cw-font-scale, 1));
     width: 20px;
     text-align: center;
     flex-shrink: 0;
@@ -306,12 +308,12 @@ button, input, select {
     min-width: 0;
 }
 .nav-mi-body strong {
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     color: var(--cw-text-primary);
     font-weight: 700;
 }
 .nav-mi-body small {
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
     white-space: nowrap;
     overflow: hidden;
@@ -348,7 +350,7 @@ button, input, select {
 }
 .sharing-card { background: rgba(var(--cw-bg-inset-rgb), var(--cw-inset-alpha)); border: 1px solid var(--cw-border-strong); padding: 12px; min-width: 0; }
 .sharing-card h3 { color: var(--cw-accent-soft); margin: 0 0 10px; font-size: 14px; }
-.sharing-detail { display: flex; gap: 10px; justify-content: space-between; font-size: 11px; margin: 5px 0; }
+.sharing-detail { display: flex; gap: 10px; justify-content: space-between; font-size: calc(11px * var(--cw-font-scale, 1)); margin: 5px 0; }
 .sharing-detail span { color: var(--cw-text-muted); flex: 0 0 110px; }
 .sharing-detail strong { text-align: right; overflow-wrap: anywhere; }
 .sharing-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
@@ -368,7 +370,7 @@ button, input, select {
 .sharing-badge {
     display: inline-block;
     padding: 1px 6px;
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     font-family: 'Consolas', monospace;
     border-radius: 2px;
     font-weight: bold;
@@ -381,7 +383,7 @@ button, input, select {
 /* App termination button */
 .exit-system-btn {
     background: #9b2c2c; border: 1px solid #e53e3e; color: #fff;
-    font-size: 11px; font-weight: bold; padding: 4px 12px; cursor: pointer;
+    font-size: calc(11px * var(--cw-header-font-scale, 1)); font-weight: bold; padding: 4px 12px; cursor: pointer;
 }
 .exit-system-btn:hover { background: #c53030; }
 
@@ -451,10 +453,17 @@ button, input, select {
     width: 35px;
     box-sizing: border-box;
     margin-right: 4px;
+    padding: 0;
     flex-shrink: 0;
+    cursor: pointer;
+    transition: border-color 0.14s ease, transform 0.14s ease;
     
     /* Crucial: Keeps clicking on the frame container from blocking window moving routines */
     -webkit-app-region: no-drag;
+}
+.icon-square-frame:hover {
+    border-color: var(--cw-accent-light);
+    transform: scale(1.04);
 }
 
 /* Crisp rendering scale constraints for your custom app image asset */
@@ -476,7 +485,7 @@ button, input, select {
     box-sizing: border-box;
 }
 h2 {
-    font-size: 11px; font-weight: bold; letter-spacing: 0.6px;
+    font-size: calc(11px * var(--cw-font-scale, 1)); font-weight: bold; letter-spacing: 0.6px;
     margin: 0 0 6px 0; color: var(--cw-accent-light); border-bottom: 1px solid var(--cw-border); padding-bottom: 4px;
 }
 
@@ -489,7 +498,7 @@ h2 {
     color: var(--cw-text-primary); font-weight: 600;
 }
 .data-field > span:first-child {
-    font-size: 12px; display: inline-block; width: 16px; flex-shrink: 0; text-align: center;
+    font-size: calc(12px * var(--cw-font-scale, 1)); display: inline-block; width: 16px; flex-shrink: 0; text-align: center;
 }
 .data-field-split { justify-content: space-between; }
 .net-node strong { color: var(--cw-text-primary); font-weight: 600; }
@@ -518,14 +527,14 @@ h2 {
 .storage-data-numeric-text { font-family: 'Consolas', monospace; color: var(--cw-text-muted); }
 /* Interactive drive label configurations and hover triggers */
 .storage-interactive-row-header { cursor: pointer; display: inline-flex; align-items: center; gap: 6px; user-select: none; }
-.drive-title { font-family: 'Consolas', 'Segoe UI', monospace; font-size: 12px; font-weight: bold; transition: color 0.15s ease; }
+.drive-title { font-family: 'Consolas', 'Segoe UI', monospace; font-size: calc(12px * var(--cw-font-scale, 1)); font-weight: bold; transition: color 0.15s ease; }
 .drive-title.text-local { color: var(--cw-text-primary); }
 .drive-title.text-removable { color: var(--cw-text-secondary); }
 
 /* Storage row mouse hover actions */
 .storage-interactive-row-header:hover .drive-title.text-local { color: var(--cw-accent-light); }
 .storage-interactive-row-header:hover .drive-title.text-removable { color: #b794f4; }
-.storage-tag-icon { font-size: 12px; display: inline-block; transition: transform 0.15s ease; }
+.storage-tag-icon { font-size: calc(12px * var(--cw-font-scale, 1)); display: inline-block; transition: transform 0.15s ease; }
 .storage-interactive-row-header:hover .storage-tag-icon { transform: scale(1.1); }
 
 /* Strict 4-column matrix mapping engine stretching options across the length of the container */
@@ -533,7 +542,7 @@ h2 {
     display: grid !important; 
     grid-template-columns: repeat(4, 1fr) !important; 
     grid-gap: 7px 8px !important; 
-    font-size: 11.5px !important; 
+    font-size: calc(11.5px * var(--cw-font-scale, 1)) !important; 
     color: var(--cw-text-muted) !important; 
     width: 100% !important;
     box-sizing: border-box !important;
@@ -558,7 +567,7 @@ h2 {
     border: 1px solid var(--cw-border-strong);
     color: var(--cw-text-muted);
     font-family: 'Consolas', monospace;
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     padding: 4px 10px;
     cursor: pointer;
     transition: background 0.1s;
@@ -574,7 +583,7 @@ h2 {
 .net-node.multi-driver-row {
     grid-column: 1 / -1 !important; 
     color: var(--cw-text-muted) !important; 
-    font-size: 11px !important; 
+    font-size: calc(11px * var(--cw-font-scale, 1)) !important; 
     margin-top: 6px !important;
     border-top: none !important; 
     padding-top: 4px !important; 
@@ -607,14 +616,14 @@ h2 {
     align-items: center;
     gap: 5px;
     color: var(--cw-text-secondary);
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
 }
 .adapter-status-item .adapter-name {
     color: var(--cw-text-muted);
 }
 .adapter-status-badge {
     font-family: 'Consolas', monospace;
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     font-weight: bold;
     padding: 1px 7px;
     border-radius: 2px;
@@ -675,10 +684,10 @@ button.adapter-status-badge.status-off:hover {
 }
 .speed-metrics-panel { display: flex; gap: 15px; }
 .speed-data-node { font-size: 11px; color: var(--cw-text-muted); }
-.speed-data-node strong { color: #319795; font-size: 12px; }
+.speed-data-node strong { color: #319795; font-size: calc(12px * var(--cw-font-scale, 1)); }
 .speed-execute-action-btn {
     background-color: var(--cw-bg-control); border: 1px solid var(--cw-border-strong); color: var(--cw-text-primary);
-    font-family: 'Consolas', monospace; font-size: 10px; padding: 4px 10px; cursor: pointer;
+    font-family: 'Consolas', monospace; font-size: calc(10px * var(--cw-font-scale, 1)); padding: 4px 10px; cursor: pointer;
 }
 .speed-execute-action-btn:hover { background-color: var(--cw-accent); border-color: var(--cw-accent-light); }
 .speed-execute-action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -695,14 +704,14 @@ button.adapter-status-badge.status-off:hover {
 
 /* Forces the activity titles and layout tokens into split rows */
 .activity-metadata {
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     color: var(--cw-text-secondary);
     display: flex;
     justify-content: space-between;
     align-items: center;
     width: 100%;
 }
-.activity-values { font-family: 'Consolas', monospace; font-size: 11px; }
+.activity-values { font-family: 'Consolas', monospace; font-size: calc(11px * var(--cw-font-scale, 1)); }
 .rx-numeric-text { color: #63b3ed; margin-right: 10px; }
 .tx-numeric-text { color: #d6bcfa; }
 
@@ -782,7 +791,7 @@ button.adapter-status-badge.status-off:hover {
 .hardware-stat-tag.diag-neutral {
     display: inline-block;
     font-family: 'Consolas', monospace;
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--cw-font-scale, 1));
     font-weight: 700;
     padding: 1px 6px;
     border-radius: 2px;
@@ -828,7 +837,7 @@ button.adapter-status-badge.status-off:hover {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-secondary);
     margin-bottom: 3px;
 }
@@ -844,7 +853,7 @@ button.adapter-status-badge.status-off:hover {
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     line-height: 1.3;
     min-width: 0;
 }
@@ -873,7 +882,7 @@ button.adapter-status-badge.status-off:hover {
 }
 .diag-crash-val {
     color: var(--cw-text-muted);
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -917,7 +926,7 @@ button.adapter-status-badge.status-off:hover {
    ========================================================================= */
 .toggle-pill-btn {
     font-family: 'Consolas', monospace;
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--cw-font-scale, 1));
     font-weight: 700;
     padding: 1px 7px;
     border-radius: 2px;
@@ -1030,7 +1039,7 @@ button.adapter-status-badge.status-off:hover {
     background: rgba(var(--cw-accent-rgb), 0.14);
     border: 1px solid rgba(var(--cw-accent-rgb), 0.42);
     color: var(--cw-accent-soft);
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--cw-font-scale, 1));
     padding: 0 5px;
     cursor: pointer;
     border-radius: 2px;
@@ -1071,7 +1080,7 @@ button.adapter-status-badge.status-off:hover {
     color: #48bb78 !important;
 }
 .net-provider-hint {
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
     font-weight: 400;
     overflow: hidden;
@@ -1106,7 +1115,7 @@ button.adapter-status-badge.status-off:hover {
 }
 .console-box {
     font-family: 'Consolas', monospace;
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     line-height: 1.45;
     color: var(--cw-text-muted);
     flex: 1 1 auto;
@@ -1162,14 +1171,14 @@ button.adapter-status-badge.status-off:hover {
 }
 .splash-title {
     font-family: 'Consolas', 'Segoe UI', monospace;
-    font-size: 14px;
+    font-size: calc(14px * var(--cw-font-scale, 1));
     font-weight: bold;
     letter-spacing: 1.5px;
     color: var(--cw-accent-soft);
 }
 .splash-subtitle {
     font-family: 'Consolas', monospace;
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
 }
 .splash-progress-track {
@@ -1211,7 +1220,7 @@ button.adapter-status-badge.status-off:hover {
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
     margin-bottom: 1px;
 }
@@ -1228,7 +1237,7 @@ button.adapter-status-badge.status-off:hover {
     border: 1px solid var(--cw-border-strong);
     color: var(--cw-text-primary);
     font-family: 'Consolas', 'Segoe UI', monospace;
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     padding: 1px 6px;
     height: 21px;
     flex: 1 1 auto;
@@ -1241,7 +1250,7 @@ button.adapter-status-badge.status-off:hover {
     border: 1px solid var(--cw-border-strong);
     color: var(--cw-accent-soft);
     font-family: 'Consolas', 'Segoe UI', monospace;
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     font-weight: bold;
     padding: 0 7px;
     height: 21px;
@@ -1261,7 +1270,7 @@ button.adapter-status-badge.status-off:hover {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 3px 14px;
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--cw-font-scale, 1));
     line-height: 1.3;
     color: var(--cw-text-muted);
 }
@@ -1289,7 +1298,7 @@ button.adapter-status-badge.status-off:hover {
     border: 1px solid var(--cw-border-strong);
     color: var(--cw-accent-soft);
     font-family: 'Consolas', 'Segoe UI', monospace;
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     font-weight: 700;
     padding: 0 4px;
     height: 18px;
@@ -1313,7 +1322,7 @@ button.adapter-status-badge.status-off:hover {
     margin-top: 2px;
     padding-top: 4px;
     border-top: 1px dashed var(--cw-border);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
     transition: opacity 0.18s ease;
 }
@@ -1364,7 +1373,7 @@ button.adapter-status-badge.status-off:hover {
 .nl-slider-val {
     color: #ecc94b;
     font-family: 'Consolas', monospace;
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     font-weight: 600;
     min-width: 74px;
     text-align: right;
@@ -1430,7 +1439,7 @@ button.adapter-status-badge.status-off:hover {
     background: rgba(var(--cw-bg-inset-rgb), var(--cw-inset-alpha));
     border: 1px solid var(--cw-border);
     padding: 4px 9px;
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
     border-radius: 2px;
 }
@@ -1453,7 +1462,7 @@ button.adapter-status-badge.status-off:hover {
     border: 1px solid var(--cw-border-strong);
     color: var(--cw-text-primary);
     padding: 6px 10px;
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--cw-font-scale, 1));
     outline: none;
 }
 .tab-search-input:focus { border-color: var(--cw-accent-light); }
@@ -1462,7 +1471,7 @@ button.adapter-status-badge.status-off:hover {
     border: 1px solid var(--cw-border-strong);
     color: var(--cw-text-primary);
     padding: 6px 8px;
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     cursor: pointer;
     flex: 0 0 auto;
 }
@@ -1478,7 +1487,7 @@ button.adapter-status-badge.status-off:hover {
     background: rgba(var(--cw-bg-inset-rgb), var(--cw-inset-alpha));
     border: 1px solid var(--cw-border-strong);
     color: var(--cw-text-muted);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     padding: 3px 9px;
     cursor: pointer;
     border-radius: 2px;
@@ -1543,7 +1552,7 @@ button.adapter-status-badge.status-off:hover {
     box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
 }
 .modal-desc {
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
     line-height: 1.4;
     margin: 6px 0 10px;
@@ -1558,7 +1567,7 @@ button.adapter-status-badge.status-off:hover {
     display: flex;
     flex-direction: column;
     gap: 4px;
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     color: var(--cw-text-secondary);
 }
 .modal-form input,
@@ -1567,19 +1576,19 @@ button.adapter-status-badge.status-off:hover {
     border: 1px solid var(--cw-border-strong);
     color: var(--cw-text-primary);
     padding: 7px 8px;
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--cw-font-scale, 1));
 }
 .modal-preview-box {
     background: rgba(var(--cw-bg-inset-rgb), var(--cw-inset-alpha));
     border: 1px dashed var(--cw-border-strong);
     padding: 7px 10px;
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
     overflow-wrap: anywhere;
 }
 .modal-preview-box strong { color: var(--cw-accent-soft); }
 .modal-warning-note {
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     color: #ecc94b;
     line-height: 1.35;
 }
@@ -1612,7 +1621,7 @@ button.adapter-status-badge.status-off:hover {
     border: none;
     color: var(--cw-text-primary);
     padding: 7px 10px;
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--cw-font-scale, 1));
     cursor: pointer;
     text-align: left;
 }
@@ -1625,7 +1634,7 @@ button.adapter-status-badge.status-off:hover {
 }
 .device-chevron {
     color: var(--cw-accent-soft);
-    font-size: 12px;
+    font-size: calc(12px * var(--cw-font-scale, 1));
     width: 12px;
     display: inline-block;
 }
@@ -1653,7 +1662,7 @@ button.adapter-status-badge.status-off:hover {
     border: none;
     color: var(--cw-text-primary);
     padding: 6px 10px 6px 24px;
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     cursor: pointer;
     text-align: left;
 }
@@ -1681,14 +1690,14 @@ button.adapter-status-badge.status-off:hover {
 }
 .device-ver-text {
     color: var(--cw-text-muted);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     max-width: 130px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 .device-age-tag {
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--cw-font-scale, 1));
     padding: 1px 5px;
     background: var(--cw-bg-control);
     color: var(--cw-text-secondary);
@@ -1701,7 +1710,7 @@ button.adapter-status-badge.status-off:hover {
     border-color: rgba(236, 201, 75, 0.4);
 }
 .device-bus-tag {
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--cw-font-scale, 1));
     padding: 1px 5px;
     background: rgba(var(--cw-accent-rgb), 0.12);
     color: var(--cw-accent-soft);
@@ -1723,7 +1732,7 @@ button.adapter-status-badge.status-off:hover {
     display: flex;
     justify-content: space-between;
     gap: 8px;
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     min-width: 0;
 }
 .device-detail-cell span {
@@ -1737,7 +1746,7 @@ button.adapter-status-badge.status-off:hover {
     user-select: text;
 }
 .device-critical-note {
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
     align-self: center;
     font-style: italic;
@@ -1808,7 +1817,7 @@ button.adapter-status-badge.status-off:hover {
     overflow-y: auto;
 }
 .device-fix-banner-title {
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     font-weight: 700;
     color: #fc8181;
     display: flex;
@@ -1830,11 +1839,11 @@ button.adapter-status-badge.status-off:hover {
     align-items: center;
     gap: 8px;
     flex-wrap: wrap;
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     color: var(--cw-text-primary);
 }
 .device-fix-hint {
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     color: #ecc94b;
     line-height: 1.35;
 }
@@ -1848,7 +1857,7 @@ button.adapter-status-badge.status-off:hover {
     background: var(--cw-bg-control);
     border: 1px solid var(--cw-border-strong);
     color: var(--cw-accent-soft);
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     padding: 3px 8px;
     cursor: pointer;
     border-radius: 2px;
@@ -1876,7 +1885,7 @@ button.adapter-status-badge.status-off:hover {
     border: 1px solid rgba(236, 201, 75, 0.4);
     border-left: 3px solid #ecc94b;
     color: #f6e05e;
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     line-height: 1.4;
 }
 
@@ -1948,14 +1957,14 @@ button.adapter-status-badge.status-off:hover {
 }
 .appstore-card-title {
     color: var(--cw-text-primary);
-    font-size: 12px;
+    font-size: calc(12px * var(--cw-font-scale, 1));
     font-weight: 700;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 .appstore-card-desc {
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
     line-height: 1.38;
     flex: 1 1 auto;
@@ -1965,7 +1974,7 @@ button.adapter-status-badge.status-off:hover {
     justify-content: space-between;
     align-items: center;
     gap: 6px;
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
 }
 .appstore-card-id {
@@ -1987,7 +1996,7 @@ button.adapter-status-badge.status-off:hover {
     background: var(--cw-bg-control);
     border: 1px solid var(--cw-border-strong);
     color: var(--cw-text-primary);
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     padding: 4px 8px;
     cursor: pointer;
     border-radius: 2px;
@@ -2039,7 +2048,7 @@ button.adapter-status-badge.status-off:hover {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
     background: rgba(var(--cw-bg-inset-rgb), var(--cw-inset-alpha));
     border: 1px solid var(--cw-border);
@@ -2061,7 +2070,7 @@ button.adapter-status-badge.status-off:hover {
 }
 .organizer-section-header h3 {
     margin: 0;
-    font-size: 12px;
+    font-size: calc(12px * var(--cw-font-scale, 1));
     color: var(--cw-accent-soft);
     letter-spacing: 0.4px;
 }
@@ -2100,12 +2109,12 @@ button.adapter-status-badge.status-off:hover {
     display: flex;
     align-items: center;
     gap: 6px;
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-primary);
     margin-bottom: 2px;
 }
 .org-folder-path {
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2120,7 +2129,7 @@ button.adapter-status-badge.status-off:hover {
     background: var(--cw-bg-control);
     border: 1px solid var(--cw-border-strong);
     color: var(--cw-text-secondary);
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     padding: 2px 6px;
     cursor: pointer;
 }
@@ -2151,7 +2160,7 @@ button.adapter-status-badge.status-off:hover {
     margin-top: 8px;
     padding-top: 8px;
     border-top: 1px dashed var(--cw-border);
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     color: var(--cw-text-secondary);
 }
 .org-checkbox-label, .org-select-label {
@@ -2174,13 +2183,13 @@ button.adapter-status-badge.status-off:hover {
     border: 1px solid var(--cw-border-strong);
     padding: 8px 10px;
     cursor: pointer;
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-primary);
 }
 .org-radio-card small {
     display: block;
     color: var(--cw-text-muted);
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     margin-top: 2px;
 }
 
@@ -2192,7 +2201,7 @@ button.adapter-status-badge.status-off:hover {
     align-items: center;
 }
 .organizer-rules-header {
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
     text-transform: uppercase;
     letter-spacing: 0.4px;
@@ -2214,7 +2223,7 @@ button.adapter-status-badge.status-off:hover {
     opacity: 0.45;
 }
 .org-rule-label {
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     color: var(--cw-text-primary);
     font-weight: 600;
     overflow: hidden;
@@ -2225,7 +2234,7 @@ button.adapter-status-badge.status-off:hover {
     background: rgba(var(--cw-bg-inset-rgb), var(--cw-inset-alpha));
     border: 1px solid var(--cw-border-strong);
     color: var(--cw-text-primary);
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     padding: 4px 6px;
     min-width: 0;
     width: 100%;
@@ -2243,12 +2252,12 @@ button.adapter-status-badge.status-off:hover {
     display: flex;
     flex-direction: column;
     gap: 4px;
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     color: var(--cw-text-secondary);
 }
 .organizer-ext-config-grid small { color: var(--cw-text-muted); font-size: 10px; }
 .organizer-sub-heading {
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     color: var(--cw-accent-soft);
     margin-bottom: 6px;
     font-weight: 600;
@@ -2266,7 +2275,7 @@ button.adapter-status-badge.status-off:hover {
     background: rgba(var(--cw-bg-surface-rgb), var(--cw-surface-alpha));
     border: 1px solid var(--cw-border-strong);
     padding: 3px 7px;
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     color: var(--cw-text-primary);
 }
 .org-override-chip code {
@@ -2284,7 +2293,7 @@ button.adapter-status-badge.status-off:hover {
 .org-btn-execute {
     flex: 1 1 200px;
     padding: 9px 14px;
-    font-size: 12px;
+    font-size: calc(12px * var(--cw-font-scale, 1));
     font-weight: bold;
     cursor: pointer;
     border-radius: 2px;
@@ -2312,7 +2321,7 @@ button.adapter-status-badge.status-off:hover {
     background: rgba(var(--cw-bg-inset-rgb), var(--cw-inset-alpha));
     border: 1px solid var(--cw-border-strong);
     padding: 3px 8px;
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-secondary);
     border-radius: 2px;
 }
@@ -2331,7 +2340,7 @@ button.adapter-status-badge.status-off:hover {
     justify-content: space-between;
     align-items: center;
     gap: 8px;
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-primary);
     margin-bottom: 2px;
 }
@@ -2343,7 +2352,7 @@ button.adapter-status-badge.status-off:hover {
 }
 .org-size-text { font-size: 10.5px; color: var(--cw-text-muted); }
 .org-preview-paths {
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
     overflow-wrap: anywhere;
 }
@@ -2352,7 +2361,7 @@ button.adapter-status-badge.status-off:hover {
     border: 1px solid rgba(72, 187, 120, 0.45);
     color: #68d391;
     padding: 10px 12px;
-    font-size: 12px;
+    font-size: calc(12px * var(--cw-font-scale, 1));
     font-weight: 600;
 }
 .console-clear-btn:disabled {
@@ -2380,12 +2389,12 @@ button.adapter-status-badge.status-off:hover {
     background: rgba(var(--cw-bg-inset-rgb), var(--cw-inset-alpha));
     border: 1px solid var(--cw-border);
     padding: 7px 10px;
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     color: var(--cw-text-secondary);
 }
 .diagx-stamp-text {
     margin-left: auto;
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
 }
 .diagx-live-active {
@@ -2420,12 +2429,12 @@ button.adapter-status-badge.status-off:hover {
 .diagx-score-box.grade-degraded { border-color: #ecc94b; background: rgba(236, 201, 75, 0.12); color: #f6e05e; }
 .diagx-score-box.grade-critical { border-color: #f56565; background: rgba(245, 101, 101, 0.14); color: #fc8181; }
 .diagx-score-num {
-    font-size: 30px;
+    font-size: calc(30px * var(--cw-font-scale, 1));
     font-weight: bold;
     line-height: 1;
 }
 .diagx-score-grade {
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     font-weight: bold;
     letter-spacing: 0.8px;
     margin-top: 5px;
@@ -2443,12 +2452,12 @@ button.adapter-status-badge.status-off:hover {
     align-items: center;
     gap: 8px;
     flex-wrap: wrap;
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     color: var(--cw-accent-soft);
     margin-bottom: 5px;
 }
 .diagx-rel-pill {
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-secondary);
     background: rgba(var(--cw-bg-surface-rgb), var(--cw-surface-alpha));
     border: 1px solid var(--cw-border-strong);
@@ -2456,7 +2465,7 @@ button.adapter-status-badge.status-off:hover {
     border-radius: 2px;
 }
 .diagx-synopsis-text {
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-primary);
     line-height: 1.45;
 }
@@ -2485,12 +2494,12 @@ button.adapter-status-badge.status-off:hover {
     justify-content: space-between;
     align-items: center;
     gap: 4px;
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     font-weight: 600;
     margin-bottom: 5px;
 }
 .diagx-sub-counts {
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
 }
 .diagx-sub-counts strong { color: var(--cw-text-primary); }
@@ -2512,17 +2521,17 @@ button.adapter-status-badge.status-off:hover {
     justify-content: space-between;
     align-items: center;
     gap: 8px;
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-primary);
     margin-bottom: 4px;
 }
 .diagx-finding-desc {
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     color: var(--cw-text-secondary);
     line-height: 1.4;
 }
 .diagx-finding-fix {
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     color: var(--cw-accent-soft);
     margin-top: 4px;
     line-height: 1.35;
@@ -2533,7 +2542,7 @@ button.adapter-status-badge.status-off:hover {
     background: rgba(var(--cw-bg-surface-rgb), var(--cw-surface-alpha));
     border: 1px solid var(--cw-accent-light);
     padding: 9px 11px;
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-primary);
     line-height: 1.45;
 }
@@ -2571,7 +2580,7 @@ button.adapter-status-badge.status-off:hover {
     background: rgba(var(--cw-bg-surface-rgb), var(--cw-surface-alpha));
     border: 1px solid var(--cw-border);
     padding: 6px 8px;
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     color: var(--cw-text-primary);
 }
 
@@ -2596,7 +2605,7 @@ button.adapter-status-badge.status-off:hover {
     gap: 8px;
     flex-wrap: wrap;
     margin-bottom: 5px;
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
 }
 .diagx-ev-left {
     display: inline-flex;
@@ -2606,16 +2615,16 @@ button.adapter-status-badge.status-off:hover {
     color: var(--cw-text-primary);
 }
 .diagx-ev-channel {
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
 }
 .diagx-ev-time {
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
     white-space: nowrap;
 }
 .diagx-ev-msg {
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     color: var(--cw-text-secondary);
     line-height: 1.4;
     overflow-wrap: anywhere;
@@ -2626,13 +2635,13 @@ button.adapter-status-badge.status-off:hover {
     padding: 5px 7px;
     background: rgba(var(--cw-accent-rgb), 0.1);
     border-left: 2px solid var(--cw-accent-light);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     color: var(--cw-accent-soft);
     line-height: 1.35;
 }
 .diagx-ev-fix {
     margin-top: 4px;
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     color: #9ae6b4;
     line-height: 1.35;
 }
@@ -2646,7 +2655,7 @@ button.adapter-status-badge.status-off:hover {
     background: rgba(var(--cw-bg-inset-rgb), var(--cw-inset-alpha));
     border: 1px solid var(--cw-accent-light);
     color: var(--cw-accent-soft);
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     padding: 1px 6px;
     cursor: pointer;
     border-radius: 2px;
@@ -2677,11 +2686,11 @@ button.adapter-status-badge.status-off:hover {
     align-items: center;
     gap: 8px;
     color: #ecc94b;
-    font-size: 12px;
+    font-size: calc(12px * var(--cw-font-scale, 1));
     margin-bottom: 6px;
 }
 .wsl-setup-text {
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     color: var(--cw-text-secondary);
     line-height: 1.45;
 }
@@ -2713,7 +2722,7 @@ button.adapter-status-badge.status-off:hover {
 }
 .wsl-distro-title {
     color: var(--cw-accent-soft);
-    font-size: 13px;
+    font-size: calc(13px * var(--cw-font-scale, 1));
     font-weight: 700;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2723,7 +2732,7 @@ button.adapter-status-badge.status-off:hover {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 4px 12px;
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
 }
 .wsl-distro-meta strong {
@@ -2731,7 +2740,7 @@ button.adapter-status-badge.status-off:hover {
     font-weight: 600;
 }
 .wsl-distro-path {
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2750,7 +2759,7 @@ button.adapter-status-badge.status-off:hover {
     background: var(--cw-bg-control);
     border: 1px solid var(--cw-border-strong);
     color: var(--cw-text-primary);
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     padding: 3px 8px;
     cursor: pointer;
     transition: background 0.15s, border-color 0.15s;
@@ -2782,7 +2791,7 @@ button.adapter-status-badge.status-off:hover {
     margin-top: 7px;
 }
 .wsl-hint-line {
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
     margin-top: 7px;
 }
@@ -2796,7 +2805,7 @@ button.adapter-status-badge.status-off:hover {
     display: flex;
     flex-direction: column;
     gap: 4px;
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
 }
 .wsl-cfg-field input,
@@ -2805,7 +2814,7 @@ button.adapter-status-badge.status-off:hover {
     border: 1px solid var(--cw-border-strong);
     color: var(--cw-text-primary);
     padding: 5px 7px;
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     outline: none;
 }
 .wsl-cfg-field input:focus,
@@ -2826,7 +2835,7 @@ button.adapter-status-badge.status-off:hover {
     border: 1px solid var(--cw-border);
     color: var(--cw-text-secondary);
     font-family: 'Consolas', monospace;
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     line-height: 1.45;
     max-height: 220px;
     overflow: auto;
@@ -2858,7 +2867,7 @@ button.adapter-status-badge.status-off:hover {
     background: rgba(var(--cw-accent-rgb), 0.12);
     border: 1px solid rgba(var(--cw-accent-rgb), 0.38);
     color: var(--cw-text-primary);
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     font-weight: 600;
     padding: 1px 7px;
     border-radius: 2px;
@@ -2901,7 +2910,7 @@ button.adapter-status-badge.status-off:hover {
     display: flex;
 }
 .java-menu-header {
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     font-weight: 700;
     letter-spacing: 0.4px;
     text-transform: uppercase;
@@ -2939,11 +2948,11 @@ button.adapter-status-badge.status-off:hover {
     justify-content: space-between;
     align-items: center;
     gap: 6px;
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     font-weight: 700;
 }
 .java-mi-path {
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2955,7 +2964,7 @@ button.adapter-status-badge.status-off:hover {
     background: rgba(var(--cw-accent-rgb), 0.22);
     border: 1px solid var(--cw-accent-light);
     color: var(--cw-accent-soft);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     font-weight: 700;
     padding: 5px 8px;
     cursor: pointer;
@@ -2991,7 +3000,7 @@ button.adapter-status-badge.status-off:hover {
     border: 1px solid var(--cw-border-strong);
     color: var(--cw-text-primary);
     padding: 4px 9px;
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     cursor: pointer;
     border-radius: 2px;
     transition: border-color 0.15s, background 0.15s;
@@ -3047,7 +3056,7 @@ button.adapter-status-badge.status-off:hover {
     background: rgba(var(--cw-bg-inset-rgb), var(--cw-inset-alpha));
     border: 1px solid var(--cw-border);
     padding: 3px 8px;
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
     border-radius: 2px;
 }
@@ -3057,7 +3066,7 @@ button.adapter-status-badge.status-off:hover {
     color: var(--cw-accent-soft);
     cursor: pointer;
     padding: 0 3px;
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     font-weight: 600;
 }
 .diskmap-crumb-btn:hover {
@@ -3098,7 +3107,7 @@ button.adapter-status-badge.status-off:hover {
     flex: 0 0 auto;
 }
 .diskmap-canvas-title {
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     color: var(--cw-accent-soft);
     font-weight: 600;
 }
@@ -3109,7 +3118,7 @@ button.adapter-status-badge.status-off:hover {
     flex-wrap: wrap;
 }
 .diskmap-sel-label {
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     color: var(--cw-text-primary);
     max-width: 260px;
     overflow: hidden;
@@ -3138,7 +3147,7 @@ button.adapter-status-badge.status-off:hover {
     border: 1px solid var(--cw-accent-soft);
     border-radius: 3px;
     padding: 6px 9px;
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-primary);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65);
     max-width: 380px;
@@ -3207,7 +3216,7 @@ button.adapter-status-badge.status-off:hover {
 .tp-data-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     font-family: 'Consolas', monospace;
 }
 .tp-data-table thead th {
@@ -3219,7 +3228,7 @@ button.adapter-status-badge.status-off:hover {
     text-align: left;
     padding: 6px 8px;
     border-bottom: 1px solid var(--cw-border-strong);
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     letter-spacing: 0.4px;
     text-transform: uppercase;
     white-space: nowrap;
@@ -3243,7 +3252,7 @@ button.adapter-status-badge.status-off:hover {
 }
 .tp-cell-sub {
     display: block;
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
     font-weight: 400;
     max-width: 300px;
@@ -3278,7 +3287,7 @@ button.adapter-status-badge.status-off:hover {
     background: var(--cw-bg-control);
     border: 1px solid var(--cw-border-strong);
     color: var(--cw-text-secondary);
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--cw-font-scale, 1));
     padding: 2px 6px;
     cursor: pointer;
     white-space: nowrap;
@@ -3292,7 +3301,7 @@ button.adapter-status-badge.status-off:hover {
     background: rgba(var(--cw-bg-inset-rgb), var(--cw-inset-alpha));
     border: 1px solid var(--cw-border-strong);
     color: var(--cw-text-secondary);
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--cw-font-scale, 1));
     padding: 1px 4px;
     cursor: pointer;
 }
@@ -3329,7 +3338,7 @@ button.adapter-status-badge.status-off:hover {
     min-width: 0;
 }
 .net-diag-mini-label {
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
     white-space: nowrap;
     flex-shrink: 0;
@@ -3364,7 +3373,7 @@ button.adapter-status-badge.status-off:hover {
 .net-ping-bar.bar-warn { background: #ecc94b; }
 .net-ping-bar.bar-bad  { background: #f56565; }
 .net-ping-bar-lbl {
-    font-size: 9px;
+    font-size: calc(9px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
     white-space: nowrap;
 }
@@ -3382,13 +3391,13 @@ button.adapter-status-badge.status-off:hover {
     gap: 3px;
 }
 .net-wifi-stat span {
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
     text-transform: uppercase;
     letter-spacing: 0.4px;
 }
 .net-wifi-stat strong {
-    font-size: 12px;
+    font-size: calc(12px * var(--cw-font-scale, 1));
     color: var(--cw-text-primary);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -3405,7 +3414,7 @@ button.adapter-status-badge.status-off:hover {
     color: var(--cw-accent-soft);
     border-color: var(--cw-border-strong);
     background: rgba(var(--cw-bg-inset-rgb), var(--cw-inset-alpha));
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--cw-header-font-scale, 1));
     padding: 4px 7px;
 }
 .sec-repair-grid {
@@ -3424,11 +3433,11 @@ button.adapter-status-badge.status-off:hover {
 }
 .sec-repair-card strong {
     color: var(--cw-accent-soft);
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--cw-font-scale, 1));
 }
 .sec-repair-card p {
     margin: 0 !important;
-    font-size: 10.5px !important;
+    font-size: calc(10.5px * var(--cw-font-scale, 1)) !important;
     color: var(--cw-text-muted) !important;
     line-height: 1.35 !important;
 }
@@ -3470,11 +3479,11 @@ button.adapter-status-badge.status-off:hover {
     background: transparent;
     border: none;
     color: var(--cw-text-primary);
-    font-size: 12px;
+    font-size: calc(12px * var(--cw-font-scale, 1));
     outline: none;
 }
 .cmdk-kbd {
-    font-size: 9px;
+    font-size: calc(9px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
     border: 1px solid var(--cw-border-strong);
     padding: 1px 5px;
@@ -3498,7 +3507,7 @@ button.adapter-status-badge.status-off:hover {
     border: 1px solid transparent;
     color: var(--cw-text-primary);
     padding: 7px 9px;
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     cursor: pointer;
     text-align: left;
     border-radius: 2px;
@@ -3509,7 +3518,7 @@ button.adapter-status-badge.status-off:hover {
     border-color: var(--cw-accent-light);
 }
 .cmdk-item-cat {
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
     text-transform: uppercase;
 }
@@ -3520,7 +3529,7 @@ button.adapter-status-badge.status-off:hover {
         padding: 12px 14px;
     }
     .tab-btn {
-        font-size: 11.5px;
+        font-size: calc(11.5px * var(--cw-header-font-scale, 1));
         padding: 6px 11px;
     }
     .dashboard-grid {
@@ -3531,28 +3540,28 @@ button.adapter-status-badge.status-off:hover {
         padding: 10px 12px;
     }
     h2 {
-        font-size: 12px;
+        font-size: calc(12px * var(--cw-font-scale, 1));
     }
     .data-field,
     .data-field-split,
     .metric-metadata,
     .video-metrics-grid {
-        font-size: 12.5px;
+        font-size: calc(12.5px * var(--cw-font-scale, 1));
     }
     .network-matrix-grid {
-        font-size: 12.5px !important;
+        font-size: calc(12.5px * var(--cw-font-scale, 1)) !important;
         grid-gap: 8px 12px !important;
     }
     .tp-data-table {
-        font-size: 12px;
+        font-size: calc(12px * var(--cw-font-scale, 1));
     }
     .tp-cell-sub {
         max-width: 500px;
-        font-size: 10.5px;
+        font-size: calc(10.5px * var(--cw-font-scale, 1));
     }
     .console-box,
     .wsl-cmd-output {
-        font-size: 12px;
+        font-size: calc(12px * var(--cw-font-scale, 1));
     }
     .sec-repair-grid {
         grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -3567,7 +3576,7 @@ button.adapter-status-badge.status-off:hover {
         padding: 14px 18px;
     }
     .tab-btn {
-        font-size: 12.5px;
+        font-size: calc(12.5px * var(--cw-header-font-scale, 1));
         padding: 7px 14px;
     }
     .dashboard-grid {
@@ -3578,34 +3587,34 @@ button.adapter-status-badge.status-off:hover {
         padding: 12px 14px;
     }
     h2 {
-        font-size: 13px;
+        font-size: calc(13px * var(--cw-font-scale, 1));
     }
     .data-field,
     .data-field-split,
     .metric-metadata,
     .video-metrics-grid {
-        font-size: 13.5px;
+        font-size: calc(13.5px * var(--cw-font-scale, 1));
     }
     .network-matrix-grid {
-        font-size: 13.5px !important;
+        font-size: calc(13.5px * var(--cw-font-scale, 1)) !important;
         grid-gap: 10px 16px !important;
     }
     .toggle-pill-btn,
     .diag-pill,
     .sharing-badge {
-        font-size: 11px;
+        font-size: calc(11px * var(--cw-font-scale, 1));
         padding: 2px 8px;
     }
     .summary-chip,
     .sec-def-item {
-        font-size: 12px;
+        font-size: calc(12px * var(--cw-font-scale, 1));
         padding: 5px 10px;
     }
     .tp-data-table {
-        font-size: 13px;
+        font-size: calc(13px * var(--cw-font-scale, 1));
     }
     .tp-data-table thead th {
-        font-size: 11px;
+        font-size: calc(11px * var(--cw-font-scale, 1));
         padding: 7px 10px;
     }
     .tp-data-table tbody td {
@@ -3613,11 +3622,11 @@ button.adapter-status-badge.status-off:hover {
     }
     .tp-cell-sub {
         max-width: 720px;
-        font-size: 11px;
+        font-size: calc(11px * var(--cw-font-scale, 1));
     }
     .console-box,
     .wsl-cmd-output {
-        font-size: 13px;
+        font-size: calc(13px * var(--cw-font-scale, 1));
     }
     .diagx-subsystems-grid {
         grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -3681,7 +3690,7 @@ button.adapter-status-badge.status-off:hover {
     color: var(--cw-accent-soft);
     border-color: var(--cw-border-strong);
     background: rgba(var(--cw-bg-surface-rgb), var(--cw-surface-alpha));
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--cw-header-font-scale, 1));
     padding: 4px 7px;
 }
 .nav-util-btn.active {
@@ -3693,7 +3702,7 @@ button.adapter-status-badge.status-off:hover {
     color: var(--cw-text-muted);
     border-color: var(--cw-border-strong);
     background: rgba(var(--cw-bg-inset-rgb), var(--cw-inset-alpha));
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-header-font-scale, 1));
     padding: 4px 6px;
 }
 .nav-pin-btn.active {
@@ -3742,7 +3751,7 @@ button.adapter-status-badge.status-off:hover {
 .card-drag-grip {
     cursor: grab;
     color: var(--cw-accent-soft);
-    font-size: 12px;
+    font-size: calc(12px * var(--cw-font-scale, 1));
     padding: 0 4px;
     user-select: none;
 }
@@ -3751,7 +3760,7 @@ button.adapter-status-badge.status-off:hover {
     background: rgba(var(--cw-bg-inset-rgb), var(--cw-inset-alpha));
     border: 1px solid var(--cw-border-strong);
     color: var(--cw-text-secondary);
-    font-size: 9px;
+    font-size: calc(9px * var(--cw-font-scale, 1));
     padding: 1px 5px;
     cursor: pointer;
     border-radius: 2px;
@@ -3815,10 +3824,10 @@ button.adapter-status-badge.status-off:hover {
     background: rgba(var(--cw-bg-surface-rgb), var(--cw-surface-alpha));
     border-bottom: 1px solid var(--cw-border);
     color: var(--cw-accent-soft);
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--cw-font-scale, 1));
 }
 .layout-drawer-sub {
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
     margin-top: 2px;
 }
@@ -3838,7 +3847,7 @@ button.adapter-status-badge.status-off:hover {
     border-radius: 2px;
 }
 .layout-drawer-sec-title {
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     font-weight: 700;
     color: var(--cw-accent-soft);
     text-transform: uppercase;
@@ -3854,7 +3863,7 @@ button.adapter-status-badge.status-off:hover {
     background: rgba(var(--cw-bg-surface-rgb), var(--cw-surface-alpha));
     border: 1px solid var(--cw-border-strong);
     color: var(--cw-text-primary);
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     padding: 5px 6px;
     cursor: pointer;
     text-align: left;
@@ -3882,7 +3891,7 @@ button.adapter-status-badge.status-off:hover {
     background: rgba(var(--cw-bg-inset-rgb), var(--cw-inset-alpha));
     border: 1px solid var(--cw-border);
     padding: 5px 7px;
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-primary);
     border-radius: 2px;
 }
@@ -3919,7 +3928,7 @@ button.adapter-status-badge.status-off:hover {
 }
 .layout-metric-group-box summary {
     cursor: pointer;
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     font-weight: 700;
     color: var(--cw-text-secondary);
     user-select: none;
@@ -3936,7 +3945,7 @@ button.adapter-status-badge.status-off:hover {
     display: flex;
     align-items: center;
     gap: 6px;
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
     cursor: pointer;
 }
@@ -3944,7 +3953,7 @@ button.adapter-status-badge.status-off:hover {
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
 }
 .layout-opacity-row input[type="range"] {
@@ -3968,7 +3977,7 @@ button.adapter-status-badge.status-off:hover {
     color: #81e6d9;
     border-color: #2c7a7b;
     background: rgba(49, 151, 149, 0.16);
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--cw-font-scale, 1));
     padding: 4px 7px;
     display: inline-flex;
     align-items: center;
@@ -3998,7 +4007,7 @@ button.adapter-status-badge.status-off:hover {
     border-right: none;
     border-radius: 5px 0 0 5px;
     color: #81e6d9;
-    font-size: 13px;
+    font-size: calc(13px * var(--cw-font-scale, 1));
     cursor: pointer;
     display: flex;
     flex-direction: column;
@@ -4083,7 +4092,7 @@ button.adapter-status-badge.status-off:hover {
     border: none;
     border-right: 1px solid var(--cw-border);
     color: var(--cw-text-muted);
-    font-size: 9px;
+    font-size: calc(9px * var(--cw-font-scale, 1));
     padding: 2px 5px;
     cursor: pointer;
     line-height: 1.3;
@@ -4099,7 +4108,7 @@ button.adapter-status-badge.status-off:hover {
    ULTIMADIAGX: SCORE BREAKDOWN & DISMISS/SOLVED ISSUE CONTROLS
    ========================================================================= */
 .diagx-score-breakdown {
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     color: var(--cw-accent-soft);
     margin-top: 6px;
     padding: 4px 8px;
@@ -4137,7 +4146,7 @@ button.adapter-status-badge.status-off:hover {
     background: rgba(var(--cw-bg-inset-rgb), var(--cw-inset-alpha));
     border: 1px solid #38a169;
     color: #68d391;
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--cw-font-scale, 1));
     padding: 2px 7px;
     cursor: pointer;
     border-radius: 2px;
@@ -4150,7 +4159,7 @@ button.adapter-status-badge.status-off:hover {
     color: #fff;
 }
 .diagx-dismiss-btn.mini {
-    font-size: 9px;
+    font-size: calc(9px * var(--cw-font-scale, 1));
     padding: 1px 6px;
     border-color: var(--cw-border-strong);
     color: var(--cw-text-muted);
@@ -4168,7 +4177,7 @@ button.adapter-status-badge.status-off:hover {
     color: var(--cw-text-secondary);
     border-color: var(--cw-border-strong);
     background: rgba(var(--cw-bg-inset-rgb), var(--cw-inset-alpha));
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-header-font-scale, 1));
     padding: 4px 6px;
     line-height: 1;
 }
@@ -4200,10 +4209,10 @@ button.adapter-status-badge.status-off:hover {
     background: rgba(var(--cw-bg-inset-rgb), var(--cw-inset-alpha));
     border-bottom: 1px solid var(--cw-border);
     color: var(--cw-accent-soft);
-    font-size: 12px;
+    font-size: calc(12px * var(--cw-font-scale, 1));
 }
 .cw-settings-sub {
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
     margin-top: 2px;
 }
@@ -4219,7 +4228,7 @@ button.adapter-status-badge.status-off:hover {
     border: 1px solid transparent;
     border-bottom: none;
     color: var(--cw-text-muted);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     font-weight: 600;
     padding: 6px 11px;
     cursor: pointer;
@@ -4261,7 +4270,7 @@ button.adapter-status-badge.status-off:hover {
     gap: 8px;
 }
 .cw-set-sec-title {
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -4274,7 +4283,7 @@ button.adapter-status-badge.status-off:hover {
     align-items: flex-start;
     gap: 8px;
     cursor: pointer;
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     color: var(--cw-text-primary);
 }
 .cw-set-check input[type="checkbox"] {
@@ -4283,7 +4292,7 @@ button.adapter-status-badge.status-off:hover {
 }
 .cw-set-check small {
     display: block;
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
     margin-top: 1px;
 }
@@ -4291,13 +4300,13 @@ button.adapter-status-badge.status-off:hover {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 6px 12px;
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
 }
 .cw-about-grid strong {
     color: var(--cw-text-primary);
     font-family: Consolas, monospace;
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
 }
 .cw-path-trunc {
     word-break: break-all;
@@ -4309,7 +4318,7 @@ button.adapter-status-badge.status-off:hover {
     margin-top: 2px;
 }
 .cw-update-status {
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     padding: 6px 8px;
     border-radius: 2px;
     background: rgba(var(--cw-bg-inset-rgb), var(--cw-inset-alpha));
@@ -4332,14 +4341,14 @@ button.adapter-status-badge.status-off:hover {
     gap: 4px;
 }
 .cw-dir-row label {
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     font-weight: 600;
     color: var(--cw-text-primary);
 }
 .cw-dir-row label small {
     font-weight: 400;
     color: var(--cw-text-muted);
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--cw-font-scale, 1));
 }
 .cw-dir-input-wrap {
     display: flex;
@@ -4351,7 +4360,7 @@ button.adapter-status-badge.status-off:hover {
     border: 1px solid var(--cw-border-strong);
     color: var(--cw-text-primary);
     font-family: Consolas, monospace;
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     padding: 5px 8px;
     border-radius: 2px;
 }
@@ -4373,7 +4382,7 @@ button.adapter-status-badge.status-off:hover {
     border: 1px solid var(--cw-border);
     border-radius: 2px;
     cursor: pointer;
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     color: var(--cw-text-primary);
 }
 .cw-radio-card:hover {
@@ -4382,7 +4391,7 @@ button.adapter-status-badge.status-off:hover {
 .cw-radio-card small {
     display: block;
     color: var(--cw-text-muted);
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--cw-font-scale, 1));
     margin-top: 1px;
 }
 .cw-unit-row {
@@ -4390,7 +4399,7 @@ button.adapter-status-badge.status-off:hover {
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     color: var(--cw-text-secondary);
 }
 .cw-seg-group {
@@ -4413,7 +4422,7 @@ button.adapter-status-badge.status-off:hover {
     background: rgba(var(--cw-bg-inset-rgb), var(--cw-inset-alpha));
     border: 1px solid var(--cw-border);
     border-radius: 3px;
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     color: var(--cw-text-primary);
 }
 .cw-modules-list {
@@ -4422,7 +4431,7 @@ button.adapter-status-badge.status-off:hover {
     gap: 8px;
 }
 .cw-mod-group-title {
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--cw-font-scale, 1));
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -4455,17 +4464,17 @@ button.adapter-status-badge.status-off:hover {
     accent-color: #4299e1;
 }
 .cw-mod-name {
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     font-weight: 600;
     color: var(--cw-text-primary);
 }
 .cw-mod-desc {
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
     margin-top: 1px;
 }
 .cw-mod-pill {
-    font-size: 9px;
+    font-size: calc(9px * var(--cw-font-scale, 1));
     font-weight: 700;
     padding: 2px 6px;
     border-radius: 2px;
@@ -4504,7 +4513,7 @@ button.adapter-status-badge.status-off:hover {
     gap: 6px;
 }
 .cw-set-status-msg {
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     color: #9ae6b4;
     margin-right: 4px;
 }
@@ -4519,7 +4528,7 @@ button.adapter-status-badge.status-off:hover {
     color: #fbd38d;
     border-color: #975a16;
     background: rgba(237, 137, 54, 0.14);
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--cw-header-font-scale, 1));
     padding: 4px 7px;
     display: inline-flex;
     align-items: center;
@@ -4551,7 +4560,7 @@ button.adapter-status-badge.status-off:hover {
     border-bottom: 1px solid var(--cw-border);
     color: var(--cw-text-primary);
     padding: 7px 10px;
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     text-align: left;
     cursor: pointer;
 }
@@ -4572,12 +4581,12 @@ button.adapter-status-badge.status-off:hover {
 .nav-mode-menu-footer {
     color: var(--cw-accent-soft);
     font-weight: 600;
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
 }
 .nav-mode-menu-revert {
     color: #feb2b2;
     font-weight: 600;
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
 }
 
 .profiles-cards-grid {
@@ -4614,7 +4623,7 @@ button.adapter-status-badge.status-off:hover {
     gap: 8px;
 }
 .profile-card-title {
-    font-size: 13px;
+    font-size: calc(13px * var(--cw-font-scale, 1));
     font-weight: 700;
     color: var(--cw-text-primary);
     display: inline-flex;
@@ -4622,7 +4631,7 @@ button.adapter-status-badge.status-off:hover {
     gap: 6px;
 }
 .profile-card-desc {
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
     line-height: 1.38;
 }
@@ -4632,7 +4641,7 @@ button.adapter-status-badge.status-off:hover {
     gap: 4px;
 }
 .prof-chip {
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--cw-font-scale, 1));
     padding: 2px 6px;
     border-radius: 2px;
     background: #121822;
@@ -4654,7 +4663,7 @@ button.adapter-status-badge.status-off:hover {
     background: var(--cw-bg-control);
     border: 1px solid var(--cw-border-strong);
     color: var(--cw-text-primary);
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     padding: 4px 8px;
     border-radius: 2px;
     cursor: pointer;
@@ -4704,7 +4713,7 @@ button.adapter-status-badge.status-off:hover {
     background: rgba(var(--cw-bg-inset-rgb), var(--cw-inset-alpha));
     border: 1px solid var(--cw-border-strong);
     color: var(--cw-text-primary);
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     padding: 5px 8px;
     border-radius: 2px;
     width: 100%;
@@ -4720,7 +4729,7 @@ button.adapter-status-badge.status-off:hover {
     cursor: pointer;
     padding: 3px 5px;
     border-radius: 2px;
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
 }
 .prof-icon-picks button:hover {
     border-color: var(--cw-accent-light);
@@ -4756,7 +4765,7 @@ button.adapter-status-badge.status-off:hover {
     color: var(--cw-text-muted);
     border-color: var(--cw-border-strong);
     background: rgba(var(--cw-bg-inset-rgb), var(--cw-inset-alpha));
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-header-font-scale, 1));
     padding: 4px 6px;
     line-height: 1;
 }
@@ -4829,7 +4838,7 @@ button.adapter-status-badge.status-off:hover {
     gap: 6px;
 }
 .dev-repo-name {
-    font-size: 12.5px;
+    font-size: calc(12.5px * var(--cw-font-scale, 1));
     font-weight: 700;
     color: var(--cw-text-primary);
     overflow: hidden;
@@ -4837,7 +4846,7 @@ button.adapter-status-badge.status-off:hover {
     white-space: nowrap;
 }
 .dev-repo-meta {
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
     font-family: Consolas, monospace;
     overflow: hidden;
@@ -4856,7 +4865,7 @@ button.adapter-status-badge.status-off:hover {
     background: var(--cw-bg-control);
     border: 1px solid var(--cw-border-strong);
     color: var(--cw-text-primary);
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     padding: 4px 7px;
     border-radius: 2px;
     cursor: pointer;
@@ -4900,7 +4909,7 @@ button.adapter-status-badge.status-off:hover {
     gap: 6px;
 }
 .gh-release-body {
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-secondary);
     white-space: pre-wrap;
     background: rgba(var(--cw-bg-inset-rgb), var(--cw-inset-alpha));
@@ -4948,10 +4957,10 @@ button.adapter-status-badge.status-off:hover {
     font-family: Consolas, monospace;
     font-weight: 700;
     color: var(--cw-accent-soft);
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
 }
 .jira-issue-summary {
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-primary);
     font-weight: 600;
 }
@@ -4972,7 +4981,7 @@ button.adapter-status-badge.status-off:hover {
     border: 1px solid var(--cw-border);
     padding: 8px 10px;
     border-radius: 2px;
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     color: var(--cw-text-secondary);
     white-space: pre-wrap;
     line-height: 1.45;
@@ -4984,12 +4993,12 @@ button.adapter-status-badge.status-off:hover {
     border: 1px solid var(--cw-border);
     border-radius: 2px;
     padding: 7px 9px;
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-primary);
     margin-bottom: 6px;
 }
 .jira-comment-meta {
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
     margin-bottom: 3px;
 }
@@ -5008,7 +5017,7 @@ button.adapter-status-badge.status-off:hover {
     color: var(--cw-accent-soft);
     border-color: var(--cw-border-strong);
     background: var(--cw-bg-inset);
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-header-font-scale, 1));
     padding: 4px 7px;
     line-height: 1;
 }
@@ -5067,14 +5076,14 @@ button.adapter-status-badge.status-off:hover {
     display: flex;
     align-items: center;
     gap: 6px;
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     font-weight: 800;
     letter-spacing: 0.7px;
     color: var(--cw-accent-soft);
 }
 .cw-drag-grip {
     color: var(--cw-text-muted);
-    font-size: 12px;
+    font-size: calc(12px * var(--cw-font-scale, 1));
     letter-spacing: -1px;
 }
 .cw-theme-popup-winbtns {
@@ -5089,7 +5098,7 @@ button.adapter-status-badge.status-off:hover {
     width: 22px;
     height: 22px;
     border-radius: 3px;
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
     line-height: 1;
     cursor: pointer;
     display: inline-flex;
@@ -5122,7 +5131,7 @@ button.adapter-status-badge.status-off:hover {
     background: var(--cw-bg-control);
     border: 1px solid var(--cw-border-strong);
     color: var(--cw-text-secondary);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     font-weight: 700;
     padding: 5px 8px;
     border-radius: 3px;
@@ -5156,7 +5165,7 @@ button.adapter-status-badge.status-off:hover {
     display: flex;
 }
 .cw-theme-locked-note {
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     line-height: 1.4;
     color: var(--cw-text-secondary);
     background: rgba(var(--cw-accent-rgb), 0.12);
@@ -5174,7 +5183,7 @@ button.adapter-status-badge.status-off:hover {
     gap: 7px;
 }
 .cw-theme-sec-title {
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     font-weight: 800;
     text-transform: uppercase;
     letter-spacing: 0.7px;
@@ -5195,7 +5204,7 @@ button.adapter-status-badge.status-off:hover {
     background: var(--cw-bg-control);
     border: 1px solid var(--cw-border-strong);
     color: var(--cw-text-primary);
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     font-weight: 600;
     padding: 5px 7px;
     border-radius: 3px;
@@ -5234,7 +5243,7 @@ button.adapter-status-badge.status-off:hover {
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-secondary);
     cursor: pointer;
 }
@@ -5244,7 +5253,7 @@ button.adapter-status-badge.status-off:hover {
     gap: 6px;
 }
 .cw-color-ctrl code {
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
     background: var(--cw-bg-app);
     border: 1px solid var(--cw-border);
@@ -5272,12 +5281,12 @@ button.adapter-status-badge.status-off:hover {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-secondary);
 }
 .cw-slider-meta strong {
     color: var(--cw-accent-soft);
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
 }
 .cw-slider-row input[type="range"] {
     width: 100%;
@@ -5294,7 +5303,7 @@ button.adapter-status-badge.status-off:hover {
     flex: 1 1 auto;
 }
 .cw-theme-bg-name {
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
     background: var(--cw-bg-app);
     border: 1px dashed var(--cw-border-strong);
@@ -5325,7 +5334,7 @@ button.adapter-status-badge.status-off:hover {
     flex-wrap: wrap;
 }
 .cw-theme-save-state {
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
     white-space: nowrap;
 }
@@ -5590,7 +5599,7 @@ textarea:focus {
     background-color: var(--cw-bg-inset);
     border-color: var(--cw-border-strong);
     color: var(--cw-text-secondary);
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-header-font-scale, 1));
     padding: 4px 7px;
     line-height: 1;
     display: inline-flex;
@@ -5603,7 +5612,7 @@ textarea:focus {
     color: #ecc94b !important;
 }
 .nav-alert-count {
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--cw-header-font-scale, 1));
     font-weight: 800;
     background: #e53e3e;
     color: #ffffff;
@@ -5636,7 +5645,7 @@ textarea:focus {
     background: rgba(var(--cw-bg-inset-rgb), var(--cw-inset-alpha));
     border: 1px solid var(--cw-border);
     border-radius: 3px;
-    font-size: 11px;
+    font-size: calc(11px * var(--cw-font-scale, 1));
 }
 .new-tab-row-item:hover {
     border-color: var(--cw-accent-light);
@@ -5648,7 +5657,7 @@ textarea:focus {
     background: rgba(var(--cw-accent-rgb), 0.2);
     border: 1px solid var(--cw-accent-light);
     color: var(--cw-accent-soft);
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     padding: 2px 6px;
     border-radius: 2px;
     cursor: pointer;
@@ -5681,7 +5690,7 @@ textarea:focus {
     background: var(--cw-bg-control);
     border: 1px solid var(--cw-border-strong);
     color: var(--cw-accent-soft);
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--cw-font-scale, 1));
     padding: 1px 6px;
     border-radius: 2px;
     cursor: pointer;
@@ -5701,7 +5710,7 @@ textarea:focus {
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     padding: 4px 8px;
     border-radius: 3px;
     background: rgba(var(--cw-bg-inset-rgb), var(--cw-inset-alpha));
@@ -5721,7 +5730,7 @@ textarea:focus {
     display: flex;
     flex-direction: column;
     gap: 3px;
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
 }
 .homelab-bar-item > div:first-child {
@@ -5753,7 +5762,7 @@ textarea:focus {
     background: var(--cw-bg-control);
     border: 1px solid var(--cw-border-strong);
     color: var(--cw-accent-soft);
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     font-weight: 600;
     padding: 3px 9px;
     border-radius: 3px;
@@ -5768,7 +5777,7 @@ textarea:focus {
     color: var(--cw-on-accent);
 }
 .dp-card-paused-hint {
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     color: #ecc94b;
     font-weight: 600;
     margin-right: auto;
@@ -5801,7 +5810,7 @@ textarea:focus {
     display: none;
 }
 .dp-telemetry-pill {
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--cw-font-scale, 1));
     font-weight: 700;
     padding: 2px 7px;
     border-radius: 99px;
@@ -5857,7 +5866,7 @@ textarea:focus {
     cursor: pointer;
 }
 .dp-disk-title {
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--cw-font-scale, 1));
     font-weight: 700;
     color: var(--cw-text-primary);
     display: flex;
@@ -5866,7 +5875,7 @@ textarea:focus {
     flex-wrap: wrap;
 }
 .dp-disk-meta {
-    font-size: 10px;
+    font-size: calc(10px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
 }
 .dp-bar-track {
@@ -5920,7 +5929,7 @@ textarea:focus {
     color: var(--cw-text-secondary);
 }
 .dp-seg-top {
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     font-weight: 700;
     white-space: nowrap;
     overflow: hidden;
@@ -5928,7 +5937,7 @@ textarea:focus {
     max-width: 100%;
 }
 .dp-seg-sub {
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--cw-font-scale, 1));
     color: var(--cw-text-muted);
     white-space: nowrap;
     overflow: hidden;
@@ -5958,7 +5967,7 @@ textarea:focus {
     background: rgba(155, 44, 44, 0.12);
 }
 .dp-action-title {
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
     font-weight: 700;
     color: var(--cw-accent-soft);
     text-transform: uppercase;
@@ -5971,4 +5980,126 @@ textarea:focus {
     justify-content: space-between;
     flex-wrap: wrap;
     gap: 6px;
+}
+
+
+/* =========================================================================
+   INTERFACE FONT SIZE SELECTOR (4 SIZES) & LAYOUT-PRESERVATION GUARDRAILS
+   ========================================================================= */
+.cw-font-size-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+}
+.cw-font-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    padding: 9px 6px;
+    background: rgba(var(--cw-bg-inset-rgb), var(--cw-inset-alpha));
+    border: 1px solid var(--cw-border-strong);
+    border-radius: 4px;
+    cursor: pointer;
+    text-align: center;
+    transition: border-color 0.14s ease, background-color 0.14s ease;
+    position: relative;
+}
+.cw-font-card:hover {
+    border-color: var(--cw-accent-soft);
+    background: var(--cw-bg-control);
+}
+.cw-font-card input[type="radio"] {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    margin: 0;
+}
+.cw-font-card:has(input[type="radio"]:checked) {
+    border-color: var(--cw-accent-light);
+    background: rgba(var(--cw-accent-rgb), 0.2);
+    box-shadow: 0 0 0 1px rgba(var(--cw-accent-rgb), 0.35);
+}
+.cw-font-card strong {
+    font-size: 11px;
+    color: var(--cw-text-primary);
+}
+.cw-font-card small {
+    font-size: 9.5px;
+    color: var(--cw-text-muted);
+}
+.cw-font-sample {
+    font-weight: 800;
+    color: var(--cw-accent-soft);
+    line-height: 1.15;
+    min-height: 24px;
+    display: inline-flex;
+    align-items: center;
+}
+/* Fixed literal px samples so users always see true relative size differences inside Settings */
+.cw-font-sample-sm { font-size: 12px; }
+.cw-font-sample-md { font-size: 15px; }
+.cw-font-sample-lg { font-size: 18px; }
+.cw-font-sample-xl { font-size: 21px; }
+
+@media (max-width: 620px) {
+    .cw-font-size-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+/* Layout-Preservation Guardrails across Small (88%), Normal (100%), Large (112%) & Extra Large (124%) */
+.dashboard-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.dashboard-card {
+    min-width: 0;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+.dashboard-card .data-field,
+.dashboard-card .data-field-split,
+.dashboard-card .net-node,
+.dashboard-card .video-metric-item,
+.dashboard-card .metric-metadata,
+.dashboard-card .speed-data-node {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+.tab-btn,
+.console-clear-btn,
+.filter-pill,
+.toggle-pill-btn,
+.storage-part-btn {
+    height: auto;
+    line-height: 1.25;
+}
+.prof-input,
+.prof-select,
+.tab-search-input,
+.tab-sort-select {
+    height: auto;
+    min-height: 26px;
+}
+
+/* Allow clean vertical scrolling on shorter windows when Large or Extra Large font is active without breaking the 2-col grid */
+html[data-font-size="large"] .dashboard-grid,
+html[data-font-size="xlarge"] .dashboard-grid {
+    overflow-y: auto;
+    align-content: start;
+}
+html[data-font-size="large"] .dashboard-card,
+html[data-font-size="xlarge"] .dashboard-card {
+    padding: 7px 10px;
+}
+html[data-font-size="xlarge"] .network-matrix-grid {
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+}
+html[data-font-size="xlarge"] .video-metrics-grid {
+    grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
+}
+html[data-font-size="small"] .dashboard-card {
+    padding: 8px 10px;
 }

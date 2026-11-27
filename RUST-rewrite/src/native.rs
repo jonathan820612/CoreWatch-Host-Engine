@@ -1,7 +1,7 @@
 use serde::Serialize;
 use std::{collections::HashMap, mem, net::Ipv4Addr, ptr, slice};
 use windows_sys::Win32::{
-    Foundation::{GetLastError, LocalFree, RECT},
+    Foundation::{LocalFree, RECT},
     Graphics::Gdi::{
         DEVMODEW, DISPLAY_DEVICE_ACTIVE, DISPLAY_DEVICE_PRIMARY_DEVICE, DISPLAY_DEVICEW, DMDO_90,
         DMDO_180, DMDO_270, ENUM_CURRENT_SETTINGS, EnumDisplayDevicesW, EnumDisplayMonitors,
@@ -16,10 +16,7 @@ use windows_sys::Win32::{
         WiFi::*,
     },
     Networking::WinSock::{AF_INET, IN_ADDR, IN_ADDR_0, SOCKADDR_IN},
-    System::{
-        EventLog::*,
-        Power::{PowerGetActiveScheme, PowerReadFriendlyName},
-    },
+    System::Power::{PowerGetActiveScheme, PowerReadFriendlyName},
     UI::{
         HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI},
         Shell::IsUserAnAdmin,
@@ -429,75 +426,6 @@ pub fn power_plan() -> Option<String> {
     }
 }
 
-struct Event(EVT_HANDLE);
-
-impl Drop for Event {
-    fn drop(&mut self) {
-        unsafe { EvtClose(self.0) };
-    }
-}
-
-pub fn last_crash() -> Option<String> {
-    unsafe {
-        let channel = wide("System");
-        let filter = wide(
-            "*[System[(Provider[@Name='Microsoft-Windows-Kernel-Power'] and EventID=41) or (Provider[@Name='Microsoft-Windows-WER-SystemErrorReporting'] and EventID=1001)]]",
-        );
-        let query = EvtQuery(
-            0,
-            channel.as_ptr(),
-            filter.as_ptr(),
-            EvtQueryChannelPath | EvtQueryReverseDirection,
-        );
-        if query == 0 {
-            return None;
-        }
-        let query = Event(query);
-        let (mut handle, mut count) = (0, 0);
-        if EvtNext(query.0, 1, &mut handle, 1000, 0, &mut count) == 0 {
-            return (GetLastError() == 259).then(|| "None recorded".to_owned());
-        }
-        let event = Event(handle);
-        let (mut size, mut fields) = (0, 0);
-        EvtRender(
-            0,
-            event.0,
-            EvtRenderEventXml,
-            0,
-            ptr::null_mut(),
-            &mut size,
-            &mut fields,
-        );
-        let mut buffer = vec![0u16; (size as usize).div_ceil(2)];
-        if EvtRender(
-            0,
-            event.0,
-            EvtRenderEventXml,
-            size,
-            buffer.as_mut_ptr().cast(),
-            &mut size,
-            &mut fields,
-        ) == 0
-        {
-            return None;
-        }
-        let xml = utf16(&buffer);
-        let time = xml
-            .split_once("SystemTime='")
-            .or_else(|| xml.split_once("SystemTime=\""))?
-            .1;
-        let stamp = time.get(..19)?.replace('T', " ");
-        let tag = if xml.contains("<EventID>41</EventID>") {
-            "KP-41"
-        } else if xml.contains("<EventID>1001</EventID>") {
-            "BSOD 1001"
-        } else {
-            return Some(format!("{stamp} UTC"));
-        };
-        Some(format!("{stamp} UTC ({tag})"))
-    }
-}
-
 pub fn memory_commit() -> Option<(u64, u64)> {
     use windows_sys::Win32::System::ProcessStatus::{GetPerformanceInfo, PERFORMANCE_INFORMATION};
     let size = mem::size_of::<PERFORMANCE_INFORMATION>() as u32;
@@ -819,12 +747,15 @@ fn color_profile(device: &[u16]) -> Option<String> {
         let mut buffer = vec![0u16; length as usize];
         let success = length > 0 && GetICMProfileW(dc, &mut length, buffer.as_mut_ptr()) != 0;
         DeleteDC(dc);
-        success.then(|| {
-            utf16(&buffer)
-                .rsplit(['\\', '/'])
-                .next()
-                .unwrap_or_default()
-                .to_owned()
+        if !success {
+            return None;
+        }
+        let path = utf16(&buffer);
+        let name = std::path::Path::new(&path).file_stem()?.to_str()?;
+        Some(if name.eq_ignore_ascii_case("sRGB Color Space Profile") {
+            "sRGB (Default)".into()
+        } else {
+            name.to_owned()
         })
     }
 }
@@ -839,6 +770,10 @@ pub struct NetworkConfig {
 }
 
 pub fn network_config(index: u32) -> Option<NetworkConfig> {
+    all_network_configs().remove(&index)
+}
+
+pub fn all_network_configs() -> HashMap<u32, NetworkConfig> {
     use windows_sys::Win32::{
         Foundation::ERROR_BUFFER_OVERFLOW,
         NetworkManagement::IpHelper::{
@@ -855,9 +790,9 @@ pub fn network_config(index: u32) -> Option<NetworkConfig> {
         }
     }
 
-    let mut length = 15_000u32;
+    let mut map = HashMap::new();
+    let mut length = 16_384u32;
     for _ in 0..3 {
-        // The API fills an aligned buffer with linked structures and socket addresses.
         let mut buffer = vec![0u64; (length as usize).div_ceil(8)];
         let first = buffer.as_mut_ptr().cast::<IP_ADAPTER_ADDRESSES_LH>();
         unsafe {
@@ -871,15 +806,13 @@ pub fn network_config(index: u32) -> Option<NetworkConfig> {
             if status == ERROR_BUFFER_OVERFLOW {
                 continue;
             }
-            if status != 0 {
-                return None;
+            if status != 0 || (length as usize) < std::mem::size_of::<IP_ADAPTER_ADDRESSES_LH>() {
+                return map;
             }
             let mut entry = first;
             while let Some(adapter) = entry.as_ref() {
                 entry = adapter.Next;
-                if adapter.Anonymous1.Anonymous.IfIndex != index {
-                    continue;
-                }
+                let idx = adapter.Anonymous1.Anonymous.IfIndex;
                 let mut unicast = adapter.FirstUnicastAddress;
                 let mut address_and_prefix = None;
                 while let Some(item) = unicast.as_ref() {
@@ -908,18 +841,21 @@ pub fn network_config(index: u32) -> Option<NetworkConfig> {
                     }
                     server = item.Next;
                 }
-                return Some(NetworkConfig {
-                    ipv4: address_and_prefix.map(|(address, _)| address),
-                    mask: address_and_prefix.and_then(|(_, prefix)| mask_from_prefix(prefix)),
-                    gateway: selected_gateway,
-                    dhcp: adapter.Anonymous2.Flags & IP_ADAPTER_DHCP_ENABLED != 0,
-                    dns,
-                });
+                map.insert(
+                    idx,
+                    NetworkConfig {
+                        ipv4: address_and_prefix.map(|(address, _)| address),
+                        mask: address_and_prefix.and_then(|(_, prefix)| mask_from_prefix(prefix)),
+                        gateway: selected_gateway,
+                        dhcp: adapter.Anonymous2.Flags & IP_ADAPTER_DHCP_ENABLED != 0,
+                        dns,
+                    },
+                );
             }
-            return None;
+            return map;
         }
     }
-    None
+    map
 }
 
 fn socket_ip(

@@ -58,6 +58,8 @@ function wallpaperFade(theme) {
     return "linear-gradient(" + direction + ", " + tone(strength) + ", " + tone(0) + " 85%)";
 }
 
+let lastEmittedThemeAccent = null;
+
 function applyDashboardTheme(theme, wallpaperUrl) {
     const style = document.documentElement.style;
     for (const [key] of dashboardColors) {
@@ -86,7 +88,13 @@ function applyDashboardTheme(theme, wallpaperUrl) {
     style.setProperty("--cw-bg-blur", theme.bgBlur + "px");
     style.setProperty("--cw-bg-scale", theme.bgBlur && theme.bgFit === "cover" ? "1.04" : "1");
     style.setProperty("--cw-bg-fade-overlay", wallpaperUrl ? wallpaperFade(theme) : "none");
-    document.documentElement.style.colorScheme = relativeLuminance(rgb(theme.bgInset)) > 0.45 ? "light" : "dark";
+    const isLight = relativeLuminance(rgb(theme.bgInset)) > 0.45;
+    document.documentElement.style.colorScheme = isLight ? "light" : "dark";
+    document.documentElement.dataset.colorScheme = isLight ? "light" : "dark";
+    if (theme.accent !== lastEmittedThemeAccent) {
+        lastEmittedThemeAccent = theme.accent;
+        window.dispatchEvent(new CustomEvent("cw-theme-changed", { detail: { accent: theme.accent, presetId: theme.presetId } }));
+    }
 }
 
 function createDashboardAppearance(core, save) {
@@ -133,6 +141,13 @@ function createDashboardAppearance(core, save) {
             button.classList.toggle("active", active);
             button.setAttribute("aria-pressed", String(active));
         }
+        for (const pill of panel.querySelectorAll("[data-bg-fit]")) {
+            const active = pill.dataset.bgFit === draft.bgFit;
+            pill.classList.toggle("active", active);
+            pill.setAttribute("aria-pressed", String(active));
+        }
+        const activeWpLabel = byId("wallpaper-active-label");
+        if (activeWpLabel) activeWpLabel.textContent = wallpaperVersion == null ? "No image set" : "Custom wallpaper active";
         pickImage.disabled = imageBusy;
         removeImage.disabled = imageBusy || wallpaperVersion == null;
         byId("appearance-wallpaper-effects").hidden = wallpaperVersion == null;
@@ -195,6 +210,14 @@ function createDashboardAppearance(core, save) {
             preview({ ...draft, [input.name]: input.type === "range" ? Number(input.value) : input.value });
         });
     }
+    for (const pill of panel.querySelectorAll("[data-bg-fit]")) {
+        pill.addEventListener("click", () => preview({ ...draft, bgFit: pill.dataset.bgFit }));
+    }
+    byId("theme-sync-rgb")?.addEventListener("click", () => {
+        if (window.cwApp?.syncRgbAccent) {
+            void window.cwApp.syncRgbAccent(draft.accent);
+        }
+    });
 
     byId("reset-appearance").addEventListener("click", async () => {
         if (await confirmDashboardAction("Reset Theme Studio", "Restore the CoreWatch Classic colors and effects?", "Reset")) preview({ ...classicDashboardTheme });
@@ -249,11 +272,17 @@ function createDashboardAppearance(core, save) {
         });
     }
 
-    async function changeWallpaper(operation) {
+    async function changeWallpaper(operation, isSelect = false) {
         imageBusy = true;
         paint();
         try {
-            wallpaperVersion = await operation();
+            const nextVersion = await operation();
+            const changed = nextVersion !== wallpaperVersion;
+            wallpaperVersion = nextVersion;
+            if (isSelect && wallpaperVersion != null && changed && draft.surfaceOpacity >= 96) {
+                preview({ ...draft, surfaceOpacity: 84 });
+                window.showToast?.("Wallpaper applied · card opacity set to 84% so it shows through", "ok");
+            }
             status.textContent = wallpaperVersion == null ? "Wallpaper removed" : "Wallpaper saved";
         } catch (error) {
             status.textContent = String(error);
@@ -264,7 +293,7 @@ function createDashboardAppearance(core, save) {
     }
 
     pickImage.addEventListener("click", () => changeWallpaper(async () =>
-        (await core.invoke("settings_action", { action: { kind: "wallpaper" } })) ?? wallpaperVersion));
+        (await core.invoke("settings_action", { action: { kind: "wallpaper" } })) ?? wallpaperVersion, true));
     removeImage.addEventListener("click", () => changeWallpaper(async () => {
         await core.invoke("remove_dashboard_wallpaper");
         return null;
@@ -276,6 +305,13 @@ function createDashboardAppearance(core, save) {
         setWallpaperVersion(version) {
             wallpaperVersion = version;
             paint();
+        },
+        applyPresetById(id) {
+            const found = appearancePalettes.find(([pid]) => pid === id);
+            if (found) {
+                preview({ ...draft, ...paletteColors(found[2]), presetId: found[0] });
+                window.showToast?.(`Theme: ${found[1]}`, "ok");
+            }
         },
         commit
     };

@@ -2387,6 +2387,8 @@ document.addEventListener("DOMContentLoaded", () => {
 // [DYNAMIC CONTROL] UNIFIED DASHBOARD TOGGLE & QUICK-ACTION DISPATCHERS
 // =========================================================================
 window._pendingControls = {};
+window._pendingControlTargets = {};
+window._lastInfraFrame = null;
 
 function IsControlPending(commandKey) {
     const expiry = window._pendingControls[commandKey];
@@ -2402,8 +2404,11 @@ function DispatchDashboardControl(command, extraPayload = {}, logNote = '', targ
     if (!window.chrome || !window.chrome.webview) return;
     window._pendingControls[command] = Date.now() + 7000;
     if (targetElemId) {
+        window._pendingControlTargets[command] = targetElemId;
         const host = document.getElementById(targetElemId);
         if (host) {
+            // Invalidate SetDomHtml cache since we are mutating the inner button/text directly
+            host._lastHtml = null;
             const btn = host.matches('button') ? host : host.querySelector('button');
             if (btn) {
                 btn.disabled = true;
@@ -2422,6 +2427,18 @@ function HandleDashboardControlResult(res) {
     if (!res) return;
     if (res.control) {
         delete window._pendingControls[res.control];
+        const tgtId = window._pendingControlTargets[res.control];
+        delete window._pendingControlTargets[res.control];
+        if (tgtId) {
+            const tgtEl = document.getElementById(tgtId);
+            if (tgtEl) tgtEl._lastHtml = null;
+        }
+    }
+    if ((res.control === 'CHECK_PS_UPDATE' || res.control === 'INSTALL_PS_UPDATE') && window._lastInfraFrame) {
+        if (res.psInfo && typeof res.psInfo === 'object') {
+            Object.assign(window._lastInfraFrame, res.psInfo);
+        }
+        RenderPowerShellVersionControl(window._lastInfraFrame);
     }
     const prefix = res.ok ? '[CONTROL OK]' : '[CONTROL ERROR]';
     AppendConsoleLogEntry(`${prefix} ${res.message || res.error || 'Action completed.'}`);
@@ -5886,6 +5903,7 @@ document.addEventListener('keydown', (e) => {
 function RenderPowerShellVersionControl(infra) {
     const el = document.getElementById('lblPsVersion');
     if (!el || !infra) return;
+    window._lastInfraFrame = Object.assign({}, window._lastInfraFrame || {}, infra);
 
     const ver     = String(infra.PsVersion || '--');
     const latest  = String(infra.PsLatestVersion || '');
@@ -8530,6 +8548,7 @@ function ApplyHostUiSettingsState(data) {
 document.addEventListener('DOMContentLoaded', () => {
     window._cwLayoutState = LoadLocalLayoutFallback();
     window._diagXDismissed = LoadLocalDiagXDismissed();
+    ApplyCoreWatchFontSize(LoadLocalFontSizeFallback(), false);
     ApplyThemeState(LoadLocalThemeFallback(), false);
     InitThemeStudioDrag();
     InitDiskPartitionerDrag();
@@ -8704,6 +8723,45 @@ window.EnableAllInstalledModules = function() {
     SetSettingsStatusBanner('All installed modules enabled (click Save Settings to apply).');
 };
 
+const CW_FONT_SIZE_STORAGE_KEY = 'corewatch_font_size_v1';
+const CW_FONT_SIZE_SCALES = {
+    small:  { scale: 0.88, headerScale: 0.92 },
+    normal: { scale: 1.00, headerScale: 1.00 },
+    large:  { scale: 1.12, headerScale: 1.06 },
+    xlarge: { scale: 1.24, headerScale: 1.10 }
+};
+
+function NormalizeCoreWatchFontSize(val) {
+    const k = String(val || 'normal').trim().toLowerCase();
+    return Object.prototype.hasOwnProperty.call(CW_FONT_SIZE_SCALES, k) ? k : 'normal';
+}
+
+function LoadLocalFontSizeFallback() {
+    try {
+        const raw = localStorage.getItem(CW_FONT_SIZE_STORAGE_KEY);
+        if (raw) return NormalizeCoreWatchFontSize(raw);
+    } catch {}
+    return 'normal';
+}
+
+function ApplyCoreWatchFontSize(sizeKey, persistLocal = false) {
+    const key = NormalizeCoreWatchFontSize(sizeKey);
+    const cfg = CW_FONT_SIZE_SCALES[key];
+    const root = document.documentElement;
+    if (root) {
+        root.dataset.fontSize = key;
+        root.style.setProperty('--cw-font-scale', String(cfg.scale));
+        root.style.setProperty('--cw-header-font-scale', String(cfg.headerScale));
+    }
+    if (persistLocal) {
+        try { localStorage.setItem(CW_FONT_SIZE_STORAGE_KEY, key); } catch {}
+    }
+}
+
+window.PreviewCoreWatchFontSize = function(sizeKey) {
+    ApplyCoreWatchFontSize(sizeKey, false);
+};
+
 function PopulateSettingsModalInputs() {
     const s = window._cwAppSettings;
     if (!s) return;
@@ -8721,6 +8779,9 @@ function PopulateSettingsModalInputs() {
     setChk('chkSetMinToTrayOnClose', gen.minimizeToTrayOnClose);
     setChk('chkSetConfirmDestructive', gen.confirmDestructiveActions !== false);
     setChk('chkSetAutoCheckUpdates', gen.autoCheckCoreWatchUpdates !== false);
+
+    const fsVal = NormalizeCoreWatchFontSize(gen.fontSize);
+    document.querySelectorAll('input[name="setFontSize"]').forEach(r => { r.checked = (r.value === fsVal); });
 
     if (window._cwAutoStartInfo && window._cwAutoStartInfo.detail) {
         SetDomText('lblSetAutoStartDetail', window._cwAutoStartInfo.detail);
@@ -8758,6 +8819,7 @@ function ApplyAppSettingsState(data) {
     if (data.autoStart) window._cwAutoStartInfo = data.autoStart;
 
     ApplyModularTabsVisibility();
+    ApplyCoreWatchFontSize(window._cwAppSettings?.general?.fontSize || 'normal', true);
 
     // Re-format live temperature badges immediately when switching °C <-> °F
     if (window._cwLastRawCpuTemp !== undefined) {
@@ -8842,6 +8904,9 @@ window.CloseSettingsModal = function() {
     const btn = document.getElementById('btnOpenSettings');
     if (modal) modal.style.display = 'none';
     if (btn) btn.classList.remove('active');
+    // Revert any unsaved font-size live preview back to the persisted setting
+    const savedFs = window._cwAppSettings?.general?.fontSize || LoadLocalFontSizeFallback();
+    ApplyCoreWatchFontSize(savedFs, false);
 };
 
 window.ToggleSettingsModal = function() {
@@ -8853,6 +8918,9 @@ window.ToggleSettingsModal = function() {
 window.SaveCoreWatchSettingsFromModal = function() {
     const polRadio = document.querySelector('input[name="setPollingProfile"]:checked');
     const unitRadio = document.querySelector('input[name="setTempUnit"]:checked');
+    const fontRadio = document.querySelector('input[name="setFontSize"]:checked');
+    const fontSize = NormalizeCoreWatchFontSize(fontRadio ? fontRadio.value : 'normal');
+    ApplyCoreWatchFontSize(fontSize, true);
 
     const payload = {
         schemaVersion: 1,
@@ -8861,7 +8929,8 @@ window.SaveCoreWatchSettingsFromModal = function() {
             startMinimized: !!document.getElementById('chkSetStartMinimized')?.checked,
             minimizeToTrayOnClose: !!document.getElementById('chkSetMinToTrayOnClose')?.checked,
             confirmDestructiveActions: !!document.getElementById('chkSetConfirmDestructive')?.checked,
-            autoCheckCoreWatchUpdates: !!document.getElementById('chkSetAutoCheckUpdates')?.checked
+            autoCheckCoreWatchUpdates: !!document.getElementById('chkSetAutoCheckUpdates')?.checked,
+            fontSize: fontSize
         },
         telemetry: {
             pollingProfile: polRadio ? polRadio.value : 'balanced',

@@ -5,7 +5,7 @@ use crate::{
 use serde::Serialize;
 use std::{
     path::Path,
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
     time::Duration,
 };
 use tauri::{AppHandle, PhysicalPosition, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
@@ -18,7 +18,7 @@ pub fn relaunch_elevated() -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|error| error.to_string())?;
     use std::os::windows::ffi::OsStrExt;
     let exe: Vec<u16> = exe.as_os_str().encode_wide().chain([0]).collect();
-    shell_open_wide(&exe, None, true)
+    shell_open_wide(&exe, Some("--elevated"), true)
 }
 
 pub(crate) fn shell_open(target: &str, argument: Option<&str>, admin: bool) -> Result<(), String> {
@@ -36,6 +36,97 @@ pub fn open_directory(path: &Path) -> Result<(), String> {
         .chain(std::iter::once(0))
         .collect();
     shell_open_wide(&target, None, false)
+}
+
+/// Opens Windows File Explorer highlighting the exact file or folder (`explorer.exe /select,"<path>"`).
+pub fn reveal_in_explorer(path: &Path) -> Result<(), String> {
+    if !path.is_absolute() || !path.exists() {
+        return Err("The selected file or folder no longer exists.".into());
+    }
+    let display = path.to_string_lossy();
+    let clean = display.strip_prefix(r"\\?\").unwrap_or(&display);
+    let arg = format!("/select,\"{clean}\"");
+    std::process::Command::new("explorer.exe")
+        .arg(&arg)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("Could not open File Explorer: {e}"))
+}
+
+/// Returns true if `path` is a critical Windows system root or user profile root that must never
+/// be deleted, recycled, or bulk-reorganized.
+pub fn is_protected_system_path(path: &Path) -> bool {
+    let raw = path.to_string_lossy();
+    let norm = raw
+        .strip_prefix(r"\\?\")
+        .unwrap_or(&raw)
+        .replace('/', "\\")
+        .trim_end_matches('\\')
+        .to_ascii_lowercase();
+    if norm.len() <= 2 && norm.ends_with(':') {
+        return true; // Drive root like C:, D:
+    }
+    let sys_drive = std::env::var("SystemDrive")
+        .unwrap_or_else(|_| "C:".into())
+        .to_ascii_lowercase();
+    let protected_exact = [
+        format!("{sys_drive}\\windows"),
+        format!("{sys_drive}\\windows\\system32"),
+        format!("{sys_drive}\\windows\\syswow64"),
+        format!("{sys_drive}\\program files"),
+        format!("{sys_drive}\\program files (x86)"),
+        format!("{sys_drive}\\programdata"),
+        format!("{sys_drive}\\users"),
+        format!("{sys_drive}\\$recycle.bin"),
+        format!("{sys_drive}\\system volume information"),
+    ];
+    if protected_exact.iter().any(|p| p == &norm) {
+        return true;
+    }
+    if norm.starts_with(&format!("{sys_drive}\\windows\\"))
+        || norm.contains("\\$recycle.bin")
+        || norm.contains("\\system volume information")
+    {
+        return true;
+    }
+    if let Ok(profile) = std::env::var("USERPROFILE") {
+        let p = profile.trim_end_matches('\\').to_ascii_lowercase();
+        if norm == p {
+            return true;
+        }
+    }
+    false
+}
+
+/// Safely moves a file or folder into the Windows Recycle Bin (`SHFileOperationW` + `FOF_ALLOWUNDO`),
+/// enforcing OS protected-path guardrails.
+pub fn recycle_path(path: &Path) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::UI::Shell::{
+        FO_DELETE, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_NOERRORUI, FOF_SILENT,
+        SHFILEOPSTRUCTW, SHFileOperationW,
+    };
+    if !path.is_absolute() || !path.exists() {
+        return Err("The selected item no longer exists.".into());
+    }
+    if is_protected_system_path(path) {
+        return Err("Refusing to recycle a protected Windows system or profile root path.".into());
+    }
+    let display = path.to_string_lossy();
+    let clean = display.strip_prefix(r"\\?\").unwrap_or(&display);
+    let mut double_null: Vec<u16> = std::ffi::OsStr::new(clean)
+        .encode_wide()
+        .chain([0u16, 0u16])
+        .collect();
+    let mut op: SHFILEOPSTRUCTW = unsafe { std::mem::zeroed() };
+    op.wFunc = FO_DELETE;
+    op.pFrom = double_null.as_mut_ptr();
+    op.fFlags = (FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI) as u16;
+    let rc = unsafe { SHFileOperationW(&mut op) };
+    if rc != 0 || op.fAnyOperationsAborted != 0 {
+        return Err(format!("Windows could not move item to Recycle Bin (code {rc})."));
+    }
+    Ok(())
 }
 
 fn shell_open_wide(target: &[u16], argument: Option<&str>, admin: bool) -> Result<(), String> {
@@ -95,9 +186,9 @@ pub fn label_volume(mount: &str, label: &str) -> Result<(), String> {
 
 #[derive(Serialize)]
 pub struct PowerPlan {
-    id: String,
-    name: String,
-    active: bool,
+    pub id: String,
+    pub name: String,
+    pub active: bool,
 }
 
 pub fn power_plans() -> Result<Vec<PowerPlan>, String> {
@@ -148,14 +239,23 @@ fn valid_guid(value: &str) -> bool {
 }
 
 static OVERLAYS: AtomicUsize = AtomicUsize::new(0);
+static IDENTIFYING: AtomicBool = AtomicBool::new(false);
 
 pub fn identify(app: &AppHandle, window: &WebviewWindow) -> Result<(), String> {
-    let monitors = window
-        .available_monitors()
-        .map_err(|error| error.to_string())?;
+    if IDENTIFYING.swap(true, Ordering::AcqRel) {
+        return Ok(());
+    }
+    let monitors = match window.available_monitors() {
+        Ok(m) => m,
+        Err(error) => {
+            IDENTIFYING.store(false, Ordering::Release);
+            return Err(error.to_string());
+        }
+    };
     let displays = native::displays();
     let generation = OVERLAYS.fetch_add(1, Ordering::Relaxed);
     let mut first_error = None;
+    let mut spawned = Vec::new();
     for (index, monitor) in monitors.iter().enumerate() {
         let position = monitor.position();
         let size = monitor.size();
@@ -187,15 +287,23 @@ pub fn identify(app: &AppHandle, window: &WebviewWindow) -> Result<(), String> {
                     position.y + (size.height as f64 - height * monitor.scale_factor()) as i32 / 2;
                 let _ = overlay.set_position(PhysicalPosition::new(x, y));
                 let _ = overlay.show();
-                std::thread::spawn(move || {
-                    std::thread::sleep(Duration::from_millis(2300));
-                    let _ = overlay.close();
-                });
+                spawned.push(overlay);
             }
             Err(error) => {
                 first_error.get_or_insert_with(|| error.to_string());
             }
         }
+    }
+    if spawned.is_empty() {
+        IDENTIFYING.store(false, Ordering::Release);
+    } else {
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(2300));
+            for overlay in spawned {
+                let _ = overlay.close();
+            }
+            IDENTIFYING.store(false, Ordering::Release);
+        });
     }
     first_error.map_or(Ok(()), Err)
 }

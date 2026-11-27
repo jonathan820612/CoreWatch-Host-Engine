@@ -13,7 +13,9 @@ use std::{
 };
 use sysinfo::{ProcessesToUpdate, System};
 use windows_sys::Win32::{
-    Foundation::{CloseHandle, ERROR_INSUFFICIENT_BUFFER, FILETIME, HANDLE},
+    Foundation::{
+        CloseHandle, ERROR_INSUFFICIENT_BUFFER, ERROR_MORE_DATA, FILETIME, GetLastError, HANDLE,
+    },
     NetworkManagement::IpHelper::*,
     Networking::WinSock::{AF_INET, AF_INET6},
     System::{Services::*, Threading::*},
@@ -49,34 +51,236 @@ struct Counts {
     thread_count: u32,
 }
 
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all(deserialize = "PascalCase"))]
-struct ServiceRow {
-    name: String,
-    display_name: String,
-    state: String,
-    start_mode: String,
-    start_name: Option<String>,
-    delayed_auto_start: Option<bool>,
-    process_id: Option<u32>,
+#[derive(Clone, Serialize)]
+pub struct ServiceRow {
+    pub name: String,
+    pub display_name: String,
+    pub state: String,
+    pub start_mode: String,
+    pub start_name: Option<String>,
+    pub delayed_auto_start: Option<bool>,
+    pub process_id: Option<u32>,
+    pub binary_path: Option<String>,
+}
+
+unsafe fn ptr_wide_to_string(ptr: *const u16) -> String {
+    if ptr.is_null() {
+        return String::new();
+    }
+    let mut len = 0usize;
+    unsafe {
+        while *ptr.add(len) != 0 && len < 4096 {
+            len += 1;
+        }
+        String::from_utf16_lossy(std::slice::from_raw_parts(ptr, len))
+    }
+}
+
+fn scm_state_str(code: u32) -> &'static str {
+    match code {
+        SERVICE_RUNNING => "Running",
+        SERVICE_STOPPED => "Stopped",
+        SERVICE_PAUSED => "Paused",
+        SERVICE_START_PENDING => "Start Pending",
+        SERVICE_STOP_PENDING => "Stop Pending",
+        SERVICE_CONTINUE_PENDING => "Continue Pending",
+        SERVICE_PAUSE_PENDING => "Pause Pending",
+        _ => "Unknown",
+    }
+}
+
+fn scm_start_mode(code: u32) -> &'static str {
+    match code {
+        SERVICE_AUTO_START => "Auto",
+        SERVICE_DEMAND_START => "Manual",
+        SERVICE_DISABLED => "Disabled",
+        SERVICE_BOOT_START => "Boot",
+        SERVICE_SYSTEM_START => "System",
+        _ => "Unknown",
+    }
+}
+
+/// Fast native Win32 SCM enumeration (zero WMI latency; ~15ms for all Windows services).
+pub fn enum_services_native() -> Result<Vec<ServiceRow>, String> {
+    let scm = unsafe { OpenSCManagerW(ptr::null(), ptr::null(), SC_MANAGER_ENUMERATE_SERVICE) };
+    if scm.is_null() {
+        return Err(std::io::Error::last_os_error().to_string());
+    }
+    struct ScGuard(SC_HANDLE);
+    impl Drop for ScGuard {
+        fn drop(&mut self) {
+            unsafe {
+                CloseServiceHandle(self.0);
+            }
+        }
+    }
+    let _scm_guard = ScGuard(scm);
+
+    let mut needed = 0u32;
+    let mut returned = 0u32;
+    let mut resume = 0u32;
+    let mut buf = vec![0u8; 65_536];
+    let mut rows = Vec::with_capacity(280);
+
+    loop {
+        let ok = unsafe {
+            EnumServicesStatusExW(
+                scm,
+                SC_ENUM_PROCESS_INFO,
+                SERVICE_WIN32,
+                SERVICE_STATE_ALL,
+                buf.as_mut_ptr(),
+                buf.len() as u32,
+                &mut needed,
+                &mut returned,
+                &mut resume,
+                ptr::null(),
+            )
+        };
+        let err = if ok == 0 {
+            unsafe { GetLastError() }
+        } else {
+            0
+        };
+        if ok == 0 && err != ERROR_MORE_DATA {
+            if err == ERROR_INSUFFICIENT_BUFFER && needed as usize > buf.len() {
+                buf.resize(needed as usize + 4096, 0);
+                continue;
+            }
+            return Err(std::io::Error::from_raw_os_error(err as i32).to_string());
+        }
+
+        let entries = unsafe {
+            std::slice::from_raw_parts(
+                buf.as_ptr().cast::<ENUM_SERVICE_STATUS_PROCESSW>(),
+                returned as usize,
+            )
+        };
+        let mut cfg_buf = vec![0u8; 8192];
+        for entry in entries {
+            let name = unsafe { ptr_wide_to_string(entry.lpServiceName) };
+            let display_name = unsafe { ptr_wide_to_string(entry.lpDisplayName) };
+            let state = scm_state_str(entry.ServiceStatusProcess.dwCurrentState).to_owned();
+            let pid = entry.ServiceStatusProcess.dwProcessId;
+            let process_id = (pid > 0).then_some(pid);
+
+            let mut start_mode = "Manual".to_owned();
+            let mut start_name = None;
+            let mut binary_path = None;
+            let mut delayed_auto_start = None;
+
+            let svc = unsafe { OpenServiceW(scm, entry.lpServiceName, SERVICE_QUERY_CONFIG) };
+            if !svc.is_null() {
+                let _svc_guard = ScGuard(svc);
+                let mut bytes_needed = 0u32;
+                let mut queried = unsafe {
+                    QueryServiceConfigW(
+                        svc,
+                        cfg_buf.as_mut_ptr().cast(),
+                        cfg_buf.len() as u32,
+                        &mut bytes_needed,
+                    )
+                };
+                if queried == 0
+                    && unsafe { GetLastError() } == ERROR_INSUFFICIENT_BUFFER
+                    && bytes_needed as usize > cfg_buf.len()
+                    && bytes_needed <= 65_536
+                {
+                    cfg_buf.resize(bytes_needed as usize, 0);
+                    queried = unsafe {
+                        QueryServiceConfigW(
+                            svc,
+                            cfg_buf.as_mut_ptr().cast(),
+                            cfg_buf.len() as u32,
+                            &mut bytes_needed,
+                        )
+                    };
+                }
+                if queried != 0 {
+                    let cfg = unsafe { &*cfg_buf.as_ptr().cast::<QUERY_SERVICE_CONFIGW>() };
+                    start_mode = scm_start_mode(cfg.dwStartType).to_owned();
+                    let acct = unsafe { ptr_wide_to_string(cfg.lpServiceStartName) };
+                    if !acct.is_empty() {
+                        start_name = Some(acct);
+                    }
+                    let bin = unsafe { ptr_wide_to_string(cfg.lpBinaryPathName) };
+                    if !bin.is_empty() {
+                        binary_path = Some(bin);
+                    }
+                    if cfg.dwStartType == SERVICE_AUTO_START {
+                        let mut delayed = SERVICE_DELAYED_AUTO_START_INFO {
+                            fDelayedAutostart: 0,
+                        };
+                        let mut d_needed = 0u32;
+                        if unsafe {
+                            QueryServiceConfig2W(
+                                svc,
+                                SERVICE_CONFIG_DELAYED_AUTO_START_INFO,
+                                (&mut delayed as *mut SERVICE_DELAYED_AUTO_START_INFO).cast(),
+                                mem::size_of::<SERVICE_DELAYED_AUTO_START_INFO>() as u32,
+                                &mut d_needed,
+                            )
+                        } != 0
+                        {
+                            delayed_auto_start = Some(delayed.fDelayedAutostart != 0);
+                        }
+                    }
+                }
+            }
+
+            rows.push(ServiceRow {
+                name,
+                display_name,
+                state,
+                start_mode,
+                start_name,
+                delayed_auto_start,
+                process_id,
+                binary_path,
+            });
+        }
+
+        if ok != 0 {
+            break;
+        }
+        if needed as usize > buf.len() {
+            buf.resize(needed as usize + 4096, 0);
+        }
+    }
+    Ok(rows)
 }
 
 pub fn snapshot() -> Snapshot {
-    let wmi = WMIConnection::new();
     let mut system = System::new();
     system.refresh_processes(ProcessesToUpdate::All, true);
     let start = Instant::now();
-    let counts: HashMap<_, _> = wmi
-        .as_ref()
-        .ok()
-        .and_then(|wmi| {
-            wmi.raw_query::<Counts>("SELECT ProcessId,HandleCount,ThreadCount FROM Win32_Process")
+
+    // Collect WMI handle/thread counts, native SCM services, and TCP/UDP sockets concurrently
+    // while waiting for sysinfo's CPU sampling interval!
+    let (counts, svc_res, (sockets, socket_errors)) = std::thread::scope(|s| {
+        let h_counts = s.spawn(|| {
+            WMIConnection::new()
                 .ok()
-        })
-        .unwrap_or_default()
-        .into_iter()
-        .map(|row| (row.process_id, row))
-        .collect();
+                .and_then(|wmi| {
+                    wmi.raw_query::<Counts>(
+                        "SELECT ProcessId,HandleCount,ThreadCount FROM Win32_Process",
+                    )
+                    .ok()
+                })
+                .unwrap_or_default()
+                .into_iter()
+                .map(|row| (row.process_id, row))
+                .collect::<HashMap<_, _>>()
+        });
+        let h_svc = s.spawn(enum_services_native);
+        let h_sock = s.spawn(sockets);
+        (
+            h_counts.join().unwrap_or_default(),
+            h_svc.join().unwrap_or_else(|_| Err("SCM worker panicked".into())),
+            h_sock.join().unwrap_or_else(|_| (Vec::new(), Vec::new())),
+        )
+    });
+
     std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL.saturating_sub(start.elapsed()));
     system.refresh_processes(ProcessesToUpdate::All, true);
     let cpus = std::thread::available_parallelism().map_or(1, |cpus| cpus.get()) as f32;
@@ -90,18 +294,7 @@ pub fn snapshot() -> Snapshot {
             }
             let name = process.name().to_string_lossy().into_owned();
             let info = counts.get(&pid);
-            let token = if protected(pid, &name) {
-                None
-            } else {
-                ProcessHandle::open(pid, PROCESS_QUERY_LIMITED_INFORMATION)
-                    .ok()
-                    .and_then(|handle| identity(&handle))
-                    .filter(|&created| {
-                        (created.saturating_sub(116_444_736_000_000_000) / 10_000_000)
-                            == process.start_time()
-                    })
-                    .map(|value| value.to_string())
-            };
+            let token = process_token(process);
             Some(Process {
                 pid,
                 name,
@@ -121,9 +314,10 @@ pub fn snapshot() -> Snapshot {
     if counts.is_empty() {
         errors.push("Windows process handle and thread counts are unavailable.".into());
     }
-    let services = wmi.and_then(|wmi| wmi.raw_query("SELECT Name,DisplayName,State,StartMode,StartName,DelayedAutoStart,ProcessId FROM Win32_Service"))
-        .unwrap_or_else(|error| { errors.push(format!("Windows services: {error}")); Vec::new() });
-    let (sockets, socket_errors) = sockets();
+    let services = svc_res.unwrap_or_else(|error| {
+        errors.push(format!("Windows services: {error}"));
+        Vec::new()
+    });
     errors.extend(socket_errors);
     Snapshot {
         processes,
@@ -157,6 +351,21 @@ fn identity(handle: &ProcessHandle) -> Option<u64> {
     let [mut creation, mut exit, mut kernel, mut user] = [FILETIME::default(); 4];
     (unsafe { GetProcessTimes(handle.0, &mut creation, &mut exit, &mut kernel, &mut user) } != 0)
         .then(|| (u64::from(creation.dwHighDateTime) << 32) | u64::from(creation.dwLowDateTime))
+}
+
+pub(crate) fn process_token(process: &sysinfo::Process) -> Option<String> {
+    let pid = process.pid().as_u32();
+    let name = process.name().to_string_lossy();
+    if protected(pid, &name) {
+        return None;
+    }
+    ProcessHandle::open(pid, PROCESS_QUERY_LIMITED_INFORMATION)
+        .ok()
+        .and_then(|handle| identity(&handle))
+        .filter(|&created| {
+            (created.saturating_sub(116_444_736_000_000_000) / 10_000_000) == process.start_time()
+        })
+        .map(|value| value.to_string())
 }
 
 fn protected(pid: u32, name: &str) -> bool {
@@ -214,9 +423,7 @@ pub fn process_folder(pid: u32) -> Result<(), String> {
         return Err(std::io::Error::last_os_error().to_string());
     }
     let path = PathBuf::from(String::from_utf16_lossy(&buffer[..size as usize]));
-    crate::dashboard_actions::open_directory(
-        path.parent().ok_or("The process folder is unavailable.")?,
-    )
+    crate::dashboard_actions::reveal_in_explorer(&path)
 }
 
 #[derive(Deserialize)]
@@ -276,6 +483,7 @@ struct Socket {
     protocol: &'static str,
     address: String,
     port: u16,
+    service: &'static str,
     remote: Option<String>,
     state: &'static str,
     pid: u32,
@@ -366,10 +574,12 @@ fn sockets() -> (Vec<Socket>, Vec<String>) {
         };
     }
     append!(MIB_TCPROW_OWNER_PID, "IPv4 TCP", tcp, AF_INET, |row| {
+        let p = port(row.dwLocalPort);
         Socket {
             protocol: "TCP",
             address: Ipv4Addr::from(row.dwLocalAddr.to_ne_bytes()).to_string(),
-            port: port(row.dwLocalPort),
+            port: p,
+            service: crate::network::port_service_hint(p),
             remote: (row.dwState != 2).then(|| {
                 format!(
                     "{}:{}",
@@ -382,10 +592,12 @@ fn sockets() -> (Vec<Socket>, Vec<String>) {
         }
     });
     append!(MIB_TCP6ROW_OWNER_PID, "IPv6 TCP", tcp, AF_INET6, |row| {
+        let p = port(row.dwLocalPort);
         Socket {
             protocol: "TCP",
             address: v6(row.ucLocalAddr, row.dwLocalScopeId),
-            port: port(row.dwLocalPort),
+            port: p,
+            service: crate::network::port_service_hint(p),
             remote: (row.dwState != 2).then(|| {
                 format!(
                     "[{}]:{}",
@@ -398,20 +610,24 @@ fn sockets() -> (Vec<Socket>, Vec<String>) {
         }
     });
     append!(MIB_UDPROW_OWNER_PID, "IPv4 UDP", udp, AF_INET, |row| {
+        let p = port(row.dwLocalPort);
         Socket {
             protocol: "UDP",
             address: Ipv4Addr::from(row.dwLocalAddr.to_ne_bytes()).to_string(),
-            port: port(row.dwLocalPort),
+            port: p,
+            service: crate::network::port_service_hint(p),
             remote: None,
             state: "Bound",
             pid: row.dwOwningPid,
         }
     });
     append!(MIB_UDP6ROW_OWNER_PID, "IPv6 UDP", udp, AF_INET6, |row| {
+        let p = port(row.dwLocalPort);
         Socket {
             protocol: "UDP",
             address: v6(row.ucLocalAddr, row.dwLocalScopeId),
-            port: port(row.dwLocalPort),
+            port: p,
+            service: crate::network::port_service_hint(p),
             remote: None,
             state: "Bound",
             pid: row.dwOwningPid,
@@ -422,7 +638,7 @@ fn sockets() -> (Vec<Socket>, Vec<String>) {
 
 #[cfg(test)]
 mod tests {
-    use super::sockets;
+    use super::{enum_services_native, sockets};
     use std::net::{TcpListener, UdpSocket};
 
     #[test]
@@ -443,5 +659,7 @@ mod tests {
                 "{protocol} {port} missing: {errors:?}"
             );
         }
+        let svcs = enum_services_native().unwrap();
+        assert!(!svcs.is_empty(), "native SCM should enumerate Windows services");
     }
 }

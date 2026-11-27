@@ -6,8 +6,10 @@ function createDashboardPreferences(core, nativeWindow, temperatureChanged, modu
     const unit = byId("dashboard-temperature-unit");
     const status = byId("preferences-save-status");
     const pin = byId("pin");
+    const lockBtn = byId("lock-window");
     const layoutPin = byId("layout-window-pin");
     const opacity = byId("layout-opacity");
+    let windowLockMode = "none";
     let telemetry = { pollingProfile: "balanced", temperatureUnit: "C" };
     let pending = Promise.resolve();
     let openPanel = null;
@@ -41,10 +43,14 @@ function createDashboardPreferences(core, nativeWindow, temperatureChanged, modu
         const alreadyOpen = openPanel === name;
         closePanel();
         if (alreadyOpen) return;
+        window.dispatchEvent(new CustomEvent("cw-close-overlays", { detail: { except: name + "-panel" } }));
         const panel = byId(name + "-panel");
         const trigger = byId(name + "-toggle");
         openPanel = name;
         panel.showPopover();
+        if (panel.style.left && typeof panel._clampPosition === "function") {
+            panel._clampPosition();
+        }
         panel.querySelector(".panel-dismiss").focus({ preventScroll: true });
         trigger.setAttribute("aria-expanded", "true");
         trigger.classList.add("active");
@@ -56,19 +62,32 @@ function createDashboardPreferences(core, nativeWindow, temperatureChanged, modu
         const panel = byId(name + "-panel");
         const trigger = byId(name + "-toggle");
         panel.querySelector(".panel-dismiss").addEventListener("click", () => closePanel(true));
-        trigger.addEventListener("click", () => open(name, true));
+        trigger.addEventListener("click", async () => {
+            if (name === "layout" && byId("viewDashboardGrid")?.hidden && window.cwApp?.selectView) {
+                await window.cwApp.selectView("dashboard");
+                open("layout", false);
+                return;
+            }
+            open(name, true);
+        });
     }
+    window.addEventListener("cw-close-overlays", (ev) => {
+        if (openPanel && ev.detail?.except !== openPanel + "-panel") closePanel();
+    });
     document.addEventListener("keydown", (event) => {
-        if (event.ctrlKey && event.key.toLowerCase() === "k" && !document.querySelector("dialog[open]")) {
+        const dpOpen = byId("diskPartitionerModal")?.matches(":popover-open");
+        if (event.ctrlKey && event.key === "," && !document.querySelector("dialog[open]") && !dpOpen) {
             event.preventDefault();
             open("preferences");
         }
-        if (event.key === "Escape" && openPanel && !byId("dashboard-dialog").open) {
+        if (event.key === "Escape" && openPanel && !document.querySelector("dialog[open]")) {
+            event.preventDefault();
             closePanel(true);
         }
     });
     void window.__TAURI__.event.listen("open-settings", () => open("preferences")).catch((error) => log(String(error)));
     enablePanelDrag(byId("appearance-panel"));
+    enablePanelDrag(byId("layout-panel"));
 
     function applyTelemetry(next) {
         telemetry = next;
@@ -77,11 +96,53 @@ function createDashboardPreferences(core, nativeWindow, temperatureChanged, modu
         temperatureChanged(next.temperatureUnit);
     }
 
+    const dragRegions = [...document.querySelectorAll("[data-tauri-drag-region]")];
+    function showLockMode(mode) {
+        windowLockMode = mode || "none";
+        document.documentElement.dataset.windowLock = windowLockMode;
+        const locked = windowLockMode !== "none";
+        for (const el of dragRegions) {
+            if (locked) el.removeAttribute("data-tauri-drag-region");
+            else el.setAttribute("data-tauri-drag-region", "");
+        }
+        if (!lockBtn) return;
+        const labels = {
+            none: ["🔓", "Window Unlocked — Click to lock position"],
+            position: ["🔒", "Window Position Locked — Click to lock position & size"],
+            all: ["🔐", "Window Position & Size Locked — Click to unlock"]
+        };
+        const [icon, title] = labels[windowLockMode] || labels.none;
+        lockBtn.textContent = icon;
+        lockBtn.title = title;
+        lockBtn.classList.toggle("lock-pos", windowLockMode === "position");
+        lockBtn.classList.toggle("lock-all", windowLockMode === "all");
+        lockBtn.classList.toggle("active", locked);
+        lockBtn.setAttribute("aria-pressed", String(locked));
+    }
+
+    async function cycleLockMode() {
+        const order = ["none", "position", "all"];
+        const next = order[(order.indexOf(windowLockMode) + 1) % order.length];
+        if (lockBtn) lockBtn.disabled = true;
+        try {
+            const saved = await core.invoke("set_window_lock_mode", { mode: next });
+            showLockMode(saved);
+            const names = { none: "Window unlocked", position: "Window position locked", all: "Window position & size locked" };
+            window.showToast?.(names[saved] || saved, "info");
+        } catch (error) {
+            log("Window lock: " + String(error));
+        } finally {
+            if (lockBtn) lockBtn.disabled = false;
+        }
+    }
+    lockBtn?.addEventListener("click", () => void cycleLockMode());
+
     function apply(settings) {
         layout.apply(settings.layout);
         applyTelemetry(settings.telemetry);
         appearance.setTheme(settings.theme);
         settingsPanel.apply(settings);
+        showLockMode(settings.windowLockMode || "none");
         opacity.value = settings.opacity;
         show("layout-opacity-value", opacity.value + "%");
     }
@@ -137,6 +198,7 @@ function createDashboardPreferences(core, nativeWindow, temperatureChanged, modu
                 throw error;
             }
             showPin(!previous);
+            window.showToast?.(!previous ? "Pinned Always on Top" : "Unpinned Always on Top", "info");
         } catch (error) {
             showPin(previous);
             log("Always on top: " + String(error));
@@ -194,10 +256,16 @@ function createDashboardPreferences(core, nativeWindow, temperatureChanged, modu
 
     return {
         restore,
-        settled: () => pending,
-        async flush() { appearance.commit(); await pending; },
+        openPanel: open,
+        cycleLockMode,
+        togglePin,
+        toggleDock: () => layout.toggleDock(),
+        applyThemePreset: (id) => appearance.applyPresetById(id),
+        setFontSize: (size) => settingsPanel.setFontSize(size),
+        settled: async () => { await settingsPanel.settled(); await pending; },
+        async flush() { appearance.commit(); await settingsPanel.settled(); await pending; },
         viewChanged(isDashboard) {
-            byId("layout-toggle").hidden = !isDashboard;
+            byId("refresh").hidden = !isDashboard;
             if (!isDashboard && openPanel === "layout") closePanel();
         }
     };
@@ -213,16 +281,22 @@ function enablePanelDrag(panel) {
         panel.style.top = Math.min(maxY, Math.max(8, y)) + "px";
         panel.style.right = "auto";
     }
+    panel._clampPosition = () => {
+        if (panel.style.left) position(parseFloat(panel.style.left), parseFloat(panel.style.top));
+    };
     header.addEventListener("pointerdown", (event) => {
         if (event.button !== 0 || event.target.closest("button")) return;
         const rect = panel.getBoundingClientRect();
         drag = { x: event.clientX - rect.left, y: event.clientY - rect.top };
-        header.setPointerCapture(event.pointerId);
+        try { header.setPointerCapture(event.pointerId); } catch { /* Fallback to window pointerup. */ }
     });
     header.addEventListener("pointermove", (event) => {
         if (drag) position(event.clientX - drag.x, event.clientY - drag.y);
     });
-    header.addEventListener("lostpointercapture", () => { drag = null; });
+    const endDrag = () => { drag = null; };
+    header.addEventListener("lostpointercapture", endDrag);
+    window.addEventListener("pointerup", endDrag);
+    window.addEventListener("pointercancel", endDrag);
     window.addEventListener("resize", () => {
         if (panel.matches(":popover-open") && panel.style.left) {
             position(parseFloat(panel.style.left), parseFloat(panel.style.top));
@@ -238,6 +312,20 @@ async function verifyDashboardPreferences(core, preferences) {
     const header = document.querySelector(".app-header-deck");
     require(header.scrollWidth <= header.clientWidth + 1, "Dashboard header overflowed.");
     require(grid.scrollWidth <= grid.clientWidth + 1, "Dashboard cards overflowed horizontally.");
+    const warmthRow = byId("night-warmth-row").getBoundingClientRect();
+    const slider = byId("night-warmth").getBoundingClientRect();
+    const warmthValue = byId("night-warmth-value").getBoundingClientRect();
+    require(slider.height === 4 && slider.width > 20 && warmthRow.height <= 18 && warmthValue.right <= warmthRow.right + 1,
+        "Night Light did not use the reference slider dimensions.");
+    const orientation = byId("lblMonOrientation");
+    const orientationLabel = orientation.textContent;
+    orientation.textContent = "Landscape (flipped)";
+    for (const control of grid.querySelectorAll(".display-setting")) {
+        const area = control.getBoundingClientRect();
+        require(area.height === 18 && area.right <= control.parentElement.getBoundingClientRect().right + 1,
+            "A display setting exceeded its compact row.");
+    }
+    orientation.textContent = orientationLabel;
     if (innerWidth <= 1379) {
         const tabs = header.querySelector(".modular-tabs").getBoundingClientRect();
         const tools = header.querySelector(".header-right-group").getBoundingClientRect();
@@ -311,7 +399,20 @@ async function verifyDashboardPreferences(core, preferences) {
     await core.invoke("remove_dashboard_wallpaper");
 
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true }));
-    require(byId("preferences-panel").matches(":popover-open"), "Ctrl+K did not open Settings.");
+    require(byId("cwCommandPaletteModal").open, "Ctrl+K did not open Quick Command Palette.");
+    byId("cwCommandPaletteModal").close();
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: ",", ctrlKey: true, bubbles: true }));
+    require(byId("preferences-panel").matches(":popover-open"), "Ctrl+, did not open Settings.");
+    const largeRadio = document.querySelector('input[name="cwFontSize"][value="large"]');
+    largeRadio.click();
+    await preferences.settled();
+    require(document.documentElement.dataset.fontSize === "large" && document.documentElement.style.getPropertyValue("--cw-font-scale") === "1.12",
+        "4-size Interface Font Size did not apply live.");
+    document.querySelector('input[name="cwFontSize"][value="normal"]').click();
+    await preferences.settled();
+    require(document.documentElement.dataset.fontSize === "normal", "Interface Font Size did not restore to normal.");
+
     const behavior = document.querySelector('[data-general-setting="confirmDestructiveActions"]');
     behavior.click();
     for (let i = 0; confirmDestructiveActions && i < 100; i++) await new Promise((resolve) => setTimeout(resolve, 20));
@@ -322,7 +423,8 @@ async function verifyDashboardPreferences(core, preferences) {
     byId("settings-tab-directories").click();
     require(!byId("settings-pane-directories").hidden && document.querySelectorAll("[data-directory]").length === 5, "Directory settings did not open.");
     byId("settings-tab-modules").click();
-    require(!byId("settings-pane-modules").hidden && byId("settings-modules").textContent.includes("Not Installed"), "Module catalog did not render installation status.");
+    require(!byId("settings-pane-modules").hidden && byId("settings-modules").querySelectorAll(".settings-module-row").length === 24 && !byId("settings-modules").textContent.includes("Not Installed"),
+        "Module catalog did not render all 24 installed RustCoreWatch modules.");
     const taskModule = () => document.querySelector('[data-module="tasksports"]');
     require(taskModule(), "Tasks & Ports was missing from Modules & Tabs.");
     taskModule().click();

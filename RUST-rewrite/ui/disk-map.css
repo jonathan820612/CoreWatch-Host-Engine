@@ -1,0 +1,65 @@
+.disk-map-drives-strip {
+    display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 2px;
+}
+.disk-map-drive-card {
+    display: flex; flex-direction: column; gap: 3px; min-width: 148px; flex: 0 1 185px;
+    padding: 6px 8px; text-align: left; cursor: pointer;
+    background: rgba(var(--cw-bg-inset-rgb), var(--cw-inset-alpha));
+    border: 1px solid var(--cw-border); border-radius: 3px; color: var(--cw-text-primary);
+    font-size: calc(10.5px * var(--cw-font-scale, 1));
+    transition: border-color 0.14s ease, background 0.14s ease;
+}
+.disk-map-drive-card:hover { border-color: var(--cw-accent-soft); background: var(--cw-bg-control); }
+.disk-map-drive-card.active { border-color: var(--cw-accent-light); box-shadow: inset 0 0 0 1px var(--cw-accent); }
+.disk-map-drive-top { display: flex; justify-content: space-between; gap: 6px; font-weight: 700; }
+.disk-map-drive-sub { color: var(--cw-text-muted); font-size: calc(9.5px * var(--cw-font-scale, 1)); font-variant-numeric: tabular-nums; }
+.disk-map-controls, .disk-map-navigation { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; font-size: calc(11px * var(--cw-font-scale, 1)); }
+.disk-map-controls label { display: grid; gap: 4px; flex: 1 1 140px; min-width: 0; color: var(--cw-text-muted); font-size: calc(10.5px * var(--cw-font-scale, 1)); }
+.disk-map-controls :is(input, select) { box-sizing: border-box; width: 100%; }
+.disk-map-navigation { justify-content: space-between; align-items: center; }
+.disk-map-breadcrumbs {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 3px;
+    font-size: calc(10.5px * var(--cw-font-scale, 1)); min-width: 0;
+}
+.disk-map-crumb {
+    background: var(--cw-bg-control); border: 1px solid var(--cw-border); border-radius: 2px;
+    color: var(--cw-text-secondary); padding: 2px 6px; cursor: pointer; font: inherit;
+    max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.disk-map-crumb:hover { border-color: var(--cw-accent-soft); color: var(--cw-text-primary); }
+.disk-map-crumb.is-current { background: rgba(var(--cw-accent-rgb), 0.22); border-color: var(--cw-accent-light); color: var(--cw-text-primary); font-weight: 700; }
+.disk-map-crumb-sep { color: var(--cw-text-muted); opacity: 0.7; }
+.disk-map-selection {
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 6px 9px; border-radius: 3px;
+    background: rgba(var(--cw-accent-rgb), 0.14); border: 1px solid var(--cw-accent-light);
+    font-size: calc(11px * var(--cw-font-scale, 1));
+}
+.disk-map-sel-label { font-weight: 700; color: var(--cw-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1 1 200px; }
+.disk-map-treemap {
+    flex: 0 0 clamp(150px, 31vh, 330px); position: relative;
+    background: rgba(var(--cw-bg-inset-rgb), var(--cw-inset-alpha));
+    border: 1px solid var(--cw-border); border-radius: 3px; overflow: hidden;
+}
+#disk-map-canvas { display: block; width: 100%; height: 100%; cursor: pointer; }
+.disk-map-tooltip {
+    position: absolute; pointer-events: none; z-index: 20; max-width: 310px;
+    padding: 6px 9px; border-radius: 4px;
+    background: rgba(15, 20, 30, 0.96); border: 1px solid var(--cw-accent-light);
+    color: #f8fafc; font-size: calc(10.5px * var(--cw-font-scale, 1)); line-height: 1.38;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.52);
+}
+.disk-map-tooltip strong { display: block; color: #7dd3fc; margin-bottom: 2px; overflow-wrap: anywhere; }
+.disk-map-tooltip small { display: block; color: #cbd5e1; overflow-wrap: anywhere; }
+.disk-map-pct-cell { width: 96px; white-space: nowrap; }
+.disk-map-pct-bar { height: 5px; background: var(--cw-bg-control); border-radius: 2px; overflow: hidden; margin-top: 2px; }
+.disk-map-pct-fill { height: 100%; background: var(--cw-accent-light); }
+#disk-map-thead th[data-sort] { cursor: pointer; user-select: none; }
+#disk-map-thead th[data-sort]:hover { color: var(--cw-accent-soft); }
+#disk-map-rows tr.is-selected { background: rgba(var(--cw-accent-rgb), 0.22); }
+.disk-map-ext-dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+.storage-diag-badges .storage-explorer-btn { color: var(--cw-text-secondary); }
+@media (max-height: 600px) {
+    #viewDiskMapPanel { overflow-y: auto; }
+    .disk-map-treemap { flex-basis: 120px; }
+}

@@ -64,12 +64,14 @@ function createDashboardLayout(save) {
     const dock = byId("dock-cards");
     const dockPanel = byId("dashboard-dock");
     const dockToggle = byId("dock-toggle");
+    const sidePullTab = byId("sideDockPullTab");
     const cards = new Map([...grid.querySelectorAll(":scope > [data-card-id]")].map((card) => [card.dataset.cardId, card]));
     const controls = new Map();
     const metricChecks = new Map();
     const presetButtons = new Map();
     let layout = fullDashboardLayout;
     let activeDrag = null;
+    let isEditing = false;
 
     const empty = element("div", "dashboard-empty");
     empty.append(element("p", "", "All dashboard cards are hidden."),
@@ -90,15 +92,38 @@ function createDashboardLayout(save) {
         void change({ ...layout, hidden, docked });
     }
 
-    function showDock(show) {
-        if (show && !layout.docked.length) return;
-        if (show && !dockPanel.matches(":popover-open")) dockPanel.showPopover();
-        if (!show && dockPanel.matches(":popover-open")) dockPanel.hidePopover();
-        dockToggle.setAttribute("aria-expanded", String(show));
-        dockToggle.classList.toggle("active", show);
+    function syncPullTab() {
+        if (!sidePullTab) return;
+        const dockOpen = dockPanel.matches(":popover-open");
+        sidePullTab.hidden = !layout.docked.length || dockOpen;
+        show("sideDockPullCount", layout.docked.length);
+    }
+
+    function showDock(showIt) {
+        if (showIt && !layout.docked.length) return;
+        if (showIt) window.dispatchEvent(new CustomEvent("cw-close-overlays", { detail: { except: "dashboard-dock" } }));
+        if (showIt && !dockPanel.matches(":popover-open")) dockPanel.showPopover();
+        if (!showIt && dockPanel.matches(":popover-open")) dockPanel.hidePopover();
+        dockToggle.setAttribute("aria-expanded", String(showIt));
+        dockToggle.classList.toggle("active", showIt);
+        syncPullTab();
     }
     dockToggle.addEventListener("click", () => showDock(!dockPanel.matches(":popover-open")));
+    sidePullTab?.addEventListener("click", () => showDock(true));
     byId("dock-close").addEventListener("click", () => showDock(false));
+    byId("dock-open-layout")?.addEventListener("click", () => {
+        showDock(false);
+        byId("layout-toggle")?.click();
+    });
+    window.addEventListener("cw-close-overlays", (ev) => {
+        if (ev.detail?.except !== "dashboard-dock" && dockPanel.matches(":popover-open")) showDock(false);
+    });
+    document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && dockPanel.matches(":popover-open") && !document.querySelector("dialog[open]")) {
+            event.preventDefault();
+            showDock(false);
+        }
+    });
 
     function move(id, offset) {
         const order = [...layout.order];
@@ -110,13 +135,17 @@ function createDashboardLayout(save) {
     }
 
     async function change(next) {
+        const previous = layout;
         apply(next);
         status.textContent = "Saving…";
         try {
             await save({ layout: next });
             if (layout === next) status.textContent = "Saved";
         } catch (error) {
-            if (layout === next) status.textContent = "Layout could not be saved. " + String(error);
+            if (layout === next) {
+                apply(previous);
+                status.textContent = "Layout could not be saved. " + String(error);
+            }
         }
     }
 
@@ -178,6 +207,7 @@ function createDashboardLayout(save) {
         dockToggle.hidden = !layout.docked.length;
         show("dock-count", layout.docked.length);
         if (!layout.docked.length) showDock(false);
+        else syncPullTab();
     }
 
     for (const [name, preset] of Object.entries(dashboardPresets)) {
@@ -226,19 +256,35 @@ function createDashboardLayout(save) {
         const hide = controlButton("×", "Hide " + title, () => place(id, "hide"), "ctrl-hide");
         const sendToDock = controlButton("◫", "Dock " + title, () => place(id, "dock"));
         edits.append(grip, collapse, width, sendToDock, hide);
-        header.append(edits);
-        grip.addEventListener("dragstart", (event) => {
+        const dockCtrls = element("div", "dock-card-controls");
+        const dockReturn = controlButton("↩ Grid", "Return " + title + " to grid", () => place(id, "grid"));
+        const dockCollapse = controlButton("−", "Collapse " + title, () => toggle("collapsed", id));
+        dockCtrls.append(dockReturn, dockCollapse);
+        header.append(dockCtrls, edits);
+        const startDrag = (event) => {
+            if (!isEditing && event.currentTarget === header) {
+                event.preventDefault();
+                return;
+            }
+            if (event.target.closest("button, select, input")) {
+                event.preventDefault();
+                return;
+            }
             activeDrag = id;
             event.dataTransfer.setData("text/plain", id);
             event.dataTransfer.effectAllowed = "move";
             event.dataTransfer.setDragImage(header, 8, 8);
             card.classList.add("is-dragging");
-        });
-        grip.addEventListener("dragend", () => {
+        };
+        const stopDrag = () => {
             activeDrag = null;
             card.classList.remove("is-dragging");
             for (const other of cards.values()) other.classList.remove("drag-before", "drag-after");
-        });
+        };
+        grip.addEventListener("dragstart", startDrag);
+        grip.addEventListener("dragend", stopDrag);
+        header.addEventListener("dragstart", startDrag);
+        header.addEventListener("dragend", stopDrag);
         const afterMiddle = (event) => {
             const rect = header.getBoundingClientRect();
             return event.clientY > rect.bottom;
@@ -257,8 +303,12 @@ function createDashboardLayout(save) {
         card.addEventListener("drop", (event) => {
             if (!activeDrag || activeDrag === id) return;
             event.preventDefault();
-            const order = layout.order.filter((value) => value !== activeDrag);
-            order.splice(order.indexOf(id) + Number(afterMiddle(event)), 0, activeDrag);
+            const dragged = activeDrag;
+            const after = Number(afterMiddle(event));
+            activeDrag = null;
+            for (const other of cards.values()) other.classList.remove("is-dragging", "drag-before", "drag-after");
+            const order = layout.order.filter((value) => value !== dragged);
+            order.splice(order.indexOf(id) + after, 0, dragged);
             void change({ ...layout, order });
         });
 
@@ -295,6 +345,14 @@ function createDashboardLayout(save) {
     apply(fullDashboardLayout);
     return {
         apply,
-        editing: (editing) => grid.classList.toggle("layout-edit-mode", editing)
+        toggleDock: () => showDock(!dockPanel.matches(":popover-open")),
+        editing: (editing) => {
+            isEditing = editing;
+            grid.classList.toggle("layout-edit-mode", editing);
+            for (const card of cards.values()) {
+                const hdr = card.querySelector(":scope > .card-header-bar, :scope > .console-header-row");
+                if (hdr) hdr.draggable = editing;
+            }
+        }
     };
 }

@@ -3,13 +3,13 @@
 .tasks-header, .tasks-toolbar, .tasks-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
 .tasks-header { justify-content: space-between; padding-bottom: 6px; border-bottom: 1px solid var(--cw-border); }
 .tasks-header h2 { margin: 0; border: 0; }
-.tasks-intro, #tasks-status { margin: 0; }
-#tasks-stamp { color: var(--cw-text-muted); font-size: .8rem; }
-.tasks-stat { display: inline-flex; align-items: center; gap: 8px; background: var(--cw-bg-inset); border: 1px solid var(--cw-border); padding: 4px 8px; }
+.tasks-intro, #tasks-status, #diag-status, #disk-map-status { margin: 0; font-size: calc(11px * var(--cw-font-scale, 1)); }
+#tasks-stamp { color: var(--cw-text-muted); font-size: calc(11px * var(--cw-font-scale, 1)); }
+.tasks-stat { display: inline-flex; align-items: center; gap: 8px; background: rgba(var(--cw-bg-inset-rgb), var(--cw-inset-alpha)); border: 1px solid var(--cw-border); padding: 4px 8px; font-size: calc(11px * var(--cw-font-scale, 1)); }
 .tasks-toolbar input { flex: 1 1 200px; min-width: 0; width: auto; }
 .tasks-toolbar select { width: auto; }
-.tasks-scroll { min-height: 100px; flex: 1; overflow: auto; border: 1px solid var(--cw-border); background: var(--cw-bg-inset); }
-.tasks-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: .78rem; }
+.tasks-scroll { min-height: 100px; flex: 1; overflow: auto; border: 1px solid var(--cw-border); background: rgba(var(--cw-bg-inset-rgb), var(--cw-inset-alpha)); }
+.tasks-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: calc(11px * var(--cw-font-scale, 1)); }
 .tasks-table th, .tasks-table td { padding: 6px 8px; border-bottom: 1px solid var(--cw-border); }
 .tasks-table th { text-align: left; position: sticky; top: 0; background: var(--cw-bg-control); color: var(--cw-accent-soft); white-space: nowrap; z-index: 1; }
 .tasks-table td { white-space: nowrap; }
@@ -21,3 +21,9 @@
 .tasks-row-actions button { padding: 1px 6px; }
 .tasks-table tr:hover { background: color-mix(in srgb, var(--cw-accent) 15%, transparent); }
 .tasks-table .tasks-stopped-auto { background: rgba(230, 64, 64, .10); }
+.tasks-sortable-th { cursor: pointer; user-select: none; }
+.tasks-sortable-th:hover { color: var(--cw-text-primary); }
+.task-sev-warn { color: #f6ad55; font-weight: 700; }
+.task-sev-crit { color: #fc8181; font-weight: 700; }
+.task-proto-tcp { background: rgba(66, 153, 225, 0.18); color: #63b3ed; border-color: rgba(66, 153, 225, 0.45); }
+.task-proto-udp { background: rgba(159, 122, 234, 0.18); color: #b794f4; border-color: rgba(159, 122, 234, 0.45); }

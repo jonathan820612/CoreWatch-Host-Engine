@@ -77,6 +77,7 @@ function Get-CoreWatchDefaultSettingsObject {
             minimizeToTrayOnClose     = $false
             confirmDestructiveActions = $true
             autoCheckCoreWatchUpdates = $true
+            fontSize                  = "normal"   # small | normal | large | xlarge
         }
         telemetry     = @{
             pollingProfile  = "balanced"   # fast | balanced | eco
@@ -124,6 +125,10 @@ function Merge-CoreWatchSettingsWithDefaults {
     $def.general.minimizeToTrayOnClose     = [bool]$def.general.minimizeToTrayOnClose
     $def.general.confirmDestructiveActions = [bool]$def.general.confirmDestructiveActions
     $def.general.autoCheckCoreWatchUpdates = [bool]$def.general.autoCheckCoreWatchUpdates
+
+    $fsVal = ([string]$def.general.fontSize).ToLowerInvariant()
+    if ($fsVal -notin @("small", "normal", "large", "xlarge")) { $fsVal = "normal" }
+    $def.general.fontSize = $fsVal
 
     $def.modules.disabled = @($def.modules.disabled | Where-Object { $_ -and ([string]$_).Trim() -ne "" } | ForEach-Object { ([string]$_).Trim() } | Select-Object -Unique)
 

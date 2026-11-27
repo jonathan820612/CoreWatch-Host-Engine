@@ -180,7 +180,12 @@ pub fn set_enabled(enabled: bool) -> Result<(), String> {
     Ok(())
 }
 
-pub fn warmth() -> Option<u32> {
+pub struct Warmth {
+    pub percent: u32,
+    pub kelvin: u32,
+}
+
+pub fn warmth() -> Option<Warmth> {
     let bytes = read(SETTINGS).ok()?.1;
     let kelvin = bytes
         .as_deref()
@@ -192,7 +197,10 @@ pub fn warmth() -> Option<u32> {
         })
         .unwrap_or(4800)
         .clamp(1200, 6500);
-    Some(((6500 - kelvin) * 100 + 2650) / 5300)
+    Some(Warmth {
+        percent: ((6500 - kelvin) * 100 + 2650) / 5300,
+        kelvin,
+    })
 }
 
 pub fn set_warmth(percent: u32) -> Result<(), String> {

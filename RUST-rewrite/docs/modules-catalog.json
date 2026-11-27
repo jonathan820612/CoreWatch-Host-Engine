@@ -3,23 +3,23 @@
   "presets": [
     {
       "id": "full",
-      "name": "Full Installation — All Tabs & Modules (Recommended)",
-      "description": "Installs CoreWatch Dashboard plus all 12 built-in feature modules."
+      "name": "Full Installation — All 23 Tabs & Modules (Recommended)",
+      "description": "Installs CoreWatch Dashboard plus all 23 built-in feature modules across System, Ops & Guard, and Dev & Work."
     },
     {
       "id": "essentials",
       "name": "Home & Essentials",
-      "description": "Dashboard, Tasks & Ports, UltimaDiagX, Security & Repair, Startup, Installed Apps, App Installer, Disk Map, and File Organizer."
+      "description": "Dashboard, Tasks & Ports, UltimaDiagX, Smart Alerts, Update Center, Snapshots, Battery & Peripherals, Backup Sync, Security, Profiles, Startup, Apps, App Store, Disk Map, and Organizer."
     },
     {
       "id": "itpro",
       "name": "IT & SysAdmin Suite",
-      "description": "Dashboard, Network, Tasks & Ports, UltimaDiagX, Security & Repair, Startup, Sharing Center, Installed Apps, App Installer, Disk Map, and Devices."
+      "description": "Dashboard, Network, Tasks & Ports, UltimaDiagX, Smart Alerts, Update Center, Snapshots, Backup Sync, Security, SSH & Certs, Homelab, Profiles, Startup, Sharing, Apps, Disk Map, and Devices."
     },
     {
       "id": "developer",
       "name": "Developer Workstation",
-      "description": "Dashboard, Network, Tasks & Ports, UltimaDiagX, WSL Manager, Startup, Installed Apps, App Installer, and Disk Map."
+      "description": "Dashboard, Network, Tasks & Ports, UltimaDiagX, GitHub, Jira, WSL, Docker, SSH & Certs, Homelab, Smart Alerts, Update Center, Backup Sync, Profiles, Startup, Apps, App Store, and Disk Map."
     }
   ],
   "modules": [
@@ -121,6 +121,150 @@
       "defaultEnabled": true
     },
     {
+      "id": "docker",
+      "name": "Docker & Local Dev Services",
+      "shortName": "Docker & Services",
+      "icon": "🐳",
+      "group": "Developer & Work",
+      "navSlot": "dev",
+      "tabButtonId": "tabDockerServices",
+      "panelId": "viewDockerPanel",
+      "description": "Manage Docker/Podman containers, live logs, image/volume prune, port cross-links, and local dev services.",
+      "files": [
+        "modules\\tabs\\DockerServicesManager.ps1"
+      ],
+      "installerTypes": ["full", "developer"],
+      "defaultEnabled": true
+    },
+    {
+      "id": "sshcerts",
+      "name": "SSH Hosts & Certificate Inspector",
+      "shortName": "SSH & Certs",
+      "icon": "🔐",
+      "group": "Developer & Work",
+      "navSlot": "dev",
+      "tabButtonId": "tabSshCerts",
+      "panelId": "viewSshCertsPanel",
+      "description": "Visual ~/.ssh/config launcher, SSH key manager & generator, and expiring Windows TLS/code-signing certificate auditor.",
+      "files": [
+        "modules\\tabs\\SshCertsManager.ps1"
+      ],
+      "installerTypes": ["full", "itpro", "developer"],
+      "defaultEnabled": true
+    },
+    {
+      "id": "homelab",
+      "name": "Multi-PC / Homelab Monitor",
+      "shortName": "Homelab Monitor",
+      "icon": "🌐",
+      "group": "Developer & Work",
+      "navSlot": "dev",
+      "tabButtonId": "tabHomelab",
+      "panelId": "viewHomelabPanel",
+      "description": "Monitor secondary desktops, servers, or NAS devices via SSH, WinRM, or HTTP/ICMP probes from one dashboard.",
+      "files": [
+        "modules\\tabs\\HomelabManager.ps1"
+      ],
+      "installerTypes": ["full", "itpro", "developer"],
+      "defaultEnabled": true
+    },
+    {
+      "id": "alerts",
+      "name": "Smart Alerts & Watchdog Rules",
+      "shortName": "Smart Alerts",
+      "icon": "🔔",
+      "group": "Ops & Guard",
+      "navSlot": "ops",
+      "tabButtonId": "tabSmartAlerts",
+      "panelId": "viewSmartAlertsPanel",
+      "description": "User-defined thermal, storage, network, and service watchdog rules firing native Windows toast alerts and auto-actions.",
+      "files": [
+        "modules\\tabs\\SmartAlertsManager.ps1"
+      ],
+      "installerTypes": ["full", "essentials", "itpro", "developer"],
+      "defaultEnabled": true
+    },
+    {
+      "id": "updates",
+      "name": "Unified Update Center",
+      "shortName": "Update Center",
+      "icon": "🔄",
+      "group": "Ops & Guard",
+      "navSlot": "ops",
+      "tabButtonId": "tabUpdateCenter",
+      "panelId": "viewUpdateCenterPanel",
+      "description": "Unified scan of WinGet upgrades, Windows Updates, PowerShell/runtimes, and CoreWatch self-updates with pin/ignore list.",
+      "files": [
+        "modules\\tabs\\UpdateCenterManager.ps1"
+      ],
+      "installerTypes": ["full", "essentials", "itpro", "developer"],
+      "defaultEnabled": true
+    },
+    {
+      "id": "snapshots",
+      "name": "System Snapshots & Diff",
+      "shortName": "Snapshots & Diff",
+      "icon": "📸",
+      "group": "Ops & Guard",
+      "navSlot": "ops",
+      "tabButtonId": "tabSnapshots",
+      "panelId": "viewSnapshotsPanel",
+      "description": "Capture Restore Points + lightweight system state snapshots and diff Before vs. After (apps, startup, services, drivers, hosts, network).",
+      "files": [
+        "modules\\tabs\\SnapshotsManager.ps1"
+      ],
+      "installerTypes": ["full", "essentials", "itpro"],
+      "defaultEnabled": true
+    },
+    {
+      "id": "backupsync",
+      "name": "Backup & Folder Sync Manager",
+      "shortName": "Backup & Sync",
+      "icon": "💾",
+      "group": "Ops & Guard",
+      "navSlot": "ops",
+      "tabButtonId": "tabBackupSync",
+      "panelId": "viewBackupSyncPanel",
+      "description": "Scheduled robocopy incremental/mirror backups to USB or NAS shares with dry-run previews, ignore patterns, and run history.",
+      "files": [
+        "modules\\tabs\\BackupSyncManager.ps1"
+      ],
+      "installerTypes": ["full", "essentials", "itpro", "developer"],
+      "defaultEnabled": true
+    },
+    {
+      "id": "battery",
+      "name": "Battery & Wireless Peripherals",
+      "shortName": "Battery & BT",
+      "icon": "🔋",
+      "group": "Ops & Guard",
+      "navSlot": "ops",
+      "tabButtonId": "tabBatteryPeripherals",
+      "panelId": "viewBatteryPanel",
+      "description": "Laptop battery design vs. actual capacity, cycle count, SleepStudy reports, and live Bluetooth peripheral battery levels.",
+      "files": [
+        "modules\\tabs\\BatteryPeripheralsManager.ps1"
+      ],
+      "installerTypes": ["full", "essentials"],
+      "defaultEnabled": true
+    },
+    {
+      "id": "security",
+      "name": "Security & Repair Toolkit",
+      "shortName": "Security & Repair",
+      "icon": "🛡️",
+      "group": "Ops & Guard",
+      "navSlot": "ops",
+      "tabButtonId": "tabSecurityRepair",
+      "panelId": "viewSecurityRepairPanel",
+      "description": "BitLocker, TPM, RDP, Hosts/Proxy/Env audit, DISM/SFC repairs, and 1-click IT Support ZIP.",
+      "files": [
+        "modules\\tabs\\SecurityRepairManager.ps1"
+      ],
+      "installerTypes": ["full", "essentials", "itpro"],
+      "defaultEnabled": true
+    },
+    {
       "id": "profiles",
       "name": "System Profiles & Modes",
       "shortName": "Profiles",
@@ -134,22 +278,6 @@
         "modules\\tabs\\ProfilesManager.ps1"
       ],
       "installerTypes": ["full", "essentials", "itpro", "developer"],
-      "defaultEnabled": true
-    },
-    {
-      "id": "security",
-      "name": "Security & Repair Toolkit",
-      "shortName": "Security & Repair",
-      "icon": "🛡️",
-      "group": "Diagnostics & Repair",
-      "navSlot": "system",
-      "tabButtonId": "tabSecurityRepair",
-      "panelId": "viewSecurityRepairPanel",
-      "description": "BitLocker, TPM, RDP, Hosts/Proxy/Env audit, DISM/SFC repairs, and 1-click IT Support ZIP.",
-      "files": [
-        "modules\\tabs\\SecurityRepairManager.ps1"
-      ],
-      "installerTypes": ["full", "essentials", "itpro"],
       "defaultEnabled": true
     },
     {
@@ -202,14 +330,14 @@
     },
     {
       "id": "appstore",
-      "name": "App Installer (WinGet Batch)",
+      "name": "App Installer & Launcher",
       "shortName": "App Installer",
       "icon": "⬇️",
       "group": "Apps & Storage",
       "navSlot": "system",
       "tabButtonId": "tabAppStore",
       "panelId": "viewAppInstallerPanel",
-      "description": "Curated software catalog, WinGet search, batch installs, and bulk upgrades.",
+      "description": "Curated software catalog, WinGet search, batch installs, bulk upgrades, and direct app launching.",
       "files": [
         "modules\\tabs\\AppInstallerManager.ps1"
       ],
@@ -262,6 +390,22 @@
         "modules\\tabs\\FileOrganizer.ps1"
       ],
       "installerTypes": ["full", "essentials"],
+      "defaultEnabled": true
+    },
+    {
+      "id": "rgbstudio",
+      "name": "RGB Lighting Studio (RustCoreWatch Exclusive)",
+      "shortName": "RGB Studio",
+      "icon": "🌈",
+      "group": "System & Administration",
+      "navSlot": "system",
+      "tabButtonId": "tabRgbStudio",
+      "panelId": "viewRgbStudioPanel",
+      "description": "Standalone native RGB controller (USB HID · NVIDIA NVAPI · PawnIO SMBus · Win11 Dynamic Lighting) with Live Thermal Reactive, Theme Accent Sync, and System Profile presets.",
+      "files": [
+        "src\\rgb_studio.rs"
+      ],
+      "installerTypes": ["full", "essentials", "developer"],
       "defaultEnabled": true
     }
   ]

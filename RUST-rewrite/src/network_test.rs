@@ -59,7 +59,7 @@ pub fn run() -> Results {
             return result;
         }
     };
-    match public_address(&connection) {
+    match external_ipv4() {
         Ok(address) => result.public_ipv4 = address,
         Err(error) => result.errors.push(format!("Public IP lookup: {error}")),
     }
@@ -87,7 +87,56 @@ pub fn run() -> Results {
 }
 
 pub fn external_ipv4() -> Result<Option<Ipv4Addr>, String> {
-    public_address(&Connection::new()?)
+    // Force IPv4 (-4) via system curl so dual-stack IPv6 ISPs still return a true public IPv4.
+    let endpoints = [
+        ("https://api.ipify.org", false),
+        ("https://ipv4.icanhazip.com", false),
+        ("https://1.1.1.1/cdn-cgi/trace", true),
+    ];
+    let mut last_err = None;
+    for (url, is_trace) in endpoints {
+        let mut cmd = match crate::dashboard_runtimes::curl(url, "8192") {
+            Ok(c) => c,
+            Err(e) => {
+                last_err = Some(e);
+                continue;
+            }
+        };
+        cmd.args(["-4", "--connect-timeout", "5", "--max-time", "7"]);
+        match cmd.output() {
+            Ok(out) if out.status.success() => {
+                let body = String::from_utf8_lossy(&out.stdout);
+                let parsed = if is_trace {
+                    body.lines()
+                        .find_map(|line| line.strip_prefix("ip="))
+                        .and_then(|addr| addr.trim().parse::<Ipv4Addr>().ok())
+                } else {
+                    body.trim().parse::<Ipv4Addr>().ok()
+                };
+                if parsed.is_some() {
+                    return Ok(parsed);
+                }
+            }
+            Ok(out) => {
+                let err = String::from_utf8_lossy(&out.stderr).trim().to_owned();
+                if !err.is_empty() {
+                    last_err = Some(err);
+                }
+            }
+            Err(e) => last_err = Some(e.to_string()),
+        }
+    }
+    // Fallback to WinHTTP trace if curl failed completely
+    if let Ok(conn) = Connection::new()
+        && let Ok(Some(ip)) = public_address(&conn)
+    {
+        return Ok(Some(ip));
+    }
+    if let Some(err) = last_err {
+        Err(err)
+    } else {
+        Ok(None)
+    }
 }
 
 fn public_address(connection: &Connection) -> Result<Option<Ipv4Addr>, String> {

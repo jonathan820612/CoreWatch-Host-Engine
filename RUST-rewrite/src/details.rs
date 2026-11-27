@@ -4,35 +4,29 @@ use std::{
     collections::{BTreeMap, HashMap},
     time::{Duration, Instant},
 };
-use sysinfo::{Disks, System};
+use sysinfo::System;
 use winreg::{RegKey, enums::HKEY_LOCAL_MACHINE};
 use wmi::{Variant, WMIConnection};
 
-type Row = HashMap<String, Variant>;
+pub(crate) type Row = HashMap<String, Variant>;
 type Fields = BTreeMap<&'static str, String>;
 
 #[derive(Serialize, Default)]
 pub struct Details {
     fields: Fields,
-    pub volumes: Vec<Volume>,
+    pub volumes: Vec<crate::storage::Volume>,
     pub displays: Vec<native::Display>,
     pub adapters: Vec<native::Adapter>,
     pub dns_uplink: Option<crate::network::DnsUplink>,
     pub gateway_neighbor: Option<native::GatewayNeighbor>,
     pub notes: Vec<&'static str>,
+    pub last_crash: Option<crate::event_log::Record>,
 }
 
-#[derive(Serialize)]
-pub struct Volume {
-    mount: String,
-    label: String,
-    filesystem: String,
-    total: u64,
-    used: u64,
-    health: Option<&'static str>,
-    kind: &'static str,
-    removable: bool,
-    active_percent: Option<u64>,
+impl Details {
+    pub fn field(&self, key: &str) -> Option<&str> {
+        self.fields.get(key).map(String::as_str)
+    }
 }
 
 pub struct Collector {
@@ -43,6 +37,106 @@ pub struct Collector {
     hardware: Vec<(&'static str, WMIConnection)>,
     identity: Fields,
     next_identity: Instant,
+    last_crash: Option<crate::event_log::Record>,
+    volumes: crate::storage::Collector,
+    limits: PerformanceLimits,
+    next_limits: Instant,
+}
+
+#[derive(Default)]
+struct PerformanceLimits {
+    available: bool,
+    thermal: Vec<String>,
+    power: Vec<String>,
+}
+
+impl PerformanceLimits {
+    fn sample(connection: Option<&WMIConnection>) -> Self {
+        let mut report = Self::default();
+        let zones = rows(
+            connection,
+            "SELECT Name, ThrottleReasons, Temperature, HighPrecisionTemperature FROM Win32_PerfFormattedData_Counters_ThermalZoneInformation",
+        );
+        for zone in zones {
+            let Some(reasons) = number(&zone, "ThrottleReasons") else {
+                continue;
+            };
+            report.available = true;
+            let temperature = number(&zone, "HighPrecisionTemperature")
+                .filter(|&value| value > 2732)
+                .map(|value| value as f64 / 10.0 - 273.15)
+                .or_else(|| {
+                    number(&zone, "Temperature")
+                        .filter(|&value| value > 273)
+                        .map(|value| value as f64 - 273.15)
+                });
+            if reasons != 0
+                && let Some(temperature) = temperature.filter(|&value| value >= 60.0)
+            {
+                let name = text(&zone, "Name").unwrap_or("ACPI thermal zone");
+                report
+                    .thermal
+                    .push(format!("{name} reported throttling at {temperature:.0} °C"));
+            }
+        }
+        let cpu = rows(
+            connection,
+            "SELECT PerformanceLimitFlags, PercentPerformanceLimit FROM Win32_PerfFormattedData_Counters_ProcessorInformation WHERE Name = '_Total'",
+        );
+        if let Some(cpu) = cpu.first()
+            && let (Some(flags), Some(cap)) = (
+                number(cpu, "PerformanceLimitFlags"),
+                number(cpu, "PercentPerformanceLimit"),
+            )
+            && cap > 0
+        {
+            report.available = true;
+            if cap < 100 {
+                if flags & 2 != 0 {
+                    report
+                        .thermal
+                        .push(format!("Windows CPU thermal limit at {cap}%"));
+                }
+                if flags & 1 != 0 {
+                    report
+                        .power
+                        .push(format!("Windows CPU power limit at {cap}%"));
+                }
+                if flags == 0 && cap <= 85 {
+                    report
+                        .power
+                        .push(format!("Windows CPU performance capped at {cap}%"));
+                }
+            }
+        }
+        report
+    }
+
+    fn apply(&self, fields: &mut Fields) {
+        let mut thermal = self.thermal.clone();
+        if let Some(temperature) = fields
+            .get("cpuTemp")
+            .and_then(|value| value.parse::<u32>().ok())
+            .filter(|&value| value >= 92)
+        {
+            thermal.push(format!("CPU sensor reports {temperature} °C"));
+        }
+        let state = match (thermal.is_empty(), self.power.is_empty()) {
+            (false, false) => "Thermal/Power",
+            (false, true) => "Thermal",
+            (true, false) => "Power",
+            (true, true) if self.available => "None reported",
+            (true, true) => return,
+        };
+        let details = thermal
+            .iter()
+            .chain(&self.power)
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .join(" · ");
+        put(fields, "throttle", Some(state));
+        put(fields, "throttleDetail", Some(details));
+    }
 }
 
 impl Collector {
@@ -65,52 +159,50 @@ impl Collector {
             .collect(),
             identity: Fields::new(),
             next_identity: Instant::now(),
+            last_crash: None,
+            volumes: crate::storage::Collector::default(),
+            limits: PerformanceLimits::default(),
+            next_limits: Instant::now(),
         }
     }
 
     pub fn sample(&mut self, bridge: Option<&crate::sensors::Readings>) -> Details {
         if Instant::now() >= self.next_identity {
             self.identity = self.read_identity();
+            if let Ok(record) = crate::event_log::latest_crash() {
+                self.last_crash = record;
+                let caption = self.last_crash.as_ref().map_or_else(
+                    || "None recorded".to_owned(),
+                    |event| {
+                        format!(
+                            "{} ({})",
+                            event.utc(),
+                            event.crash_tag().unwrap_or("System event")
+                        )
+                    },
+                );
+                put(&mut self.identity, "lastCrash", Some(caption));
+            }
             self.next_identity = Instant::now() + Duration::from_secs(45);
         }
         let mut sample = Details {
             fields: self.identity.clone(),
+            last_crash: self.last_crash.clone(),
             ..Details::default()
         };
         let f = &mut sample.fields;
         put(f, "powerPlan", native::power_plan());
         put(f, "nightLight", crate::night_light::status().map(on_off));
-        put(
-            f,
-            "nightWarmth",
-            crate::night_light::warmth().map(|value| value.to_string()),
-        );
-        let thermal = rows(
-            self.wmi.as_ref(),
-            "SELECT ThrottleReasons, Temperature, HighPrecisionTemperature FROM Win32_PerfFormattedData_Counters_ThermalZoneInformation",
-        );
-        let mut reasons = thermal
-            .iter()
-            .filter_map(|row| {
-                let reason = number(row, "ThrottleReasons")?;
-                let warm = number(row, "HighPrecisionTemperature")
-                    .is_some_and(|kelvin| kelvin >= 3332)
-                    || number(row, "Temperature").is_some_and(|kelvin| kelvin >= 333);
-                Some(reason != 0 && warm)
-            })
-            .peekable();
-        if reasons.peek().is_some() {
-            put(
-                f,
-                "throttle",
-                Some(if reasons.any(|active| active) {
-                    "ACPI active"
-                } else {
-                    "None reported"
-                }),
-            );
+        if let Some(warmth) = crate::night_light::warmth() {
+            put(f, "nightWarmth", Some(warmth.percent.to_string()));
+            put(f, "nightKelvin", Some(warmth.kelvin.to_string()));
+        }
+        if Instant::now() >= self.next_limits {
+            self.limits = PerformanceLimits::sample(self.wmi.as_ref());
+            self.next_limits = Instant::now() + Duration::from_secs(4);
         }
         self.audio_and_gpu(f, bridge);
+        self.limits.apply(f);
         self.network(
             f,
             &mut sample.adapters,
@@ -118,7 +210,7 @@ impl Collector {
             &mut sample.gateway_neighbor,
         );
         sample.displays = native::displays();
-        sample.volumes = self.volumes();
+        sample.volumes = self.sample_volumes();
         if self.wmi.is_none() {
             sample.notes.push(
                 "Windows WMI is unavailable. Native counters and volume totals are still sampled.",
@@ -132,12 +224,30 @@ impl Collector {
         sample
     }
 
+    pub fn invalidate(&mut self) {
+        self.next_identity = Instant::now();
+        self.next_limits = Instant::now();
+        self.volumes.invalidate();
+        if self.storage.is_none() {
+            self.storage =
+                WMIConnection::with_namespace_path(r"ROOT\Microsoft\Windows\Storage").ok();
+        }
+    }
+
+    pub fn sample_volumes(&mut self) -> Vec<crate::storage::Volume> {
+        self.volumes.sample(self.storage.as_ref())
+    }
+
     fn read_identity(&self) -> Fields {
         let mut fields = Fields::new();
         let f = &mut fields;
         let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
         put(f, "host", System::host_name());
-        put(f, "os", System::long_os_version());
+        let edition = self
+            .first("SELECT Caption FROM Win32_OperatingSystem")
+            .and_then(|os| text(&os, "Caption").map(str::to_owned))
+            .or_else(System::long_os_version);
+        put(f, "os", edition);
         put(
             f,
             "powershell",
@@ -153,7 +263,6 @@ impl Collector {
                 "Standard user"
             }),
         );
-        put(f, "lastCrash", native::last_crash());
         put(
             f,
             "directX",
@@ -189,57 +298,26 @@ impl Collector {
             "build",
             build.map(|build| ubr.map_or_else(|| build.clone(), |ubr| format!("{build}.{ubr}"))),
         );
-        let cbs =
-            r"SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending";
-        let windows_update =
-            r"SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired";
-        let mut reasons: Vec<_> = [
-            (cbs, "Component Based Servicing"),
-            (windows_update, "Windows Update"),
-        ]
-        .into_iter()
-        .filter(|(path, _)| hklm.open_subkey(path).is_ok())
-        .map(|(_, reason)| reason.to_owned())
-        .collect();
-        let active = registry::<String>(
-            &hklm,
-            r"SYSTEM\CurrentControlSet\Control\ComputerName\ActiveComputerName",
-            "ComputerName",
-        );
-        let configured = registry::<String>(
-            &hklm,
-            r"SYSTEM\CurrentControlSet\Control\ComputerName\ComputerName",
-            "ComputerName",
-        );
-        if let (Some(active), Some(configured)) = (active, configured)
-            && !active.eq_ignore_ascii_case(&configured)
-        {
-            reasons.push(format!("Computer rename ({active} → {configured})"));
-        }
-        if registry::<Vec<String>>(
-            &hklm,
-            r"SYSTEM\CurrentControlSet\Control\Session Manager",
-            "PendingFileRenameOperations",
-        )
-        .is_some_and(|paths| !paths.is_empty())
-        {
-            reasons.push("Pending file rename or deletion".to_owned());
-        }
+        let reasons = pending_reboot_reasons(&hklm);
         let pending = !reasons.is_empty();
         put(f, "pendingReboot", Some(if pending { "Yes" } else { "No" }));
         put(
             f,
             "pendingRebootDetail",
-            pending.then(|| reasons.join(" · ")),
+            Some(if pending {
+                format!("Reboot required: {}", reasons.join(" · "))
+            } else {
+                "No pending reboot registry flags detected".to_owned()
+            }),
         );
         put(
             f,
             "update",
             registry::<String>(&hklm, version, "DisplayVersion").map(|v| {
                 if pending {
-                    format!("{v} · Reboot pending")
+                    format!("{v} · Reboot Pending")
                 } else {
-                    v
+                    format!("{v} · Up to Date")
                 }
             }),
         );
@@ -477,79 +555,6 @@ impl Collector {
         }
     }
 
-    fn volumes(&self) -> Vec<Volume> {
-        let partitions = rows(
-            self.storage.as_ref(),
-            "SELECT DiskNumber, DriveLetter FROM MSFT_Partition",
-        );
-        let physical = rows(
-            self.storage.as_ref(),
-            "SELECT Number, HealthStatus FROM MSFT_Disk",
-        );
-        let disk_activity = rows(
-            self.wmi.as_ref(),
-            "SELECT Name, PercentDiskTime FROM Win32_PerfFormattedData_PerfDisk_LogicalDisk",
-        );
-        let disks = Disks::new_with_refreshed_list();
-        let mut list: Vec<_> = disks
-            .list()
-            .iter()
-            .filter(|disk| disk.total_space() > 0)
-            .map(|disk| {
-                let mount = disk.mount_point().display().to_string();
-                let letter = mount.as_bytes().first().map(|&c| c.to_ascii_uppercase());
-                let disk_number = partitions
-                    .iter()
-                    .find(|row| {
-                        let found = number(row, "DriveLetter")
-                            .and_then(|value| u8::try_from(value).ok())
-                            .or_else(|| {
-                                text(row, "DriveLetter").and_then(|value| value.bytes().next())
-                            });
-                        letter.is_some() && found == letter
-                    })
-                    .and_then(|row| number(row, "DiskNumber"));
-                let health = disk_number
-                    .and_then(|disk_number| {
-                        physical
-                            .iter()
-                            .find(|row| number(row, "Number") == Some(disk_number))
-                    })
-                    .and_then(|row| match number(row, "HealthStatus")? {
-                        0 => Some("Healthy"),
-                        1 => Some("Warning"),
-                        2 => Some("Unhealthy"),
-                        _ => None,
-                    });
-                Volume {
-                    active_percent: disk_activity
-                        .iter()
-                        .find(|row| {
-                            text(row, "Name").is_some_and(|name| {
-                                name.eq_ignore_ascii_case(mount.trim_end_matches('\\'))
-                            })
-                        })
-                        .and_then(|row| number(row, "PercentDiskTime"))
-                        .map(|value| value.min(100)),
-                    mount,
-                    label: disk.name().to_string_lossy().into_owned(),
-                    filesystem: disk.file_system().to_string_lossy().into_owned(),
-                    total: disk.total_space(),
-                    used: disk.total_space().saturating_sub(disk.available_space()),
-                    health,
-                    kind: match disk.kind() {
-                        sysinfo::DiskKind::SSD => "SSD",
-                        sysinfo::DiskKind::HDD => "HDD",
-                        _ => "",
-                    },
-                    removable: disk.is_removable(),
-                }
-            })
-            .collect();
-        list.sort_unstable_by(|a, b| a.mount.cmp(&b.mount));
-        list
-    }
-
     fn network(
         &self,
         f: &mut Fields,
@@ -597,9 +602,15 @@ impl Collector {
             adapters
                 .iter()
                 .find(|nic| nic.kind == "Ethernet" && nic.physical)
-                .map(|nic| nic.description.as_str()),
+                .map(|nic| nic.description.as_str())
+                .or(Some("Not Installed")),
         );
-        put(f, "wifi", wifi.map(|nic| nic.description.as_str()));
+        put(
+            f,
+            "wifi",
+            wifi.map(|nic| nic.description.as_str())
+                .or(Some("Not Installed")),
+        );
         if let Some((nic, gateway)) = primary {
             let config = native::network_config(nic.index);
             *dns = Some(crate::network::DnsUplink::from_adapter(
@@ -686,6 +697,96 @@ impl Collector {
     }
 }
 
+#[derive(Default)]
+struct PendingRebootSignals {
+    cbs_reboot_pending: bool,
+    cbs_reboot_in_progress: bool,
+    wu_reboot_required: bool,
+    update_exe_volatile: bool,
+    netlogon_domain_join: bool,
+    active_computer_name: Option<String>,
+    pending_computer_name: Option<String>,
+}
+
+fn evaluate_pending_reboot(signals: &PendingRebootSignals) -> Vec<String> {
+    let mut reasons = Vec::new();
+    if signals.cbs_reboot_pending {
+        reasons.push("Component Based Servicing".to_owned());
+    }
+    if signals.cbs_reboot_in_progress {
+        reasons.push("CBS Reboot In Progress".to_owned());
+    }
+    if signals.wu_reboot_required {
+        reasons.push("Windows Update".to_owned());
+    }
+    if signals.update_exe_volatile {
+        reasons.push("Windows Update Volatile Flag".to_owned());
+    }
+    if signals.netlogon_domain_join {
+        reasons.push("Pending Domain Join".to_owned());
+    }
+    if let (Some(active), Some(pending)) = (
+        signals.active_computer_name.as_deref(),
+        signals.pending_computer_name.as_deref(),
+    ) && !active.trim().is_empty()
+        && !pending.trim().is_empty()
+        && !active.trim().eq_ignore_ascii_case(pending.trim())
+    {
+        reasons.push(format!(
+            "Pending Computer Rename ({} → {})",
+            active.trim(),
+            pending.trim()
+        ));
+    }
+    reasons
+}
+
+/// Inspects genuine Windows OS restart flags (CBS, Windows Update, volatile update flag,
+/// pending domain join, and pending computer rename). Deliberately avoids noisy
+/// `PendingFileRenameOperations` temp-delete entries from Store/Edge/Xbox updates.
+fn pending_reboot_reasons(hklm: &RegKey) -> Vec<String> {
+    let signals = PendingRebootSignals {
+        cbs_reboot_pending: hklm
+            .open_subkey(
+                r"SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending",
+            )
+            .is_ok(),
+        cbs_reboot_in_progress: hklm
+            .open_subkey(
+                r"SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootInProgress",
+            )
+            .is_ok(),
+        wu_reboot_required: hklm
+            .open_subkey(
+                r"SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired",
+            )
+            .is_ok(),
+        update_exe_volatile: registry::<u32>(
+            hklm,
+            r"SOFTWARE\Microsoft\Updates",
+            "UpdateExeVolatile",
+        )
+        .is_some_and(|v| v != 0),
+        netlogon_domain_join: hklm
+            .open_subkey(r"SYSTEM\CurrentControlSet\Services\Netlogon\JoinDomain")
+            .is_ok()
+            || hklm
+                .open_subkey(r"SYSTEM\CurrentControlSet\Services\Netlogon\AvoidSpnSet")
+                .is_ok(),
+        active_computer_name: registry::<String>(
+            hklm,
+            r"SYSTEM\CurrentControlSet\Control\ComputerName\ActiveComputerName",
+            "ComputerName",
+        ),
+        pending_computer_name: registry::<String>(
+            hklm,
+            r"SYSTEM\CurrentControlSet\Control\ComputerName\ComputerName",
+            "ComputerName",
+        ),
+    };
+    evaluate_pending_reboot(&signals)
+}
+
 fn registry<T: winreg::types::FromRegValue>(root: &RegKey, key: &str, property: &str) -> Option<T> {
     root.open_subkey(key).ok()?.get_value(property).ok()
 }
@@ -699,13 +800,13 @@ fn put(f: &mut Fields, key: &'static str, value: Option<impl Into<String>>) {
     }
 }
 
-fn rows(connection: Option<&WMIConnection>, query: &str) -> Vec<Row> {
+pub(crate) fn rows(connection: Option<&WMIConnection>, query: &str) -> Vec<Row> {
     connection
         .and_then(|connection| connection.raw_query(query).ok())
         .unwrap_or_default()
 }
 
-fn text<'a>(row: &'a Row, property: &str) -> Option<&'a str> {
+pub(crate) fn text<'a>(row: &'a Row, property: &str) -> Option<&'a str> {
     match row.get(property)? {
         Variant::String(value) if !value.trim().is_empty() => Some(value.trim()),
         _ => None,
@@ -720,7 +821,7 @@ fn joined(row: &Row, properties: &[&str]) -> Option<String> {
     (!values.is_empty()).then(|| values.join(" "))
 }
 
-fn number(row: &Row, property: &str) -> Option<u64> {
+pub(crate) fn number(row: &Row, property: &str) -> Option<u64> {
     match row.get(property)? {
         Variant::UI1(value) => Some((*value).into()),
         Variant::UI2(value) => Some((*value).into()),
@@ -765,7 +866,7 @@ fn gpu_instance_suffix<'a>(name: &'a str, adapter: &str) -> Option<&'a str> {
 
 #[cfg(test)]
 mod tests {
-    use super::gpu_instance_suffix;
+    use super::{PendingRebootSignals, evaluate_pending_reboot, gpu_instance_suffix};
 
     #[test]
     fn gpu_instance_matches_hex_ids_case_insensitively() {
@@ -782,5 +883,26 @@ mod tests {
             gpu_instance_suffix("luid_0x00000000_0x0000FAB4_phys_0", adapter),
             None
         );
+    }
+
+    #[test]
+    fn pending_reboot_only_triggers_on_genuine_os_flags() {
+        let clean = PendingRebootSignals {
+            active_computer_name: Some("WORKSTATION".into()),
+            pending_computer_name: Some("workstation".into()),
+            ..Default::default()
+        };
+        assert!(evaluate_pending_reboot(&clean).is_empty());
+
+        let flagged = PendingRebootSignals {
+            wu_reboot_required: true,
+            active_computer_name: Some("OLD-PC".into()),
+            pending_computer_name: Some("NEW-PC".into()),
+            ..Default::default()
+        };
+        let reasons = evaluate_pending_reboot(&flagged);
+        assert_eq!(reasons.len(), 2);
+        assert!(reasons[0].contains("Windows Update"));
+        assert!(reasons[1].contains("OLD-PC → NEW-PC"));
     }
 }

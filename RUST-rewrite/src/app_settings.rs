@@ -7,7 +7,7 @@ use std::{
 };
 use tauri::{
     AppHandle, Emitter, Manager,
-    menu::{Menu, MenuItem},
+    menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
 use windows::{
@@ -29,7 +29,7 @@ use winreg::{RegKey, enums::HKEY_CURRENT_USER};
 
 const RUN: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 const APPROVED: &str = r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
-const STARTUP_NAME: &str = "CoreWatchRust";
+const STARTUP_NAME: &str = "RustCoreWatch";
 const RELEASES: &str = "https://github.com/jonathan820612/CoreWatch-Host-Engine/releases";
 
 #[derive(Serialize)]
@@ -103,22 +103,87 @@ fn ignore_missing(result: std::io::Result<()>) -> std::io::Result<()> {
 }
 
 pub fn tray(app: &AppHandle) -> tauri::Result<()> {
-    let open = MenuItem::with_id(app, "restore", "Open CoreWatch", true, None::<&str>)?;
+    let open = MenuItem::with_id(app, "restore", "Open RustCoreWatch", true, None::<&str>)?;
+    let mode_normal = MenuItem::with_id(app, "mode:normal", "Normal", true, None::<&str>)?;
+    let mode_work = MenuItem::with_id(app, "mode:work", "Work / Focus", true, None::<&str>)?;
+    let mode_gaming = MenuItem::with_id(app, "mode:gaming", "Gaming", true, None::<&str>)?;
+    let mode_stream =
+        MenuItem::with_id(app, "mode:streaming", "Streaming / Present", true, None::<&str>)?;
+    let mode_night = MenuItem::with_id(app, "mode:night", "Night", true, None::<&str>)?;
+    let mode_revert =
+        MenuItem::with_id(app, "mode:revert", "Revert Baseline", true, None::<&str>)?;
+    let sep = PredefinedMenuItem::separator(app)?;
+    let modes_sub = Submenu::with_items(
+        app,
+        "Switch Mode",
+        true,
+        &[
+            &mode_normal,
+            &mode_work,
+            &mode_gaming,
+            &mode_stream,
+            &mode_night,
+            &sep,
+            &mode_revert,
+        ],
+    )?;
+    let rgb_blackout = MenuItem::with_id(app, "rgb:blackout", "RGB Stealth Blackout", true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "Settings...", true, None::<&str>)?;
     let exit = MenuItem::with_id(app, "quit", "Exit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &settings, &exit])?;
+    let menu = Menu::with_items(app, &[&open, &modes_sub, &rgb_blackout, &settings, &exit])?;
     let mut tray = TrayIconBuilder::with_id("corewatch")
         .menu(&menu)
-        .tooltip("CoreWatch · RUST Vers.")
+        .tooltip("RustCoreWatch")
         .show_menu_on_left_click(false)
-        .on_menu_event(|app, event| match event.id().as_ref() {
-            "restore" => restore(app),
-            "settings" => {
-                restore(app);
-                let _ = app.emit_to("main", "open-settings", ());
+        .on_menu_event(|app, event| {
+            let id = event.id().as_ref();
+            if id == "rgb:blackout" {
+                let rgb = app
+                    .state::<std::sync::Arc<crate::rgb_studio::RgbEngine>>()
+                    .inner()
+                    .clone();
+                std::thread::spawn(move || {
+                    let _ = rgb.execute(crate::rgb_studio::RgbAction::Blackout);
+                });
+                return;
             }
-            "quit" => app.exit(0),
-            _ => (),
+            if let Some(mode) = id.strip_prefix("mode:") {
+                let mgr = app
+                    .state::<std::sync::Arc<crate::profiles::ProfileManager>>()
+                    .inner()
+                    .clone();
+                let rgb = app
+                    .state::<std::sync::Arc<crate::rgb_studio::RgbEngine>>()
+                    .inner()
+                    .clone();
+                let handle = app.clone();
+                let mode_id = mode.to_owned();
+                let action = if mode == "revert" {
+                    crate::profiles::ProfileAction::RevertBaseline
+                } else {
+                    crate::profiles::ProfileAction::Activate {
+                        id: mode.to_owned(),
+                    }
+                };
+                std::thread::spawn(move || {
+                    if mgr.execute(action).is_ok() {
+                        if mode_id != "revert" {
+                            rgb.on_profile_activated(&mode_id);
+                        }
+                        let _ = handle.emit_to("main", "profiles-changed", ());
+                    }
+                });
+                return;
+            }
+            match id {
+                "restore" => restore(app),
+                "settings" => {
+                    restore(app);
+                    let _ = app.emit_to("main", "open-settings", ());
+                }
+                "quit" => app.exit(0),
+                _ => (),
+            }
         })
         .on_tray_icon_event(|tray, event| {
             if matches!(
@@ -145,7 +210,7 @@ fn restore(app: &AppHandle) {
         let _ = window.unminimize();
         let _ = window.set_focus();
         app.state::<std::sync::Arc<crate::Dashboard>>()
-            .minimize(false);
+            .minimize(false, false);
     }
 }
 
@@ -221,6 +286,7 @@ pub enum Picker {
     Image,
     ThemeOpen,
     ThemeSave,
+    ReportSave,
 }
 
 pub fn pick(owner: isize, initial: PathBuf, picker: Picker) -> Result<Option<PathBuf>, String> {
@@ -234,7 +300,7 @@ pub fn pick(owner: isize, initial: PathBuf, picker: Picker) -> Result<Option<Pat
         unsafe {
             CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok()?;
             let _apartment = Apartment;
-            let save = matches!(picker, Picker::ThemeSave);
+            let save = matches!(picker, Picker::ThemeSave | Picker::ReportSave);
             let dialog: IFileDialog = CoCreateInstance(
                 if save {
                     &FileSaveDialog
@@ -270,6 +336,7 @@ pub fn pick(owner: isize, initial: PathBuf, picker: Picker) -> Result<Option<Pat
                 Picker::Editor => Some(("Executable", "*.exe")),
                 Picker::Image => Some(("Images", "*.png;*.jpg;*.jpeg;*.webp")),
                 Picker::ThemeOpen | Picker::ThemeSave => Some(("CoreWatch Theme", "*.json")),
+                Picker::ReportSave => Some(("Markdown report", "*.md")),
                 _ => None,
             };
             if let Some((name, pattern)) = filter {
@@ -282,8 +349,13 @@ pub fn pick(owner: isize, initial: PathBuf, picker: Picker) -> Result<Option<Pat
                 }])?;
             }
             if save {
-                dialog.SetDefaultExtension(PCWSTR(native::wide("json").as_ptr()))?;
-                dialog.SetFileName(PCWSTR(native::wide("corewatch-theme.json").as_ptr()))?;
+                let (ext, name) = if matches!(picker, Picker::ReportSave) {
+                    ("md", "corewatch-diagnostics.md")
+                } else {
+                    ("json", "corewatch-theme.json")
+                };
+                dialog.SetDefaultExtension(PCWSTR(native::wide(ext).as_ptr()))?;
+                dialog.SetFileName(PCWSTR(native::wide(name).as_ptr()))?;
             }
             if let Err(error) = dialog.Show(Some(HWND(owner as _))) {
                 if error.code().0 as u32 == 0x800704c7 {
@@ -387,9 +459,13 @@ pub fn read_file(path: &Path, limit: usize) -> Result<Vec<u8>, String> {
 
 pub fn export_theme(path: &Path, theme: &crate::preferences::Theme) -> Result<(), String> {
     let bytes = serde_json::to_vec_pretty(theme).map_err(|error| error.to_string())?;
-    let parent = path.parent().ok_or("Choose a theme export folder.")?;
+    write_export(path, &bytes)
+}
+
+pub fn write_export(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let parent = path.parent().ok_or("Choose an export folder.")?;
     let mut file = tempfile::NamedTempFile::new_in(parent).map_err(|error| error.to_string())?;
-    file.write_all(&bytes).map_err(|error| error.to_string())?;
+    file.write_all(bytes).map_err(|error| error.to_string())?;
     file.persist(path).map_err(|error| error.to_string())?;
     Ok(())
 }
