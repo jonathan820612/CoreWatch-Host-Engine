@@ -427,8 +427,8 @@ pub fn release_status() -> Result<ReleaseStatus, String> {
             !release.draft
                 && release.assets.iter().any(|asset| {
                     let name = asset.name.to_ascii_lowercase();
-                    name.starts_with("corewatch")
-                        && name.contains("rust")
+                    (name.contains("rustcorewatch")
+                        || (name.starts_with("corewatch") && name.contains("rust")))
                         && [".msi", ".exe", ".zip"]
                             .iter()
                             .any(|suffix| name.ends_with(suffix))

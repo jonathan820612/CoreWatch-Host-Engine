@@ -1,16 +1,16 @@
 <div align="center">
 
-<img src="images/Icon.png" alt="CoreWatch Logo" width="84" />
+<img src="ui/icon.png" alt="RustCoreWatch Logo" width="88" />
 
-# CoreWatch Host Engine
+# RustCoreWatch (CoreWatch Host Engine)
 
-**Frameless, modular Windows 10/11 telemetry dashboard, hardware control deck, operations & protection hub, system administration suite, and developer workbench.**
+**Native Windows 10/11 telemetry dashboard, hardware & RGB lighting control deck, diagnostics lab, operations & protection hub, and developer workbench.**
 
-Built with **PowerShell 7**, **WinForms**, **Microsoft Edge WebView2**, and native Win32 / CCD / WNF / CIM / WinRT APIs.
+Built in **native Rust**, **Tauri v2**, **WebView2**, and direct **Win32 / USB HID / NVAPI / PawnIO SMBus / SCM / Crypt32 / IP Helper / WinHTTP / DPAPI** APIs — zero PowerShell host required, zero background console window.
 
 [![Latest Release](https://img.shields.io/github/v/release/jonathan820612/CoreWatch-Host-Engine?include_prereleases&style=flat-square&color=3b82f6)](https://github.com/jonathan820612/CoreWatch-Host-Engine/releases)
+[![Engine](https://img.shields.io/badge/Engine-Rust%20%2B%20Tauri%20v2-DEA584?style=flat-square)](Cargo.toml)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%2F%2011%20(x64)-0078D6?style=flat-square)](https://github.com/jonathan820612/CoreWatch-Host-Engine/releases)
-[![PowerShell](https://img.shields.io/badge/PowerShell-7%2B-5391FE?style=flat-square)](https://aka.ms/powershell-release?tag=stable)
 
 <br />
 
@@ -18,73 +18,79 @@ Built with **PowerShell 7**, **WinForms**, **Microsoft Edge WebView2**, and nati
 
 </div>
 
----
-
-## Download & Installation
-
-Grab the latest build from **[GitHub Releases](https://github.com/jonathan820612/CoreWatch-Host-Engine/releases)**:
-
-| Package | Best For |
-|---|---|
-| **`CoreWatch-<ver>-Setup.exe`** | **Recommended** — Modular Inno Setup installer with a pick-and-choose component selector for all **23 feature modules** (**Full Suite** default, **Home & Essentials**, **IT & SysAdmin**, **Developer Workstation**, or **Custom**), Start Menu / Desktop shortcuts, optional PawnIO sensor driver setup, and UAC-free Start-with-Windows support. |
-| **`CoreWatch-<ver>-Portable.zip`** | **Zero-install Portable** — Extract anywhere and run `CoreWatch.exe` directly with all 23 modules included. |
-| **`CoreWatch-<ver>-SHA256SUMS.txt`** | SHA-256 verification checksums for both release artifacts. |
+> [!IMPORTANT]
+> **RustCoreWatch is now the active flagship edition of CoreWatch.**
+> The original PowerShell + WinForms edition reached **End-of-Life at [`v0.9.3`](https://github.com/jonathan820612/CoreWatch-Host-Engine/releases/tag/v0.9.3)** and is archived under [`legacy-powershell/`](legacy-powershell/) in **maintenance mode (bug fixes only — no new features)**.
 
 ---
 
-## Key Features
+## Quick Start & Building RustCoreWatch
+
+### Prerequisites
+- **Windows 10 / 11 (x64)** with Microsoft Edge WebView2 Evergreen Runtime (preinstalled on Windows 11)
+- **Rust MSVC toolchain** (`rustup`) + **Visual Studio C++ Build Tools** (*Desktop development with C++*)
+- Optional: **PawnIO signed driver** (`winget install namazso.PawnIO`) for Ryzen/Intel CPU die temperatures and SMBus DRAM RGB control (requires Administrator)
+
+### Build & Launch Optimized Release (`RustCoreWatch.exe`)
+
+```powershell
+# 1. Build optimized Release binary (locked dependencies)
+cargo build --locked --release
+
+# 2. Optional: stage the LibreHardwareMonitor sensor helper beside the binary
+.\prepare-sensors.ps1 -Release
+
+# 3. Launch RustCoreWatch (native GUI subsystem — zero console window)
+.\target\release\RustCoreWatch.exe
+```
+
+### Development Build & Verification
+
+```powershell
+.\prepare-sensors.ps1
+cargo clippy --all-targets --locked -- -D warnings
+cargo test --locked
+cargo build --locked
+
+# CLI verification utilities (still print cleanly in terminals):
+.\target\release\RustCoreWatch.exe --smoke-test | Out-Host
+.\target\release\RustCoreWatch.exe --smoke-test --narrow | Out-Host
+.\target\release\RustCoreWatch.exe --rgb-test "#00b4ff" | Out-Host
+.\target\release\RustCoreWatch.exe --snapshot | Out-Host
+.\target\release\RustCoreWatch.exe --diagnostics 24 | Out-Host
+```
+
+---
+
+## Key Features (Dashboard + 24 Native Rust Modules + Floating Disk Partitioner)
 
 ### Live Telemetry Dashboard (`📟 Dashboard`)
-- **Hardware Metrics**: Real-time CPU load, dynamic boost clock, thermal/power throttling badge, L1/L2/L3 Cache Matrix (with AMD 3D V-Cache detection), GPU load/power/temp/VRAM allocation, RAM & Pagefile commitment, and live Top Resource Consumer callout.
-- **Multi-Provider CPU Die Temperature Engine**: Supports bundled `LibreHardwareMonitorLib.dll` (via the `.NET Framework 4.x` `CoreWatchSensorHelper.exe` persistent stdio bridge for AMD Ryzen `Tctl/Tdie` & Intel `CPU Package`), LibreHardwareMonitor/OpenHardwareMonitor WMI, Core Temp shared memory, and native Windows ACPI thermal zones, with `°C` / `°F` toggle.
-- **System Identity & Infrastructure**: Hostname, Domain/Workgroup, Windows Edition & UBR build, Update & Pending Reboot status, DirectX, Virtualization & Secure Boot, **smart MSI/MSIX-aware PowerShell 7 version/update badge** (tracks official `.msi` for existing MSI installs, upgrades MSIX cleanly, and installs MSIX with clear `WindowsApps` folder-restriction tooltips when PowerShell Core is absent), Java runtime `JAVA_HOME`/PATH switcher, Windows Telemetry toggle, Elevation badge (with 1-click Admin relaunch), last crash/BSOD timestamp, Motherboard, BIOS, Power Plan switcher, Uptime, and Audio devices.
-- **Interactive Multi-Monitor Display Deck**: Per-monitor selector with PerMonitorV2 DPI-aware native **Identify** overlay badges across every screen, driver-verified **Refresh Rate** switcher (`CDS_TEST` pre-validated), live **DPI Scale** switcher (native Windows CCD API), **Orientation**, **HDR** toggle, Color Profile, and **Night Light** toggle + warmth slider.
-- **Network Profile & Storage**: 4-column network matrix (IPv4, CIDR subnet mask, gateway, DHCP/Static, external IPv4, WLAN SSID with Windows 11 24H2/25H2 Location-privacy fallback, Firewall/Defender/Tamper-gated controls/Discovery/Sharing toggles, Quick DNS switcher, live RX/TX bandwidth bar, Cloudflare speed/jitter/loss test), plus Storage volumes with SMART health/wear %, IO latency, inline relabeling, and 1-click **Disk Map** jump.
-- **Adaptive Portrait HD (`1080×1920`) Workspace, Live Theme Studio & Window Controls**:
-  - **Adaptive 2-Tier Responsive Header**: Single-row on ultra-wide displays (`≥ 1380px`) and automatically splits into a clean 2-tier utility + wrapping tab bar on **Portrait HD (`1080×1920`)** and narrow windows with zero horizontal overflow.
-  - **Live Movable Theme & Appearance Studio (`🎨`)**: Non-blocking draggable floating popup with **10 presets** (*CoreWatch Classic*, *Midnight OLED*, *Cyberpunk Neon*, *Emerald Matrix*, *Amber Forge*, *Nord Frost*, *Crimson Ops*, *Synthwave Sunset*, *Aurora Borealis*, *Daylight Slate*), **12 live CSS-variable color pickers**, card translucency & frosted-glass blur, **local host background wallpaper** (`Cover`, `Stretch`, `Center`, `Contain`, `Tile`, opacity, blur, and `None`/`Uniform`/`Vignette`/`Top`/`Bottom` fade blending), JSON import/export, and **51 protected functional/diagnostic color rules** so thermal/status indicators always stay accurate.
-  - **`Ctrl+K` Command Palette**: Instant quick-launch across all 23 tabs, system modes, Theme Studio, and 1-click operational actions.
-  - **`✏️ Layout` Editor & Side Telemetry Dock**: Reorder, resize, collapse, or hide dashboard cards and pop frames into a slide-out dock.
-  - **3-State Window Lock (`🔓` / `🔒` / `🔐`)**: 1st click locks window position `(X, Y)` (still permitting right/bottom resize), 2nd click locks both position and size, 3rd click unlocks — persisted across restarts.
-  - **Header Alert Bell (`🔔`)**, **Always-on-Top Pin (`📌`)**, and native all-edge resizing.
+- **Hardware Metrics**: Real-time CPU load, boost clock, thermal/power throttle badge, 20s inline SVG sparklines, L1/L2/L3 Cache Matrix (including AMD 3D V-Cache), GPU load/power/temp/VRAM, RAM & Pagefile commitment, and live Top Resource Consumer inspector.
+- **System Identity & Infrastructure**: Click-to-copy Hostname & Domain/Workgroup, Windows edition & UBR, genuine OS **Pending Reboot** registry detection, smart MSI/MSIX PowerShell 7 version/update tracker, Java runtime switcher, Windows Telemetry toggle, 1-click Admin relaunch, last BSOD/KP-41 crash jump, Motherboard/BIOS, Power Plan switcher, Uptime, Audio devices, and multi-monitor Display controls (**Identify**, **Refresh Rate**, **DPI Scale**, **Orientation**, **HDR**, **Night Light** + warmth slider).
+- **Network Profile & Storage**: Live IPv4/CIDR/Gateway/External IPv4, WLAN SSID + signal badge, Firewall & Tamper-aware Windows Defender status pills (`🔒`), DNS preset switcher, ARP gateway reachability, Cloudflare speed/jitter/loss test, live dual-direction RX/TX throughput sparkline, Storage volumes with SMART health/wear/temp/I/O, inline relabeling, 1-click **Disk Map** jump, and floating **Disk Partitioner** (pauses live telemetry while open with strict System/Boot/`C:`/EFI/Recovery protection and typed `DISK N` wipe guardrails).
+- **Modern Shell & Personalization**:
+  - **Console-Free Native Launch & Single-Instance Guard**: Launches cleanly with `#![windows_subsystem = "windows"]` and restores/focuses any existing (or tray-hidden) window on relaunch.
+  - **`⌘ Ctrl+K` Command Palette (50+ Actions)** & global `/` instant search focus.
+  - **4-Size Interface Font Scaling** (`Small 88%`, `Normal 100%`, `Large 112%`, `Extra Large 124%`) preserving layout across wide and `480px` narrow modes.
+  - **Theme Studio 2.0** (10 presets including light-mode *Daylight Slate*, 12 live color pickers, card translucency/blur, local wallpaper with fit/fade controls, and 1-click **Theme → RGB Sync**).
+  - **Telemetry Dock 2.0**, **3-State Window Lock** (`🔓`/`🔒`/`🔐`), **Always on Top (`📌`)**, **Tray Watchdog & Mode Switcher**, and global toast notifications.
 
-### Top-Level Management & Diagnostic Tabs
-- **📡 Network (`Network Manager & Diagnostics`)**: Static IP/Gateway/DNS provisioning, DHCP reversion, adapter toggle/restart/rename, Wi-Fi RSSI, DNS cache flush, ping, traceroute, port tester, and routing/ARP tables.
-- **🧭 Tasks & Ports**: Inspect active processes, Windows services health (with auto-stopped fault check), and open TCP/UDP listening sockets.
-- **🩺 UltimaDiagX**: Consolidated 10-channel Windows Event Log & external log analyzer with automated **System Health Score & Synopsis**, 8-subsystem health matrix, BSOD/WER crash dump scanner, epoch-aware Mark Solved/Dismiss persistence, live watch mode, native Windows Event ID / HRESULT / NTSTATUS / BugCheck translator, and report export.
+### 🌈 RGB Lighting Studio (RustCoreWatch Exclusive — Zero OpenRGB Required)
+Standalone native Rust hardware lighting engine with parallel bus discovery, auto-restore on launch, per-device pin/override, Smart Alert critical-flash pulses, live CPU/GPU thermal reactive gradients, System Profile auto-sync, and a **Hardware Diagnostics & Live Readback** drawer:
+- **Direct Win32 USB HID (`src/rgb_hid.rs`)**: Gigabyte RGB Fusion 2.0 motherboards & ARGB headers (ITE IT5702/IT5711/IT8297 with GRB calibration) and Razer Chroma keyboards & mice (91-byte extended matrix HID with safe `NOSTORE` streaming).
+- **Direct NVIDIA NVAPI I2C (`src/rgb_nvapi.rs`)**: ASUS Aura / ENE 6K582 RTX GPUs directly via `nvapi64.dll` I2C port 1.
+- **Direct PawnIO SMBus DRAM (`src/rgb_smbus.rs`)**: Corsair Vengeance/Dominator/DDR5 and G.Skill/TeamGroup ENE Aura RAM via signed PawnIO SMBus modules (Administrator).
+- **Windows 11 Dynamic Lighting (`LampArray`)** + optional collapsed OpenRGB SDK bridge (`127.0.0.1:6742`).
 
-### `🛡️ Ops & Guard ▾` Suite (6 Modules)
-- **🔔 Smart Alerts & Watchdog Rules**: Built-in & custom rules (CPU/GPU overheat sustained duration, low disk %, high RAM, internet drop/recovery, critical Windows service stopped) firing native **Windows Toast notifications** (with System Tray balloon fallback), sound chimes, or auto-restarting stopped services, plus a live Header Alert Bell (`🔔`) and history log.
-- **🔄 Unified Update Center**: Scans **WinGet upgrades**, **Windows Updates** (native COM `Microsoft.Update.Session`), **PowerShell 7 / runtimes**, and **CoreWatch self-updates** in one hub, with selective batch upgrades and a persistent **Pin / Ignore** list.
-- **📸 System Snapshots & "What Changed?" Diff**: Captures lightweight JSON snapshots (Installed Apps, Startup Items, Services, Signed Drivers, Hosts File, Network Config) optionally paired with a native **Windows System Restore Point**, and diffs **Before vs. After** (or **Before vs. Live Current PC**) with color-coded Added/Removed/Modified breakdowns.
-- **💾 Backup & Folder Sync Manager**: Friendly GUI over native `robocopy` for **Incremental** (`/E /XO`) or **Mirror** (`/MIR`) sync to external USB drives or NAS UNC shares (`\\server\share`), with **Dry-Run Previews (`/L`)**, developer ignore presets (`node_modules`, `.git`, `target`, `bin`, `obj`), optional Windows Task Scheduler automation, and run history.
-- **🔋 Battery Health & Wireless Peripherals**: Parses laptop battery health (Design vs. Full Charge mWh, wear %, cycle count, charge rate), launches Windows **Battery Report** & **SleepStudy**, and monitors live battery charge for **Bluetooth mice, keyboards, headsets, and controllers** (`DEVPKEY_Bluetooth_Battery`) with low-battery alerts.
-- **🛡️ Security & Repair**: BitLocker, TPM, RDP, Hosts/Proxy/Environment audit, `DISM`/`SFC` servicing, Windows Update & network repairs, and 1-click IT Support ZIP.
+### Top-Level Management & Diagnostic Suites
+- **📡 Network Manager**: Native `GetIpForwardTable2` / `GetIpNetTable2` routes & ARP tables with OUI vendor hints, static IP/DHCP/DNS provisioning, adapter controls, Ping (with TTL), parallel reverse-DNS Traceroute, structured DNS lookup (`A`/`AAAA`/`MX`/`TXT`/`SRV`/`ANY`), and TCP Port Checker.
+- **🧭 Tasks & Ports**: Native Win32 SCM service enumeration (~15 ms), live process CPU/RAM/handles, TCP/UDP sockets with port service hints, PID cross-linking, and sortable columns.
+- **🩺 UltimaDiagX 2.0**: Parallel 10-channel Event Log scan, **8-Subsystem Health Matrix**, **8 automated Root-Cause Findings**, **45+ Event ID & 40+ Stop Code / NTSTATUS / HRESULT KB** with `ntdll.dll` fallback, pure-Rust **BSOD `.dmp` header parser**, 24-bucket timeline histogram, `±5m Nearby` correlation filter, and epoch-aware Mark Solved persistence.
 
-### `💻 Dev & Work ▾` Suite (6 Modules)
-- **🐙 GitHub Manager**: Auto-authenticates via signed-in `gh` CLI or **DPAPI-encrypted** PAT; scans local Git workspaces (branch, dirty count, ahead/behind, VS Code/Terminal/Explorer/Pull/`Publish-Release.ps1`), clones your GitHub repos or any Git URL, and provides full GitHub Release management (Draft/Prerelease/Auto-Notes/Multi-Asset Upload/Delete).
-- **📋 Jira Manager**: Supports **Jira Cloud** (REST v3, Email + Atlassian API Token) and **Jira Server / Data Center** (REST v2, Bearer PAT) stored DPAPI-encrypted; presets & custom JQL, ADF-to-text descriptions, live workflow transitions, comments, worklog time logging, Assign to Me, Copy Git Branch, and Create Issue.
-- **🐧 WSL Manager**: Manage Windows Subsystem for Linux distros, online catalog installs, `.tar`/`.vhdx` import/export, VHDX compaction, `.wslconfig` tuning, and quick Linux diagnostics.
-- **🐳 Docker / Containers & Local Dev Services**: Auto-detects Docker or Podman CLI; start/stop/restart/shell/tail-logs/remove containers, click any published port to jump straight into **🧭 Tasks & Ports**, inspect image/volume disk footprint (`system df`) with 1-click Prune, and control local Windows dev services (PostgreSQL, MySQL, Redis, MongoDB, IIS, Docker).
-- **🔐 SSH Host Launcher & Certificate Inspector**: Visual `~/.ssh/config` editor with 1-click Windows Terminal SSH launch, local SSH key inventory + `ed25519` keypair generator + public-key copier, and an expiring/expired Windows TLS & code-signing certificate auditor (`LocalMachine\My` & `CurrentUser\My`).
-- **🌐 Multi-PC / Homelab Monitor**: Monitor secondary desktops, Linux servers, or NAS devices via **SSH**, **WinRM**, or **HTTP/Ping** probes with optional auto-poll cadence and 1-click SSH / RDP (`mstsc`) / Web UI launchers.
-
-### `🧰 System ▾` Suite (8 Modules)
-- **⚡ System Profiles & Modes**: Built-in presets (**Normal**, **Work**, **Gaming**, **Presentation**, **Night**) + custom profiles, **Capture Current PC**, and JSON import/export controlling native Windows WNF **Do Not Disturb**, Power Plan, Keep Screen Awake, Night Light + warmth %, and per-monitor HDR / Hz / Scale overrides with **1-click Revert**.
-- **🚀 Startup Apps**: View, add, enable/disable (`StartupApproved` binary flags), locate, or remove Registry & Startup Folder boot items.
-- **📂 Sharing Center**: Create/remove SMB network shares and manage per-account share permissions.
-- **📦 Installed Apps & App Mover**: 64/32-bit + User app inventory, folder size calculator, Uninstall/Modify, Registry jump, and cross-drive **App Mover** (`robocopy` + NTFS Junctions).
-- **⬇️ App Installer & Launcher**: Curated WinGet software catalog (including **ArtCraft Launcher** & smart MSI/MSIX PowerShell 7), batch installs, bulk upgrades, direct **`▶ Launch`** for installed apps, and `▶ Launchable` filter pill.
-- **🗺️ Disk Map**: Multithreaded WizTree-style visual storage treemap, largest files, and extension breakdown.
-- **🧩 Devices & Drivers**: Collapsible PnP hardware tree with driver age warnings, digital signers, INF packages, rescan, restart, and enable/disable controls.
-- **🗂️ File Organizer**: Rule-based sorting for default Windows folders or any custom folder with **Dry-Run Preview** and **1-click Undo**.
-
-### Unified Settings (`⚙️`) & Security
-- **General**: UAC-free Task Scheduler + HKCU Auto-Start, Launch Minimized to Tray, Minimize to Tray on Exit, Confirm Destructive Actions, Temperature Unit (`°C`/`°F`), and in-app **Check for Updates**.
-- **Directories**: Projects Root, Exports, WSL Install Root, File Organizer Destination, and Preferred Code Editor (`Code.exe`) with native pickers.
-- **Telemetry**: Live polling profiles (`Fast` 250ms / `Balanced` 500ms / `Eco` 1000ms) with zero-CPU pause when minimized.
-- **Modules & Tabs**: Toggle any of the **23 installed modules** at runtime without reinstalling.
-- **DPAPI Secrets Vault**: Tokens and API keys are encrypted per-user with Windows DPAPI (`ProtectedData`, `CurrentUser`) in `%LOCALAPPDATA%\CoreWatch\secrets.dat.json` — never stored in plaintext.
+### Grouped Module Suites (`💻 Dev & Work ▾`, `🛡️ Ops & Guard ▾`, `🧰 System ▾`)
+- **💻 Dev & Work**: **GitHub Manager** (parallel scan, ahead/behind, `Pull All`, native WinHTTP releases), **Jira Manager** (DPAPI-encrypted tokens, WinHTTP REST v3/v2, JQL presets, live Issue Inspector & Status Transitions), **WSL Manager** (`vmmem` RAM, VHDX sizes, Explorer `\\wsl.localhost`, WSL 1↔2, non-destructive 12-key `.wslconfig` merge), **Docker & Dev Services** (containers, images, native SCM dev services), **SSH & Certificates** (`~/.ssh/config` + `ProxyJump` + ED25519 keygen + native `crypt32.dll` cert auditor ~1 ms), **Multi-PC / Homelab Monitor** (parallel HTTP/HTTPS/ICMP/TCP probes + 1-click SSH/RDP/Web launchers).
+- **🛡️ Ops & Guard**: **Smart Alerts & Watchdog** (tray watchdog, mute toggle, RGB alert flash), **Unified Update Center** (parallel WinGet/PS7/CoreWatch checks + batch upgrades + pin/ignore), **System Snapshots & Diff** (parallel 6-domain capture including Signed Drivers + color-coded visual diff cards), **Backup & Folder Sync** (Robocopy dry-run/incremental/mirror with system-path guardrails & exclude presets), **Battery & Wireless Peripherals**, **Security & Repair** (Posture Score `/100`, TPM/RDP/PATH audit, `%TEMP%` bloat cleaner, SFC/DISM/Winsock/IP reset).
+- **🧰 System**: **System Profiles & Modes**, **Startup Apps** (broken target detection & HKLM admin badges), **SMB Sharing Center** (1-click UNC copy & folder picker), **Installed Apps** (User vs. System filter & sortable footprint), **App Installer** (57 curated WinGet apps + `⭐ Essentials` preset + live catalog search), **Disk Map 2.0** (multithreaded Win32 `FindFirstFileExW` scanner + HiDPI 2-level Canvas squarified treemap + 0 ms cached drill-down + safe Recycle Bin), **Devices & Drivers** (PnP left-join showing Code 1–52 / driverless faults), **File Organizer** (known-folder chips, recursive/dedupe, dry-run & 1-click undo), **RGB Lighting Studio**.
 
 ---
 
@@ -92,82 +98,28 @@ Grab the latest build from **[GitHub Releases](https://github.com/jonathan820612
 
 ```text
 CoreWatch-Host-Engine/
-├── Start-NodeWatch.ps1              # Main WinForms + WebView2 host, window lock, watchdog & async runspaces
-├── version.json                     # Source-controlled semantic & monotonic beta version tracker
-├── images/                          # Application icon & dashboard showcase screenshot
-├── bin/                             # WebView2 wrapper DLLs (+ optional LibreHardwareMonitorLib.dll)
-├── build/
-│   ├── Build-Beta.ps1               # Versioned build, modular 23-tab Inno Setup & Portable ZIP pipeline
-│   ├── Build-Test.ps1               # Local EXE-only test builder -> .\testBuild\ (no Git/GitHub side effects)
-│   ├── Publish-Release.ps1          # One-command build, tag, push & GitHub Release publisher
-│   ├── CoreWatchLauncher.cs         # Native silent x64 WinForms launcher -> CoreWatch.exe
-│   ├── CoreWatchSensorHelper.cs     # .NET 4.x persistent stdio bridge for LibreHardwareMonitorLib.dll
-│   └── BUILD-HISTORY.md             # Auto-appended release build provenance log
-├── testBuild/                       # Git-ignored local test .exe installers (created by Build-Test.ps1)
-├── RUST-rewrite/                    # Ongoing native Rust + Tauri v2 rewrite prototype & docs/ specs
-└── modules/
-    ├── modules-catalog.json         # 23-module manifest driving Settings UI & Inno Setup components
-    ├── core/
-    │   └── CoreWatchSettings.ps1    # Persistent settings, DPAPI secrets vault, Auto-Start & updater
-    ├── layouts/                     # index.html, style.css (live theme vars), app.js
-    ├── telemetry/                   # Hardware, Display, Storage, Network, Traffic, DashboardControls
-    └── tabs/                        # 23 modular tab backends (SmartAlerts, UpdateCenter, Snapshots,
-                                     # BatteryPeripherals, BackupSync, DockerServices, SshCerts, Homelab,
-                                     # GitHub, Jira, Profiles, UltimaDiagX, Network, TasksPorts, Wsl,
-                                     # DiskMapper, AppInstaller, InstalledApps, Device, SecurityRepair,
-                                     # Startup, Sharing, FileOrganizer)
+├── Cargo.toml                   # Active RustCoreWatch crate manifest (locked deps)
+├── Cargo.lock                   # Locked Rust dependency graph
+├── build.rs                     # Tauri v2 build script
+├── tauri.conf.json              # Tauri window, CSP & bundle configuration
+├── prepare-sensors.ps1          # Stages LibreHardwareMonitor sensor helper
+├── src/                         # 46 native Rust backend modules (telemetry, RGB, DiagX, Disk Map, etc.)
+├── ui/                          # Modular HTML, CSS, Canvas treemap & ES frontend modules
+├── assets/pawnio/               # Signed PawnIO SMBus modules + LGPL license
+├── capabilities/                # Tauri v2 security capabilities
+├── docs/                        # Architecture specs & 24-module catalog manifest
+├── icons/                       # Multi-resolution Windows app icon
+├── images/                      # Showcase cover & branding assets
+└── legacy-powershell/           # Archived Legacy PowerShell Edition (v0.9.3 EoL — bug fixes only)
+    ├── README.md
+    ├── Start-NodeWatch.ps1
+    ├── version.json
+    ├── build/                   # Legacy C# launcher, sensor helper & Inno Setup scripts
+    └── modules/                 # Legacy 23 PowerShell tab backends & WebView2 layout
 ```
 
 ---
 
-## Requirements
-
-- **OS**: Windows 10 (64-bit) or Windows 11 (64-bit)
-- **PowerShell**: [PowerShell 7+](https://github.com/PowerShell/PowerShell/releases) (`pwsh.exe`)
-  - *MSI vs. MSIX note*: Existing installs in `C:\Program Files\PowerShell\7` are updated cleanly via official GitHub `.msi` packages (keeping full folder access). On fresh PCs without PowerShell Core, CoreWatch can install the WinGet **MSIX** edition automatically (noting that Windows restricts direct browsing/edits inside `C:\Program Files\WindowsApps`).
-- **WebView2 Runtime**: Microsoft Edge WebView2 Evergreen Runtime (preinstalled on Windows 11)
-- **PawnIO Driver (for Live Desktop CPU Die Temps with LibreHardwareMonitorLib v0.9.5+)**:
-  - Install once via `winget install namazso.PawnIO` (or [pawnio.eu](https://pawnio.eu/)), or let the Setup `.exe` install it automatically.
-- **Optional Pro CLI Tools**: `git`, [GitHub CLI (`gh`)](https://cli.github.com/), `docker`/`podman`, and Windows OpenSSH (`ssh`/`ssh-keygen`).
-
----
-
-## Running from Source & Local Test Builds
-
-```powershell
-# Launch directly from source with PowerShell 7 (DevTools enabled in dev mode)
-pwsh -NoProfile -ExecutionPolicy Bypass -File .\Start-NodeWatch.ps1
-
-# Compile a local EXE-only installer into .\testBuild\ without touching version.json, Git, or GitHub:
-.\build\Build-Test.ps1
-.\build\Build-Test.ps1 -Label "my-feature"
-```
-
----
-
-## Versioned Builds & GitHub Releases
-
-```powershell
-# Standard versioned build (Portable ZIP + Modular 23-tab Setup .exe into .\dist\):
-.\build\Build-Beta.ps1 -RequireAdmin
-
-# One-command build, version commit, annotated tag, push & GitHub Release publish:
-.\build\Publish-Release.ps1
-.\build\Publish-Release.ps1 -ReleaseTitle "Major Feature Update"
-.\build\Publish-Release.ps1 -Bump patch -Draft
-```
-
-Requires [Inno Setup 6](https://jrsoftware.org/isinfo.php) (`winget install JRSoftware.InnoSetup`) for compiling `Setup.exe`.
-
-### Runtime User Data (`%LOCALAPPDATA%\CoreWatch\`)
-All writable user state is stored per-user so CoreWatch runs cleanly from `C:\Program Files\CoreWatch\`:
-- `settings.json`, `ui-settings.json`, `profiles.json`, `alerts.json`, `update-pins.json`, `backup-jobs.json`, `homelab-nodes.json`, `jira-config.json`
-- `secrets.dat.json` (Windows DPAPI `CurrentUser`-encrypted tokens — never plaintext)
-- `snapshots\*.json`, `custom-bg.<ext>` (cached local wallpaper served via `https://corewatch-local.assets`), and `WebView2UserData\`
-
----
-
-## Notes for Beta Testers & Rust Rewrite Planning
-- **Administrator Privileges**: Standard-user mode works for monitoring, display controls, and diagnostics; running as Administrator unlocks full hardware sensors (`LibreHardwareMonitorLib` + PawnIO), Firewall/Defender toggles, Restore Point creation, service/device controls, and Program Files app moves.
-- **DevTools in Built Releases**: Disabled by default (`-Release`); launch `CoreWatch.exe -DevTools` to inspect WebView2 DevTools.
-- **Rust Rewrite**: Architecture specs, Win32/WNF/CCD/CloudStore/DPAPI references, and an active Tauri v2 prototype live under [`RUST-rewrite/`](RUST-rewrite/) and [`RUST-rewrite/docs/`](RUST-rewrite/docs/).
+## Runtime User Data
+- **RustCoreWatch**: `%LOCALAPPDATA%\com.corewatch.rust.dashboard\` (preferences, wallpaper, DPAPI-encrypted Jira credentials, alerts, profiles, snapshots, RGB config). Supports 1-click **Import from PowerShell version** inside Settings.
+- **Legacy PowerShell Edition**: `%LOCALAPPDATA%\CoreWatch\` — see [`legacy-powershell/README.md`](legacy-powershell/README.md) for legacy build and maintenance instructions.

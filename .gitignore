@@ -1,8 +1,20 @@
+# RustCoreWatch build & generated outputs
+/target/
+/gen/
+/.original-hashes.csv
+/RUST-rewrite/target/
+
+# Local runtime dependencies & staging outputs
 AI.notes/
 bin/
 tools/
 dist/
 testBuild/
-build/CoreWatch.ico
-build/CoreWatch.manifest
-build/CoreWatch.iss
+
+# Legacy PowerShell edition local build & runtime artifacts
+legacy-powershell/bin/
+legacy-powershell/dist/
+legacy-powershell/testBuild/
+legacy-powershell/build/CoreWatch.ico
+legacy-powershell/build/CoreWatch.manifest
+legacy-powershell/build/CoreWatch.iss
