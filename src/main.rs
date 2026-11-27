@@ -273,16 +273,24 @@ impl Dashboard {
         }
     }
 
-    fn set_paused(&self, paused: bool) {
+    fn set_paused(&self, paused: bool, background_watchdog: bool) {
         let mut state = lock_or_recover(&self.schedule.0);
         if state.paused != paused {
             state.paused = paused;
-            self.sensors.pause(state.paused);
+            self.sensors
+                .pause(state.paused || (state.minimized && !background_watchdog));
             if !paused {
                 state.requested += 1;
             }
             self.schedule.1.notify_all();
         }
+    }
+
+    pub fn sync_watchdog(&self, background_watchdog: bool) {
+        let state = lock_or_recover(&self.schedule.0);
+        self.sensors
+            .pause(state.paused || (state.minimized && !background_watchdog));
+        self.schedule.1.notify_all();
     }
 
     fn is_paused(&self) -> bool {
@@ -400,8 +408,15 @@ fn snapshot(
 }
 
 #[tauri::command]
-fn set_telemetry_paused(state: State<'_, Arc<Dashboard>>, paused: bool) -> bool {
-    state.set_paused(paused);
+fn set_telemetry_paused(
+    state: State<'_, Arc<Dashboard>>,
+    alerts: State<'_, Arc<smart_alerts::AlertsEngine>>,
+    rgb: State<'_, Arc<rgb_studio::RgbEngine>>,
+    paused: bool,
+) -> bool {
+    let bg_active = !state.smoke_test
+        && (alerts.has_enabled_rules() || rgb.needs_thermal_telemetry());
+    state.set_paused(paused, bg_active);
     state.is_paused()
 }
 
@@ -527,8 +542,27 @@ async fn settings_action(
         match action {
             SettingsAction::Catalog => {
                 let catalog: serde_json::Value = serde_json::from_str(include_str!("../docs/modules-catalog.json")).map_err(json)?;
-                let smoke_disk_root = smoke.then(|| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("ui"));
-                Ok(serde_json::json!({ "modules": catalog["modules"], "version": env!("CARGO_PKG_VERSION"), "smoke": smoke, "smokeDiskRoot": smoke_disk_root }))
+                let smoke_disk_root = smoke.then(resolve_smoke_disk_root);
+                let installed_modules = if smoke {
+                    preferences::INSTALLED_MODULES
+                        .iter()
+                        .map(|&id| id.to_owned())
+                        .collect::<Vec<_>>()
+                } else {
+                    read_installed_modules_manifest().unwrap_or_else(|| {
+                        preferences::INSTALLED_MODULES
+                            .iter()
+                            .map(|&id| id.to_owned())
+                            .collect()
+                    })
+                };
+                Ok(serde_json::json!({
+                    "modules": catalog["modules"],
+                    "installedModules": installed_modules,
+                    "version": env!("CARGO_PKG_VERSION"),
+                    "smoke": smoke,
+                    "smokeDiskRoot": smoke_disk_root
+                }))
             }
             SettingsAction::Startup if smoke => Ok(serde_json::json!({ "enabled": store.state().settings.general.start_with_windows, "detail": "Smoke test" })),
             SettingsAction::Startup => serde_json::to_value(app_settings::startup()?).map_err(json),
@@ -1699,9 +1733,211 @@ unsafe extern "system" {
 
 #[link(name = "user32")]
 unsafe extern "system" {
-    fn FindWindowW(class_name: *const u16, window_name: *const u16) -> *mut core::ffi::c_void;
+    fn EnumWindows(
+        enum_func: unsafe extern "system" fn(*mut core::ffi::c_void, isize) -> i32,
+        lparam: isize,
+    ) -> i32;
+    fn GetWindowTextW(hwnd: *mut core::ffi::c_void, text: *mut u16, max_count: i32) -> i32;
+    fn GetClassNameW(hwnd: *mut core::ffi::c_void, class_name: *mut u16, max_count: i32) -> i32;
+    fn GetWindowThreadProcessId(hwnd: *mut core::ffi::c_void, process_id: *mut u32) -> u32;
     fn ShowWindow(hwnd: *mut core::ffi::c_void, cmd_show: i32) -> i32;
     fn SetForegroundWindow(hwnd: *mut core::ffi::c_void) -> i32;
+}
+
+unsafe extern "system" fn focus_existing_enum(
+    hwnd: *mut core::ffi::c_void,
+    lparam: isize,
+) -> i32 {
+    const SW_SHOW: i32 = 5;
+    const SW_RESTORE: i32 = 9;
+    let mut title_buf = [0u16; 128];
+    let title_len = unsafe { GetWindowTextW(hwnd, title_buf.as_mut_ptr(), title_buf.len() as i32) };
+    if title_len <= 0 {
+        return 1;
+    }
+    let title = String::from_utf16_lossy(&title_buf[..title_len as usize]);
+    if title != "RustCoreWatch" {
+        return 1;
+    }
+    let mut class_buf = [0u16; 128];
+    let class_len = unsafe { GetClassNameW(hwnd, class_buf.as_mut_ptr(), class_buf.len() as i32) };
+    let class = if class_len > 0 {
+        String::from_utf16_lossy(&class_buf[..class_len as usize])
+    } else {
+        String::new()
+    };
+    // Never hijack File Explorer folders or unrelated browser tabs titled "RustCoreWatch".
+    if class.eq_ignore_ascii_case("CabinetWClass")
+        || class.eq_ignore_ascii_case("ExploreWClass")
+        || class.starts_with("Chrome_WidgetWin")
+    {
+        return 1;
+    }
+    let mut pid = 0u32;
+    unsafe {
+        GetWindowThreadProcessId(hwnd, &mut pid);
+    }
+    if pid == 0 || pid == std::process::id() {
+        return 1;
+    }
+    // Verify process executable name when accessible; if ACCESS_DENIED (existing instance elevated),
+    // accept Tauri/Tao window classes.
+    let mut verified = class == "Window Class" || class.starts_with("WRY") || class.starts_with("Tao");
+    unsafe {
+        use windows_sys::Win32::{
+            Foundation::CloseHandle,
+            System::Threading::{
+                OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
+            },
+        };
+        let proc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if !proc.is_null() {
+            let mut path_buf = [0u16; 520];
+            let mut len = path_buf.len() as u32;
+            if QueryFullProcessImageNameW(proc, 0, path_buf.as_mut_ptr(), &mut len) != 0 {
+                let exe = String::from_utf16_lossy(&path_buf[..len as usize]);
+                verified = exe.to_ascii_lowercase().ends_with("rustcorewatch.exe");
+            }
+            CloseHandle(proc);
+        }
+    }
+    if !verified {
+        return 1;
+    }
+    unsafe {
+        ShowWindow(hwnd, SW_SHOW);
+        ShowWindow(hwnd, SW_RESTORE);
+        SetForegroundWindow(hwnd);
+        if lparam != 0 {
+            *(lparam as *mut bool) = true;
+        }
+    }
+    0
+}
+
+fn focus_existing_window() {
+    let mut found = false;
+    unsafe {
+        let _ = EnumWindows(focus_existing_enum, (&raw mut found) as isize);
+    }
+}
+
+fn resolve_smoke_disk_root() -> std::path::PathBuf {
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(dir) = exe.parent()
+    {
+        let beside = dir.join("ui");
+        if beside.is_dir() {
+            return beside;
+        }
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        let ui = cwd.join("ui");
+        if ui.is_dir() {
+            return ui;
+        }
+    }
+    #[cfg(any(debug_assertions, test))]
+    {
+        let manifest_ui = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("ui");
+        if manifest_ui.is_dir() {
+            return manifest_ui;
+        }
+    }
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(std::path::Path::to_path_buf))
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct InstallManifest {
+    #[serde(default)]
+    installed_modules: Vec<String>,
+}
+
+fn read_installed_modules_manifest() -> Option<Vec<String>> {
+    let exe = std::env::current_exe().ok()?;
+    let path = exe.parent()?.join("installed-modules.json");
+    let raw = std::fs::read_to_string(path).ok()?;
+    let manifest: InstallManifest = serde_json::from_str(&raw).ok()?;
+    let valid: Vec<String> = manifest
+        .installed_modules
+        .into_iter()
+        .filter(|id| preferences::INSTALLED_MODULES.contains(&id.as_str()))
+        .collect();
+    Some(valid)
+}
+
+fn default_app_data_dir() -> Option<std::path::PathBuf> {
+    std::env::var_os("LOCALAPPDATA")
+        .map(|root| std::path::PathBuf::from(root).join("com.corewatch.rust.dashboard"))
+}
+
+/// Headless CLI entry point invoked by the modular installer at the end of setup:
+/// `RustCoreWatch.exe --configure-install [--apply-manifest | --enabled=id1,id2] [--startup=true|false] [--low-memory=true|false] [--data-dir=PATH]`
+fn run_configure_install(args: &[String]) -> Result<(), String> {
+    let mut data_dir = default_app_data_dir();
+    let mut apply_manifest = false;
+    let mut enabled_override: Option<Vec<String>> = None;
+    let mut startup: Option<bool> = None;
+    let mut low_memory: Option<bool> = None;
+
+    for arg in args {
+        if arg == "--apply-manifest" {
+            apply_manifest = true;
+        } else if let Some(val) = arg.strip_prefix("--enabled=") {
+            let list: Vec<String> = val
+                .split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned)
+                .collect();
+            enabled_override = Some(list);
+        } else if let Some(val) = arg.strip_prefix("--startup=") {
+            startup = Some(matches!(val.to_ascii_lowercase().as_str(), "1" | "true" | "yes"));
+        } else if let Some(val) = arg.strip_prefix("--low-memory=") {
+            low_memory = Some(matches!(val.to_ascii_lowercase().as_str(), "1" | "true" | "yes"));
+        } else if let Some(val) = arg.strip_prefix("--data-dir=")
+            && !val.trim().is_empty()
+        {
+            data_dir = Some(std::path::PathBuf::from(val.trim()));
+        }
+    }
+
+    let dir = data_dir.ok_or("Could not resolve %LOCALAPPDATA% for RustCoreWatch preferences.")?;
+    let store = preferences::Store::open(Some(dir), None);
+    let mut changes = preferences::Changes::default();
+
+    let enabled_list = if let Some(list) = enabled_override {
+        Some(list)
+    } else if apply_manifest {
+        read_installed_modules_manifest()
+    } else {
+        None
+    };
+
+    if let Some(enabled) = enabled_list {
+        let disabled: Vec<String> = preferences::INSTALLED_MODULES
+            .iter()
+            .filter(|&&id| !enabled.iter().any(|e| e.eq_ignore_ascii_case(id)))
+            .map(|&id| id.to_owned())
+            .collect();
+        changes.modules = Some(preferences::Modules { disabled });
+    }
+    if let Some(flag) = low_memory {
+        changes.low_memory_mode = Some(flag);
+    }
+    if let Some(flag) = startup {
+        changes.start_with_windows = Some(flag);
+        app_settings::set_startup(flag)?;
+    }
+
+    store
+        .update(changes, |_| ())
+        .map_err(|e| format!("Failed saving install configuration: {e}"))?;
+    Ok(())
 }
 
 fn attach_parent_console_for_cli() {
@@ -1728,38 +1964,32 @@ impl Drop for SingleInstanceGuard {
     }
 }
 
-fn acquire_single_instance(elevated_handoff: bool) -> Option<SingleInstanceGuard> {
+fn acquire_single_instance(handoff: bool) -> Option<SingleInstanceGuard> {
+    const ERROR_ACCESS_DENIED: i32 = 5;
     const ERROR_ALREADY_EXISTS: i32 = 183;
-    const SW_SHOW: i32 = 5;
-    const SW_RESTORE: i32 = 9;
     let name = native::wide("Local\\RustCoreWatch_SingleInstance_v1");
-    let attempts = if elevated_handoff { 20 } else { 1 };
+    let attempts = if handoff { 50 } else { 1 };
     for attempt in 0..attempts {
         unsafe {
             let handle = CreateMutexW(std::ptr::null(), 0, name.as_ptr());
-            if handle.is_null() {
-                return Some(SingleInstanceGuard(std::ptr::null_mut()));
-            }
             let err = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
-            if err != ERROR_ALREADY_EXISTS {
+            if handle.is_null() {
+                if err != ERROR_ACCESS_DENIED {
+                    return Some(SingleInstanceGuard(std::ptr::null_mut()));
+                }
+                // Existing instance is running elevated (Admin) — wait if handing off, else focus it.
+            } else if err != ERROR_ALREADY_EXISTS {
                 return Some(SingleInstanceGuard(handle));
+            } else {
+                windows_sys::Win32::Foundation::CloseHandle(handle);
             }
-            windows_sys::Win32::Foundation::CloseHandle(handle);
         }
-        if elevated_handoff && attempt + 1 < attempts {
+        if handoff && attempt + 1 < attempts {
             thread::sleep(Duration::from_millis(100));
             continue;
         }
         // Another instance is already running — bring its window (even if hidden in tray) to the front.
-        let title = native::wide("RustCoreWatch");
-        unsafe {
-            let hwnd = FindWindowW(std::ptr::null(), title.as_ptr());
-            if !hwnd.is_null() {
-                ShowWindow(hwnd, SW_SHOW);
-                ShowWindow(hwnd, SW_RESTORE);
-                SetForegroundWindow(hwnd);
-            }
-        }
+        focus_existing_window();
         return None;
     }
     None
@@ -1812,10 +2042,19 @@ fn main() {
                 | "--rgb-probe"
                 | "--rgb-test"
                 | "--smoke-test"
+                | "--configure-install"
         )
     );
     if is_cli {
         attach_parent_console_for_cli();
+    }
+    if arg == Some("--configure-install") {
+        if let Err(error) = run_configure_install(&all_args[1..]) {
+            eprintln!("RustCoreWatch configure-install: {error}");
+            std::process::exit(1);
+        }
+        println!("RustCoreWatch install configuration applied.");
+        return;
     }
     if arg == Some("--snapshot") {
         print_snapshot();
@@ -2102,6 +2341,13 @@ fn main() {
             if narrow_smoke && let Some(window) = app.get_webview_window("main") {
                 window.set_size(tauri::LogicalSize::new(480.0, 720.0))?;
             }
+            let start_in_tray =
+                !state.smoke_test && !handoff && tray_ready && initial.general.start_minimized;
+            if start_in_tray {
+                let bg_active =
+                    alerts_engine.has_enabled_rules() || rgb_engine.needs_thermal_telemetry();
+                state.minimize(true, bg_active);
+            }
             if !state.smoke_test {
                 state.sensors.start();
             }
@@ -2127,11 +2373,7 @@ fn main() {
                 }
                 app_settings::set_opacity(&window, initial.opacity)
                     .map_err(std::io::Error::other)?;
-                if !state.smoke_test && tray_ready && initial.general.start_minimized {
-                    let bg_active =
-                        alerts_engine.has_enabled_rules() || rgb_engine.needs_thermal_telemetry();
-                    state.minimize(true, bg_active);
-                } else {
+                if !start_in_tray {
                     window.show()?;
                 }
             }

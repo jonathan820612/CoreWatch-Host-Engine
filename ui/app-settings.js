@@ -22,12 +22,18 @@ function createAppSettings(core, save, modulesChanged, status) {
         ["organizerDestRoot", "organizer", "File Organizer destination", "Default root directory for rule-based file sorting."],
         ["editorPath", "editor", "Code Editor executable", "Used by GitHub Manager and WSL to open repositories."]
     ];
-    const installed = new Set([
+    let installed = new Set([
         "netmanager", "tasksports", "diskmap", "diagx",
         "github", "jira", "wsl", "docker", "sshcerts", "homelab",
         "alerts", "updates", "snapshots", "backupsync", "battery", "security",
         "profiles", "startup", "sharing", "apps", "appstore", "devices", "organizer", "rgbstudio"
     ]);
+    function formatHeaderVersion(version) {
+        if (!version) return "v1.0 Beta";
+        const beta = version.match(/^(\d+\.\d+)(?:\.\d+)?-beta(?:\.(\d+))?/i);
+        if (beta) return beta[2] ? `v${beta[1]} Beta ${beta[2]}` : `v${beta[1]} Beta`;
+        return `v${version}`;
+    }
     const fontScales = {
         small:  { body: "0.88", header: "0.94" },
         normal: { body: "1",    header: "1" },
@@ -124,6 +130,7 @@ function createAppSettings(core, save, modulesChanged, status) {
     }
 
     for (const [key, caption, hint] of fieldNames) {
+        const container = element("div", "settings-check-row");
         const row = element("label", "settings-check");
         const input = element("input", "");
         input.type = "checkbox";
@@ -132,13 +139,12 @@ function createAppSettings(core, save, modulesChanged, status) {
         const wrap = element("span", "settings-check-wrap");
         wrap.append(element("span", "", caption), element("small", "settings-check-hint", hint));
         row.append(input, wrap);
+        container.append(row);
         const startup = key === "startWithWindows";
         const lowMem = key === "lowMemoryMode";
-        if (startup) row.append(badge);
+        if (startup) container.append(badge);
         if (lowMem) {
-            lowMemoryRestartBtn = action("Restart Now", async (ev) => {
-                ev.preventDefault();
-                ev.stopPropagation();
+            lowMemoryRestartBtn = action("Restart Now", async () => {
                 lowMemoryRestartBtn.disabled = true;
                 try {
                     await pending;
@@ -150,7 +156,7 @@ function createAppSettings(core, save, modulesChanged, status) {
             });
             lowMemoryRestartBtn.hidden = true;
             lowMemoryRestartBtn.title = "Restart RustCoreWatch now to apply Low-Memory Mode";
-            row.append(lowMemoryRestartBtn);
+            container.append(lowMemoryRestartBtn);
         }
         input.addEventListener("change", async () => {
             const checked = input.checked;
@@ -176,7 +182,7 @@ function createAppSettings(core, save, modulesChanged, status) {
             }
         });
         generalInputs.set(key, { input, badge });
-        byId("settings-general-fields").append(row);
+        byId("settings-general-fields").append(container);
     }
 
     for (const [key, location, caption, hint] of paths) {
@@ -217,14 +223,17 @@ function createAppSettings(core, save, modulesChanged, status) {
         show("settings-update-status", "Checking GitHub releases…");
         try {
             const result = await invoke({ kind: "check_updates" });
-            const release = result.rust_release;
-            const versions = [release, result.current].map((value) => value?.match(/\d+\.\d+\.\d+/)?.[0].split(".").map(Number));
-            const [remote, current] = versions;
-            const difference = remote && current ? remote[0] - current[0] || remote[1] - current[1] || remote[2] - current[2] : 0;
-            const message = release ? difference > 0 ? `Rust update available: ${release}.` : `Latest Rust package: ${release}.`
-                : result.latest ? `Latest CoreWatch release: ${result.latest}. A Rust package is not published in the release feed.` : "No CoreWatch releases found.";
+            const release = result.rustRelease ?? result.rust_release;
+            const updateAvailable = Boolean(result.updateAvailable);
+            const message = release
+                ? updateAvailable
+                    ? `RustCoreWatch update available: ${release} (installed: v${result.current}).`
+                    : `Up to date — installed v${result.current} · latest Rust release: ${release}.`
+                : result.latest
+                    ? `Installed v${result.current} · no newer RustCoreWatch package published yet (latest tag: ${result.latest}).`
+                    : "No CoreWatch releases found.";
             show("settings-update-status", message);
-            if (!interactive && difference > 0) log(message);
+            if (!interactive && updateAvailable) log(message);
         } catch (error) { show("settings-update-status", String(error)); }
         finally { button.disabled = false; }
     }
@@ -236,10 +245,11 @@ function createAppSettings(core, save, modulesChanged, status) {
 
     const modSearch = byId("settings-modules-search");
     modSearch?.addEventListener("input", () => filterModules());
-    byId("settings-modules-enable-all")?.addEventListener("click", () => {
+    byId("settings-modules-enable-all")?.addEventListener("click", async () => {
         if (!settings?.modules.disabled.length) return;
-        void change(() => ({ modules: { disabled: [] } }));
-        window.showToast?.("All 24 modules enabled", "ok");
+        await change(() => ({ modules: { disabled: [] } }));
+        const total = catalog?.modules?.length ?? installed.size;
+        window.showToast?.(`All ${total} modules enabled`, "ok");
     });
 
     function filterModules() {
@@ -259,6 +269,7 @@ function createAppSettings(core, save, modulesChanged, status) {
 
     function renderModules() {
         if (!catalog || !settings) return;
+        const focusedMod = document.activeElement?.dataset?.module || null;
         const disabled = settings.modules.disabled;
         const groups = new Map();
         for (const module of catalog.modules) {
@@ -272,35 +283,39 @@ function createAppSettings(core, save, modulesChanged, status) {
             header.dataset.group = groupName;
             nodes.push(header);
             for (const module of items) {
-                const ready = installed.has(module.id);
-                const enabled = ready && !disabled.includes(module.id);
+                const inManifest = installed.has(module.id);
+                const enabled = !disabled.includes(module.id);
                 const row = element("div", "settings-module-row");
                 row.dataset.group = groupName;
                 row.dataset.searchText = `${module.shortName} ${module.group} ${module.id}`.toLowerCase();
                 const name = element("div", "settings-module-name");
                 name.append(element("strong", "", `${module.icon} ${module.shortName}`), element("small", "", module.group));
-                const badge = element("span", "diag-pill " + (enabled ? "diag-ok" : ready ? "diag-warn" : "diag-neutral"), enabled ? "Installed" : ready ? "Hidden" : "Not Installed");
+                const badgeText = enabled ? "Installed" : inManifest ? "Hidden" : "Disabled (Setup)";
+                const badgeTone = enabled ? "diag-ok" : inManifest ? "diag-warn" : "diag-neutral";
+                const badge = element("span", "diag-pill " + badgeTone, badgeText);
                 row.append(name, badge);
-                if (ready) {
-                    const control = action(enabled ? "Hide" : "Show", (event) => {
-                        event.currentTarget.disabled = true;
-                        void change((settings) => ({
-                            modules: {
-                                disabled: enabled
-                                    ? [...new Set([...settings.modules.disabled, module.id])]
-                                    : settings.modules.disabled.filter((id) => id !== module.id)
-                            }
-                        }));
-                    });
-                    control.dataset.module = module.id;
-                    control.setAttribute("aria-label", `${enabled ? "Hide" : "Show"} ${module.shortName}`);
-                    row.append(control);
-                }
+                const control = action(enabled ? "Hide" : "Show", (event) => {
+                    event.currentTarget.disabled = true;
+                    void change((settings) => ({
+                        modules: {
+                            disabled: enabled
+                                ? [...new Set([...settings.modules.disabled, module.id])]
+                                : settings.modules.disabled.filter((id) => id !== module.id)
+                        }
+                    }));
+                });
+                control.dataset.module = module.id;
+                control.setAttribute("aria-label", `${enabled ? "Hide" : "Show"} ${module.shortName}`);
+                row.append(control);
                 nodes.push(row);
             }
         }
-        byId("settings-modules").replaceChildren(...nodes);
+        const container = byId("settings-modules");
+        container.replaceChildren(...nodes);
         filterModules();
+        if (focusedMod) {
+            container.querySelector(`[data-module="${CSS.escape(focusedMod)}"]`)?.focus({ preventScroll: true });
+        }
     }
 
     function apply(next) {
@@ -326,7 +341,17 @@ function createAppSettings(core, save, modulesChanged, status) {
     async function initialize() {
         try {
             catalog = await invoke({ kind: "catalog" });
-            byId("settings-version").textContent = `RustCoreWatch v${catalog.version} Beta · Native Rust + WebView2`;
+            if (Array.isArray(catalog.installedModules)) {
+                installed = new Set(catalog.installedModules);
+            } else if (Array.isArray(catalog.modules)) {
+                installed = new Set(catalog.modules.map((m) => m.id));
+            }
+            const hdrVer = byId("header-version");
+            if (hdrVer) hdrVer.textContent = formatHeaderVersion(catalog.version);
+            byId("settings-version").textContent = `RustCoreWatch v${catalog.version} · Native Rust + WebView2`;
+            if (modSearch && Array.isArray(catalog.modules)) {
+                modSearch.placeholder = `Filter ${catalog.modules.length} modules by name or group…`;
+            }
             renderModules();
             if (!updateStarted && !catalog.smoke && settings?.general.autoCheckCoreWatchUpdates) {
                 updateStarted = true;

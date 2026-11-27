@@ -172,10 +172,17 @@ mod nvml {
     }
 
     fn api() -> Option<&'static NvmlApi> {
+        use windows_sys::Win32::Foundation::FreeLibrary;
         NVML.get_or_init(|| unsafe {
-            let candidates = ["nvml.dll", r"C:\Windows\System32\nvml.dll"];
+            let mut candidates: Vec<String> = Vec::with_capacity(3);
+            if let Ok(sysdir) = crate::network::system_directory() {
+                candidates.push(sysdir.join("nvml.dll").to_string_lossy().into_owned());
+            }
+            candidates.push(r"C:\Windows\System32\nvml.dll".to_owned());
+            candidates.push("nvml.dll".to_owned());
+
             let mut module = std::ptr::null_mut();
-            for name in candidates {
+            for name in &candidates {
                 let wide = crate::native::wide(name);
                 module = LoadLibraryW(wide.as_ptr());
                 if !module.is_null() {
@@ -185,14 +192,24 @@ mod nvml {
             if module.is_null() {
                 return None;
             }
-            let init: FnInitV2 = sym(module, b"nvmlInit_v2\0")
-                .or_else(|| sym(module, b"nvmlInit\0"))?;
+            let init: Option<FnInitV2> =
+                sym(module, b"nvmlInit_v2\0").or_else(|| sym(module, b"nvmlInit\0"));
+            let Some(init) = init else {
+                FreeLibrary(module);
+                return None;
+            };
             if init() != 0 {
+                FreeLibrary(module);
                 return None;
             }
-            let get_handle: FnGetHandleByIndexV2 = sym(module, b"nvmlDeviceGetHandleByIndex_v2\0")
-                .or_else(|| sym(module, b"nvmlDeviceGetHandleByIndex\0"))?;
-            let get_temp: FnGetTemperature = sym(module, b"nvmlDeviceGetTemperature\0")?;
+            let get_handle: Option<FnGetHandleByIndexV2> =
+                sym(module, b"nvmlDeviceGetHandleByIndex_v2\0")
+                    .or_else(|| sym(module, b"nvmlDeviceGetHandleByIndex\0"));
+            let get_temp: Option<FnGetTemperature> = sym(module, b"nvmlDeviceGetTemperature\0");
+            let (Some(get_handle), Some(get_temp)) = (get_handle, get_temp) else {
+                FreeLibrary(module);
+                return None;
+            };
             let get_power: Option<FnGetPowerUsage> = sym(module, b"nvmlDeviceGetPowerUsage\0");
             let get_util: Option<FnGetUtilization> = sym(module, b"nvmlDeviceGetUtilizationRates\0");
             let get_memory: Option<FnGetMemoryInfo> = sym(module, b"nvmlDeviceGetMemoryInfo\0");
@@ -320,8 +337,9 @@ impl SensorBridge {
         // Standard User + native NVIDIA NVML: nvml.dll already reads GPU Temp/Power/Load/VRAM
         // in <1ms with zero background process (~50 MB RAM saved), while CPU package temperature
         // requires Administrator + PawnIO anyway. Skip spawning the .NET helper unless elevated
-        // or on non-NVIDIA hardware.
-        if !crate::native::elevated() && nvml_available() {
+        // or on non-NVIDIA hardware. Also skip spinning up a worker thread if the optional
+        // sensor helper was not installed.
+        if (!crate::native::elevated() && nvml_available()) || helper_path().is_none() {
             return;
         }
         let readings = self.clone();
@@ -590,17 +608,15 @@ fn pawn_io_status() -> &'static str {
     }
 }
 
-fn helper_path() -> Option<PathBuf> {
+fn helper_present(path: &Path) -> bool {
+    path.is_file() && path.with_file_name("LibreHardwareMonitorLib.dll").is_file()
+}
+
+fn helper_path_from_dir(root: &Path) -> Option<PathBuf> {
     let filename = "CoreWatchSensorHelper.exe";
-    let present = |path: &Path| {
-        path.is_file() && path.with_file_name("LibreHardwareMonitorLib.dll").is_file()
-    };
-    let mut candidates: Vec<PathBuf> = Vec::new();
-    if let Ok(executable) = std::env::current_exe()
-        && let Some(root) = executable.parent()
+    let mut candidates = vec![root.join("sensors").join(filename), root.join(filename)];
+    #[cfg(any(debug_assertions, test))]
     {
-        candidates.push(root.join("sensors").join(filename));
-        candidates.push(root.join(filename));
         candidates.push(root.join("bin").join("sensors").join(filename));
         if let Some(parent) = root.parent() {
             candidates.push(parent.join("bin").join("sensors").join(filename));
@@ -610,11 +626,30 @@ fn helper_path() -> Option<PathBuf> {
             }
         }
     }
-    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-    candidates.push(manifest.join("bin").join("sensors").join(filename));
-    candidates.push(manifest.join("legacy-powershell").join("bin").join(filename));
+    candidates.into_iter().find(|path| helper_present(path))
+}
 
-    candidates.into_iter().find(|path| present(path))
+fn helper_path() -> Option<PathBuf> {
+    if let Ok(executable) = std::env::current_exe()
+        && let Some(root) = executable.parent()
+        && let Some(found) = helper_path_from_dir(root)
+    {
+        return Some(found);
+    }
+    #[cfg(any(debug_assertions, test))]
+    {
+        let filename = "CoreWatchSensorHelper.exe";
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+        for candidate in [
+            manifest.join("bin").join("sensors").join(filename),
+            manifest.join("legacy-powershell").join("bin").join(filename),
+        ] {
+            if helper_present(&candidate) {
+                return Some(candidate);
+            }
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -623,10 +658,14 @@ mod tests {
 
     #[test]
     fn helper_discovery_finds_staged_sensor_helper() {
-        let found = helper_path();
-        assert!(
-            found.is_some(),
-            "Expected CoreWatchSensorHelper.exe + LibreHardwareMonitorLib.dll in bin/sensors or legacy-powershell/bin"
-        );
+        let dir = tempfile::tempdir().unwrap();
+        assert!(helper_path_from_dir(dir.path()).is_none());
+        let sensors = dir.path().join("sensors");
+        std::fs::create_dir_all(&sensors).unwrap();
+        std::fs::write(sensors.join("CoreWatchSensorHelper.exe"), b"stub").unwrap();
+        assert!(helper_path_from_dir(dir.path()).is_none());
+        std::fs::write(sensors.join("LibreHardwareMonitorLib.dll"), b"stub").unwrap();
+        let found = helper_path_from_dir(dir.path()).expect("find staged helper");
+        assert_eq!(found, sensors.join("CoreWatchSensorHelper.exe"));
     }
 }

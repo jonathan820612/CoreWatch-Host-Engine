@@ -245,9 +245,14 @@ function createDashboardLayout(save) {
             control.rowWidth.disabled = inDock;
             control.up.disabled = index === 0;
             control.down.disabled = index === layout.order.length - 1;
+            const collapseLabel = (collapsed ? "Expand " : "Collapse ") + card.dataset.cardTitle;
             control.collapse.textContent = collapsed ? "+" : "−";
             control.collapse.setAttribute("aria-expanded", String(!collapsed));
-            control.collapse.setAttribute("aria-label", (collapsed ? "Expand " : "Collapse ") + card.dataset.cardTitle);
+            control.collapse.setAttribute("aria-label", collapseLabel);
+            control.dockCollapse.textContent = collapsed ? "+" : "−";
+            control.dockCollapse.setAttribute("aria-expanded", String(!collapsed));
+            control.dockCollapse.setAttribute("aria-label", collapseLabel);
+            control.dockCollapse.title = collapseLabel;
             control.width.textContent = wide ? "½" : "↔";
             control.width.setAttribute("aria-label", (wide ? "Use half width for " : "Widen ") + card.dataset.cardTitle);
         }
@@ -398,7 +403,7 @@ function createDashboardLayout(save) {
         options.append(locationBar, up, down, rowWidth);
         row.append(element("strong", "", title), options);
         list.append(row);
-        controls.set(id, { row, placements, rowWidth, up, down, collapse, width });
+        controls.set(id, { row, placements, rowWidth, up, down, collapse, dockCollapse, width });
 
         const keys = new Set([...card.querySelectorAll("[data-metric-key]")].map((node) => node.dataset.metricKey));
         if (!keys.size) continue;

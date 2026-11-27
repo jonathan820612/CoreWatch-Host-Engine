@@ -240,12 +240,46 @@ fn parse_hive(tag: &str) -> Result<(winreg::HKEY, bool), String> {
     }
 }
 
+fn valid_reg_subkey(subkey: &str) -> bool {
+    matches!(subkey, RUN_PATH | RUN_ONCE_PATH | RUN_WOW_PATH)
+}
+
+fn valid_approved_subkey(subkey: &str) -> bool {
+    matches!(subkey, APPROVED_RUN | APPROVED_RUN32)
+}
+
+fn valid_startup_folder(folder: &str, needs_admin: bool) -> bool {
+    let expected = if needs_admin {
+        std::env::var_os("ProgramData")
+            .map(|p| PathBuf::from(p).join(r"Microsoft\Windows\Start Menu\Programs\Startup"))
+    } else {
+        std::env::var_os("APPDATA")
+            .map(|p| PathBuf::from(p).join(r"Microsoft\Windows\Start Menu\Programs\Startup"))
+    };
+    expected.is_some_and(|exp| {
+        exp.to_string_lossy()
+            .trim_end_matches(['\\', '/'])
+            .eq_ignore_ascii_case(folder.trim_end_matches(['\\', '/']))
+    })
+}
+
+fn valid_single_filename(name: &str) -> bool {
+    let mut comps = Path::new(name).components();
+    matches!(comps.next(), Some(std::path::Component::Normal(_))) && comps.next().is_none()
+}
+
 pub fn execute(action: StartupAction) -> Result<StartupList, String> {
     match action {
         StartupAction::Toggle { id, enabled } => {
             let parts: Vec<&str> = id.splitn(5, '|').collect();
             match parts.as_slice() {
-                ["reg", hive_tag, _subkey, approved_subkey, name] => {
+                ["reg", hive_tag, subkey, approved_subkey, name] => {
+                    if !valid_reg_subkey(subkey)
+                        || !valid_approved_subkey(approved_subkey)
+                        || name.trim().is_empty()
+                    {
+                        return Err("Invalid registry startup entry identifier.".into());
+                    }
                     let (hive, needs_admin) = parse_hive(hive_tag)?;
                     if needs_admin {
                         system_controls::require_admin()?;
@@ -260,8 +294,11 @@ pub fn execute(action: StartupAction) -> Result<StartupList, String> {
                     key.set_raw_value(name, &raw)
                         .map_err(|e| format!("Could not update startup state: {e}"))?;
                 }
-                ["folder", hive_tag, _folder, fname] => {
+                ["folder", hive_tag, folder, fname] => {
                     let (hive, needs_admin) = parse_hive(hive_tag)?;
+                    if !valid_startup_folder(folder, needs_admin) || !valid_single_filename(fname) {
+                        return Err("Invalid startup folder entry identifier.".into());
+                    }
                     if needs_admin {
                         system_controls::require_admin()?;
                     }
@@ -294,6 +331,12 @@ pub fn execute(action: StartupAction) -> Result<StartupList, String> {
             let parts: Vec<&str> = id.splitn(5, '|').collect();
             match parts.as_slice() {
                 ["reg", hive_tag, subkey, approved_subkey, name] => {
+                    if !valid_reg_subkey(subkey)
+                        || !valid_approved_subkey(approved_subkey)
+                        || name.trim().is_empty()
+                    {
+                        return Err("Invalid registry startup entry identifier.".into());
+                    }
                     let (hive, needs_admin) = parse_hive(hive_tag)?;
                     if needs_admin {
                         system_controls::require_admin()?;
@@ -311,6 +354,9 @@ pub fn execute(action: StartupAction) -> Result<StartupList, String> {
                 }
                 ["folder", hive_tag, folder, fname] => {
                     let (_, needs_admin) = parse_hive(hive_tag)?;
+                    if !valid_startup_folder(folder, needs_admin) || !valid_single_filename(fname) {
+                        return Err("Invalid startup folder entry identifier.".into());
+                    }
                     if needs_admin {
                         system_controls::require_admin()?;
                     }

@@ -488,7 +488,8 @@ function createDiagnosticsView(invoke) {
                     evictTimer = 0;
                     if (active || live || running) return;
                     report = null;
-                    selected = null;
+                    closeDetail();
+                    exportButton.disabled = true;
                     eventRows.replaceChildren();
                     invoke("diagnostics_clear").catch(() => {});
                 }, 30000);

@@ -1,4 +1,4 @@
-button:focus-visible, summary:focus-visible, select:focus-visible, input:focus-visible {
+button:focus-visible, summary:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
     outline: 2px solid var(--cw-accent-soft);
     outline-offset: 2px;
 }
@@ -176,6 +176,10 @@ html[data-card-blur="on"] #dashboard-dock { backdrop-filter: blur(10px); }
 .settings-general-fields, .settings-directories, .settings-modules { display: grid; gap: 7px; }
 .settings-path { display: grid; gap: 6px; }
 .settings-path input { box-sizing: border-box; width: 100%; }
+.settings-check-row { display: flex; align-items: flex-start; gap: 8px; justify-content: space-between; }
+.settings-check-row > .settings-check { flex: 1 1 auto; min-width: 0; }
+.settings-check-row > .diag-pill,
+.settings-check-row > button { flex-shrink: 0; margin-top: 1px; }
 .settings-check { display: flex; align-items: flex-start; gap: 6px; color: var(--cw-text-secondary); }
 .settings-check input { accent-color: var(--cw-accent); margin-top: 2px; }
 .settings-check .diag-pill { margin-left: auto; white-space: normal; }

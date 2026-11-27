@@ -431,7 +431,7 @@ fn send_windows_toast(title: &str, body: &str) {
          $xml = New-Object Windows.Data.Xml.Dom.XmlDocument; \
          $xml.LoadXml('<toast><visual><binding template=\"ToastGeneric\"><text>{t}</text><text>{b}</text></binding></visual></toast>'); \
          $toast = [Windows.UI.Notifications.ToastNotification]::new($xml); \
-         [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('CoreWatch').Show($toast)"
+         [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('com.corewatch.rust.dashboard').Show($toast)"
     );
     let _ = Command::new(ps)
         .args(["-NoProfile", "-NonInteractive", "-Command", &script])

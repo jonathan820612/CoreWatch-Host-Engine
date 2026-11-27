@@ -35,6 +35,8 @@ html[data-window-lock="all"] .app-header-deck { -webkit-app-region: no-drag; }
 #status.is-paused::before { background: #ecc94b; }
 #status.is-error { color: #fc8181; border-color: rgba(229, 62, 62, 0.55); }
 #status.is-error::before { background: #f56565; }
+html[data-color-scheme="light"] #status.is-paused { color: #b45309; border-color: rgba(180, 83, 9, 0.45); }
+html[data-color-scheme="light"] #status.is-error { color: #b91c1c; border-color: rgba(185, 28, 28, 0.45); }
 .track-fill { transition: width 0.25s ease, background-color 0.25s ease; }
 .track-fill.bar-warn { background-color: #d69e2e !important; }
 .track-fill.bar-crit { background-color: #e53e3e !important; }

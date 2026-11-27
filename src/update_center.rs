@@ -95,36 +95,70 @@ pub fn parse_winget_table(stdout: &str, ignored: &HashSet<String>) -> Vec<Winget
     else {
         return Vec::new();
     };
+    let header_offsets = sep_idx
+        .checked_sub(1)
+        .and_then(|idx| lines.get(idx))
+        .and_then(|hdr| detect_header_offsets(hdr));
+
     let mut upgrades = Vec::new();
     for line in lines.iter().skip(sep_idx + 1) {
         let trimmed = line.trim();
         if trimmed.is_empty()
+            || (trimmed.len() >= 10 && trimmed.chars().all(|c| c == '-'))
             || trimmed.ends_with("upgrades available.")
+            || trimmed.ends_with("upgrade available.")
             || trimmed.contains("package(s) have version numbers")
+            || trimmed.contains("package(s) have pins")
             || trimmed.starts_with("The following packages")
         {
             continue;
         }
-        let cols: Vec<&str> = split_columns(trimmed);
+        let cols: Vec<String> = split_columns(line, header_offsets.as_deref());
         if cols.len() >= 4 {
-            let id = cols[1].to_owned();
+            if cols[0].eq_ignore_ascii_case("Name") && cols[1].eq_ignore_ascii_case("Id") {
+                continue;
+            }
+            let id = cols[1].clone();
+            if !valid_winget_id(&id) {
+                continue;
+            }
             upgrades.push(WingetUpgrade {
-                name: cols[0].to_owned(),
+                name: cols[0].clone(),
                 ignored: ignored.contains(&id),
                 id,
-                version: cols[2].to_owned(),
-                available: cols[3].to_owned(),
-                source: cols.get(4).copied().unwrap_or("winget").to_owned(),
+                version: cols[2].clone(),
+                available: cols[3].clone(),
+                source: cols.get(4).cloned().unwrap_or_else(|| "winget".to_owned()),
             });
         }
     }
     upgrades
 }
 
-fn split_columns(line: &str) -> Vec<&str> {
+fn detect_header_offsets(header: &str) -> Option<Vec<usize>> {
+    let chars: Vec<char> = header.chars().collect();
+    let mut starts = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        while i < chars.len() && chars[i] == ' ' {
+            i += 1;
+        }
+        if i >= chars.len() {
+            break;
+        }
+        starts.push(i);
+        while i < chars.len() && chars[i] != ' ' {
+            i += 1;
+        }
+    }
+    (starts.len() >= 4).then_some(starts)
+}
+
+fn split_columns(line: &str, offsets: Option<&[usize]>) -> Vec<String> {
+    let trimmed = line.trim();
     let mut out = Vec::new();
+    let bytes = trimmed.as_bytes();
     let mut start = 0usize;
-    let bytes = line.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b' ' {
@@ -133,9 +167,9 @@ fn split_columns(line: &str) -> Vec<&str> {
                 j += 1;
             }
             if j - i >= 2 {
-                let piece = line[start..i].trim();
+                let piece = trimmed[start..i].trim();
                 if !piece.is_empty() {
-                    out.push(piece);
+                    out.push(piece.to_owned());
                 }
                 start = j;
             }
@@ -144,9 +178,33 @@ fn split_columns(line: &str) -> Vec<&str> {
             i += 1;
         }
     }
-    let tail = line[start..].trim();
+    let tail = trimmed[start..].trim();
     if !tail.is_empty() {
-        out.push(tail);
+        out.push(tail.to_owned());
+    }
+    let expected_cols = offsets.map_or(4, |c| c.len().max(4));
+    if out.len() >= expected_cols {
+        return out;
+    }
+    // Fallback when a truncated `…` Name (or Id) leaves only 1 space before the next column.
+    if let Some(cols) = offsets {
+        let chars: Vec<char> = line.chars().collect();
+        if chars.len() > cols[3] {
+            let mut sliced = Vec::with_capacity(cols.len());
+            for (idx, &begin) in cols.iter().enumerate() {
+                let end = cols.get(idx + 1).copied().unwrap_or(chars.len()).min(chars.len());
+                if begin < end {
+                    let s: String = chars[begin..end].iter().collect();
+                    let t = s.trim();
+                    if !t.is_empty() {
+                        sliced.push(t.to_owned());
+                    }
+                }
+            }
+            if sliced.len() >= 4 {
+                return sliced;
+            }
+        }
     }
     out
 }
@@ -169,8 +227,13 @@ pub fn scan(dir: Option<&Path>) -> UpdateScan {
                     let text = String::from_utf8_lossy(&out.stdout);
                     let list = parse_winget_table(&text, &ignored);
                     let err = if list.is_empty() && !out.status.success() {
-                        let e = String::from_utf8_lossy(&out.stderr).trim().to_owned();
-                        (!e.is_empty()).then_some(e)
+                        let stderr = String::from_utf8_lossy(&out.stderr).trim().to_owned();
+                        let fallback = if stderr.is_empty() {
+                            String::from_utf8_lossy(&out.stdout).trim().to_owned()
+                        } else {
+                            stderr
+                        };
+                        (!fallback.is_empty()).then_some(fallback)
                     } else {
                         None
                     };
@@ -296,14 +359,20 @@ mod tests {
 \x1b[0mGit                  Git.Git             2.45.0   2.47.1     winget
 Visual Studio Code   Microsoft.VSCode    1.92.0   1.96.2     winget
 2 upgrades available.
+
+The following packages have an upgrade available, but require explicit targeting for upgrade:
+Name                 Id                  Version  Available  Source
+-------------------------------------------------------------------
+Long Truncated Name… Foo.Bar.Pkg         1.0.0    1.1.0      winget
 ";
         let mut ignored = HashSet::new();
         ignored.insert("Git.Git".into());
         let rows = parse_winget_table(sample, &ignored);
-        assert_eq!(rows.len(), 2);
+        assert_eq!(rows.len(), 3);
         assert_eq!(rows[0].id, "Git.Git");
         assert!(rows[0].ignored);
         assert_eq!(rows[1].available, "1.96.2");
         assert!(!rows[1].ignored);
+        assert_eq!(rows[2].id, "Foo.Bar.Pkg");
     }
 }

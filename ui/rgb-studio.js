@@ -501,11 +501,20 @@ function createRgbStudio(invoke) {
         renderDevices(cfg);
     }
 
+    let tempUnit = "C";
+    let moduleEnabled = true;
+
+    function formatThermalValue(celsius) {
+        if (celsius == null) return "—";
+        if (tempUnit === "F") return `${Math.round((celsius * 9) / 5 + 32)}°F`;
+        return `${Math.round(celsius)}°C`;
+    }
+
     function updateThermalReadout(cpuTemp, gpuTemp) {
         const tempReadout = byId("rgb-thermal-readout");
         if (!tempReadout) return;
-        const cpu = cpuTemp != null ? `CPU ${Math.round(cpuTemp)}°C` : "CPU —";
-        const gpu = gpuTemp != null ? `GPU ${Math.round(gpuTemp)}°C` : "GPU —";
+        const cpu = `CPU ${formatThermalValue(cpuTemp)}`;
+        const gpu = `GPU ${formatThermalValue(gpuTemp)}`;
         tempReadout.textContent = `${cpu} · ${gpu}`;
     }
 
@@ -598,11 +607,12 @@ function createRgbStudio(invoke) {
 
     // Live-follow Theme Studio accent whenever ThemeSync effect is active (coalesced)
     window.addEventListener("cw-theme-changed", (ev) => {
+        if (!moduleEnabled) return;
         const accent = ev.detail?.accent;
         if (!/^#[0-9a-f]{6}$/i.test(accent)) return;
         if (!loaded) {
             void refreshState(true).then(() => {
-                if (state?.config?.effect === "theme_sync") {
+                if (moduleEnabled && state?.config?.effect === "theme_sync") {
                     void run({ kind: "sync_theme_accent", accent_hex: accent }, true, true);
                 }
             });
@@ -619,6 +629,13 @@ function createRgbStudio(invoke) {
                 await refreshProfileModes();
                 await refreshState();
             }
+        },
+        setEnabled(enabled) {
+            moduleEnabled = Boolean(enabled);
+        },
+        setTemperatureUnit(unit) {
+            tempUnit = unit === "F" ? "F" : "C";
+            if (state) updateThermalReadout(state.liveCpuTemp, state.liveGpuTemp);
         },
         blackout: () => run({ kind: "blackout" }),
         applyPreset: (id) => run({ kind: "apply_preset", id }),

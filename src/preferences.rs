@@ -409,7 +409,8 @@ impl Default for Directories {
         Self {
             projects_root: profile.join("Documents").to_string_lossy().into_owned(),
             exports_root: profile
-                .join("Documents/CoreWatch Exports")
+                .join("Documents")
+                .join("CoreWatch Exports")
                 .to_string_lossy()
                 .into_owned(),
             wsl_install_root: r"C:\WSL".into(),
@@ -457,8 +458,9 @@ pub struct Changes {
     pub opacity: Option<u8>,
     pub general: Option<General>,
     pub start_with_windows: Option<bool>,
+    pub low_memory_mode: Option<bool>,
     directories: Option<Directories>,
-    modules: Option<Modules>,
+    pub modules: Option<Modules>,
     #[serde(skip)]
     pub diagnostic_mark: Option<(crate::event_log::Key, bool)>,
 }
@@ -491,6 +493,9 @@ impl Changes {
         }
         if let Some(enabled) = self.start_with_windows {
             settings.general.start_with_windows = enabled;
+        }
+        if let Some(low_mem) = self.low_memory_mode {
+            settings.general.low_memory_mode = low_mem;
         }
         if let Some(directories) = self.directories {
             settings.directories = directories;
@@ -606,7 +611,7 @@ impl Store {
     }
 
     pub fn state(&self) -> State {
-        let saved = self.saved.lock().unwrap();
+        let saved = self.saved.lock().unwrap_or_else(|e| e.into_inner());
         State {
             settings: saved.settings.clone(),
             initialized: saved.initialized,
@@ -617,7 +622,7 @@ impl Store {
     pub fn polling_profile(&self) -> PollingProfile {
         self.saved
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .settings
             .telemetry
             .polling_profile
@@ -632,7 +637,7 @@ impl Store {
         changes: Changes,
         apply: impl FnOnce(PollingProfile),
     ) -> io::Result<Settings> {
-        let mut saved = self.saved.lock().unwrap();
+        let mut saved = self.saved.lock().unwrap_or_else(|e| e.into_inner());
         let mut settings = saved.settings.clone();
         changes.apply(&mut settings);
         if let Some(path) = &self.directory
@@ -691,7 +696,7 @@ impl Store {
 
     pub fn set_wallpaper(&self, bytes: Vec<u8>) -> io::Result<u64> {
         let wallpaper = Wallpaper::parse(bytes)?;
-        let mut saved = self.saved.lock().unwrap();
+        let mut saved = self.saved.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(path) = &self.directory {
             write_atomic(path, WALLPAPER_FILE, &wallpaper.bytes)?;
             saved.memory_wallpaper = None;
@@ -704,7 +709,7 @@ impl Store {
     }
 
     pub fn remove_wallpaper(&self) -> io::Result<()> {
-        let mut saved = self.saved.lock().unwrap();
+        let mut saved = self.saved.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(path) = &self.directory {
             match fs::remove_file(path.join(WALLPAPER_FILE)) {
                 Ok(()) => {}
@@ -720,7 +725,7 @@ impl Store {
     pub fn serve_wallpaper(&self, request: &Request<Vec<u8>>) -> Response<Vec<u8>> {
         if request.method() == Method::GET && request.uri().path() == "/wallpaper" {
             let (mime, memory_bytes) = {
-                let saved = self.saved.lock().unwrap();
+                let saved = self.saved.lock().unwrap_or_else(|e| e.into_inner());
                 (saved.wallpaper_mime, saved.memory_wallpaper.clone())
             };
             if let Some(mime) = mime {

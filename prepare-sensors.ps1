@@ -5,6 +5,7 @@ $ErrorActionPreference = 'Stop'
 
 $candidates = @(
     (Join-Path $PSScriptRoot 'legacy-powershell\bin'),
+    (Join-Path $PSScriptRoot 'bin\sensors'),
     (Join-Path $PSScriptRoot 'bin')
 )
 $source = $candidates | Where-Object {
@@ -13,13 +14,17 @@ $source = $candidates | Where-Object {
 } | Select-Object -First 1
 
 if (-not $source) {
-    throw "CoreWatchSensorHelper.exe and LibreHardwareMonitorLib.dll were not found in legacy-powershell\bin or bin."
+    throw "CoreWatchSensorHelper.exe and LibreHardwareMonitorLib.dll were not found in legacy-powershell\bin, bin\sensors, or bin."
 }
 
 $destination = if ($Release) { Join-Path $PSScriptRoot 'target\release\sensors' }
                else { Join-Path $PSScriptRoot 'bin\sensors' }
 
 New-Item -ItemType Directory -Path $destination -Force | Out-Null
+if ([System.IO.Path]::GetFullPath($source).TrimEnd('\') -ieq [System.IO.Path]::GetFullPath($destination).TrimEnd('\')) {
+    Write-Output "Sensor helper already staged at $destination"
+    exit 0
+}
 Get-ChildItem -LiteralPath $source -File | Where-Object {
     $_.Name -in 'CoreWatchSensorHelper.exe', 'CoreWatchSensorHelper.exe.config' -or
     ($_.Extension -eq '.dll' -and $_.Name -notmatch 'WebView2')

@@ -3,6 +3,7 @@
 /gen/
 /.original-hashes.csv
 /RUST-rewrite/target/
+/build/wizard-*.png
 
 # Local runtime dependencies & staging outputs
 AI.notes/

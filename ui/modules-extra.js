@@ -1026,6 +1026,7 @@ function createExtraModules(invoke) {
                 lastGitHubData = null;
             } else if (viewName === "jira") {
                 jiraIssues = [];
+                renderJiraDetail(null);
                 byId("jira-rows")?.replaceChildren();
             } else if (viewName === "appstore") {
                 byId("appstore-search-rows")?.replaceChildren();

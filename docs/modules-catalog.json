@@ -1,15 +1,20 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "presets": [
     {
       "id": "full",
-      "name": "Full Installation — All 23 Tabs & Modules (Recommended)",
-      "description": "Installs CoreWatch Dashboard plus all 23 built-in feature modules across System, Ops & Guard, and Dev & Work."
+      "name": "Full Installation — All 24 Tabs & Modules (Recommended)",
+      "description": "Installs RustCoreWatch Dashboard plus all 24 built-in native Rust modules across Network, System, Ops & Guard, Dev & Work, and RGB Studio."
     },
     {
       "id": "essentials",
       "name": "Home & Essentials",
-      "description": "Dashboard, Tasks & Ports, UltimaDiagX, Smart Alerts, Update Center, Snapshots, Battery & Peripherals, Backup Sync, Security, Profiles, Startup, Apps, App Store, Disk Map, and Organizer."
+      "description": "Dashboard, Tasks & Ports, UltimaDiagX, Smart Alerts, Update Center, Snapshots, Battery & BT, Backup Sync, Security, Profiles, Startup, Apps, App Installer, Disk Map, Organizer, and RGB Studio."
+    },
+    {
+      "id": "gamer",
+      "name": "Gamer & RGB Enthusiast",
+      "description": "Dashboard, Network, Tasks & Ports, UltimaDiagX, RGB Studio, Profiles, Smart Alerts, Update Center, Startup Apps, and Disk Map."
     },
     {
       "id": "itpro",
@@ -19,7 +24,7 @@
     {
       "id": "developer",
       "name": "Developer Workstation",
-      "description": "Dashboard, Network, Tasks & Ports, UltimaDiagX, GitHub, Jira, WSL, Docker, SSH & Certs, Homelab, Smart Alerts, Update Center, Backup Sync, Profiles, Startup, Apps, App Store, and Disk Map."
+      "description": "Dashboard, Network, Tasks & Ports, UltimaDiagX, GitHub, Jira, WSL, Docker, SSH & Certs, Homelab, Smart Alerts, Update Center, Backup Sync, Profiles, Startup, Apps, App Installer, Disk Map, and RGB Studio."
     }
   ],
   "modules": [
@@ -30,14 +35,14 @@
       "icon": "📡",
       "group": "Network & Connectivity",
       "navSlot": "top",
-      "tabButtonId": "tabNetManager",
+      "tabButtonId": "tabNetwork",
       "panelId": "viewNetworkManagerPanel",
       "description": "Adapter IPv4/DHCP/DNS provisioning, Ping, Traceroute, Port Tester, Wi-Fi RSSI, and Routing Table.",
       "files": [
-        "modules\\tabs\\NetworkManager.ps1",
-        "modules\\tabs\\NetworkDiagnostics.ps1"
+        "src\\network.rs",
+        "src\\network_test.rs"
       ],
-      "installerTypes": ["full", "itpro", "developer"],
+      "installerTypes": ["full", "gamer", "itpro", "developer"],
       "defaultEnabled": true
     },
     {
@@ -51,9 +56,9 @@
       "panelId": "viewTasksPortsPanel",
       "description": "Live processes, Windows services health inspector, and open TCP/UDP listening sockets.",
       "files": [
-        "modules\\tabs\\TasksPortsManager.ps1"
+        "src\\tasks.rs"
       ],
-      "installerTypes": ["full", "essentials", "itpro", "developer"],
+      "installerTypes": ["full", "essentials", "gamer", "itpro", "developer"],
       "defaultEnabled": true
     },
     {
@@ -67,9 +72,10 @@
       "panelId": "viewUltimaDiagXPanel",
       "description": "Windows Event Logs, BSOD/crash dump analysis, error code translator, and diagnostic reports.",
       "files": [
-        "modules\\tabs\\UltimaDiagX.ps1"
+        "src\\diagnostics.rs",
+        "src\\event_log.rs"
       ],
-      "installerTypes": ["full", "essentials", "itpro", "developer"],
+      "installerTypes": ["full", "essentials", "gamer", "itpro", "developer"],
       "defaultEnabled": true
     },
     {
@@ -83,7 +89,7 @@
       "panelId": "viewGitHubPanel",
       "description": "Local Git workspace launcher (VS Code/Terminal), clone your GitHub repos or any URL, and manage GitHub Releases.",
       "files": [
-        "modules\\tabs\\GitHubManager.ps1"
+        "src\\github.rs"
       ],
       "installerTypes": ["full", "developer"],
       "defaultEnabled": true
@@ -99,7 +105,7 @@
       "panelId": "viewJiraPanel",
       "description": "Sign in to Jira Cloud or Data Center to view assigned tasks, transition workflows, comment, log time, and create issues.",
       "files": [
-        "modules\\tabs\\JiraManager.ps1"
+        "src\\jira.rs"
       ],
       "installerTypes": ["full", "developer"],
       "defaultEnabled": true
@@ -115,7 +121,7 @@
       "panelId": "viewWslManagerPanel",
       "description": "Windows Subsystem for Linux distros, online catalog, import/export, VHDX compaction, and .wslconfig.",
       "files": [
-        "modules\\tabs\\WslManager.ps1"
+        "src\\wsl.rs"
       ],
       "installerTypes": ["full", "developer"],
       "defaultEnabled": true
@@ -131,7 +137,7 @@
       "panelId": "viewDockerPanel",
       "description": "Manage Docker/Podman containers, live logs, image/volume prune, port cross-links, and local dev services.",
       "files": [
-        "modules\\tabs\\DockerServicesManager.ps1"
+        "src\\docker_services.rs"
       ],
       "installerTypes": ["full", "developer"],
       "defaultEnabled": true
@@ -147,7 +153,7 @@
       "panelId": "viewSshCertsPanel",
       "description": "Visual ~/.ssh/config launcher, SSH key manager & generator, and expiring Windows TLS/code-signing certificate auditor.",
       "files": [
-        "modules\\tabs\\SshCertsManager.ps1"
+        "src\\ssh_certs.rs"
       ],
       "installerTypes": ["full", "itpro", "developer"],
       "defaultEnabled": true
@@ -163,7 +169,7 @@
       "panelId": "viewHomelabPanel",
       "description": "Monitor secondary desktops, servers, or NAS devices via SSH, WinRM, or HTTP/ICMP probes from one dashboard.",
       "files": [
-        "modules\\tabs\\HomelabManager.ps1"
+        "src\\homelab.rs"
       ],
       "installerTypes": ["full", "itpro", "developer"],
       "defaultEnabled": true
@@ -179,9 +185,9 @@
       "panelId": "viewSmartAlertsPanel",
       "description": "User-defined thermal, storage, network, and service watchdog rules firing native Windows toast alerts and auto-actions.",
       "files": [
-        "modules\\tabs\\SmartAlertsManager.ps1"
+        "src\\smart_alerts.rs"
       ],
-      "installerTypes": ["full", "essentials", "itpro", "developer"],
+      "installerTypes": ["full", "essentials", "gamer", "itpro", "developer"],
       "defaultEnabled": true
     },
     {
@@ -195,9 +201,9 @@
       "panelId": "viewUpdateCenterPanel",
       "description": "Unified scan of WinGet upgrades, Windows Updates, PowerShell/runtimes, and CoreWatch self-updates with pin/ignore list.",
       "files": [
-        "modules\\tabs\\UpdateCenterManager.ps1"
+        "src\\update_center.rs"
       ],
-      "installerTypes": ["full", "essentials", "itpro", "developer"],
+      "installerTypes": ["full", "essentials", "gamer", "itpro", "developer"],
       "defaultEnabled": true
     },
     {
@@ -211,7 +217,7 @@
       "panelId": "viewSnapshotsPanel",
       "description": "Capture Restore Points + lightweight system state snapshots and diff Before vs. After (apps, startup, services, drivers, hosts, network).",
       "files": [
-        "modules\\tabs\\SnapshotsManager.ps1"
+        "src\\snapshots.rs"
       ],
       "installerTypes": ["full", "essentials", "itpro"],
       "defaultEnabled": true
@@ -227,7 +233,7 @@
       "panelId": "viewBackupSyncPanel",
       "description": "Scheduled robocopy incremental/mirror backups to USB or NAS shares with dry-run previews, ignore patterns, and run history.",
       "files": [
-        "modules\\tabs\\BackupSyncManager.ps1"
+        "src\\backup_sync.rs"
       ],
       "installerTypes": ["full", "essentials", "itpro", "developer"],
       "defaultEnabled": true
@@ -243,7 +249,7 @@
       "panelId": "viewBatteryPanel",
       "description": "Laptop battery design vs. actual capacity, cycle count, SleepStudy reports, and live Bluetooth peripheral battery levels.",
       "files": [
-        "modules\\tabs\\BatteryPeripheralsManager.ps1"
+        "src\\battery.rs"
       ],
       "installerTypes": ["full", "essentials"],
       "defaultEnabled": true
@@ -259,7 +265,7 @@
       "panelId": "viewSecurityRepairPanel",
       "description": "BitLocker, TPM, RDP, Hosts/Proxy/Env audit, DISM/SFC repairs, and 1-click IT Support ZIP.",
       "files": [
-        "modules\\tabs\\SecurityRepairManager.ps1"
+        "src\\security_repair.rs"
       ],
       "installerTypes": ["full", "essentials", "itpro"],
       "defaultEnabled": true
@@ -275,9 +281,9 @@
       "panelId": "viewProfilesPanel",
       "description": "One-click system modes (Work, Gaming, Streaming, Night & custom) controlling DnD, Power Plan, Keep Awake, Night Light & Display.",
       "files": [
-        "modules\\tabs\\ProfilesManager.ps1"
+        "src\\profiles.rs"
       ],
-      "installerTypes": ["full", "essentials", "itpro", "developer"],
+      "installerTypes": ["full", "essentials", "gamer", "itpro", "developer"],
       "defaultEnabled": true
     },
     {
@@ -291,9 +297,9 @@
       "panelId": "viewStartupPanel",
       "description": "Inspect, toggle, add, or remove Windows boot registry and Startup folder entries.",
       "files": [
-        "modules\\tabs\\StartupManager.ps1"
+        "src\\startup.rs"
       ],
-      "installerTypes": ["full", "essentials", "itpro", "developer"],
+      "installerTypes": ["full", "essentials", "gamer", "itpro", "developer"],
       "defaultEnabled": true
     },
     {
@@ -307,7 +313,7 @@
       "panelId": "viewSharingPanel",
       "description": "Manage Windows SMB network shares and folder permissions.",
       "files": [
-        "modules\\tabs\\SharingManager.ps1"
+        "src\\sharing.rs"
       ],
       "installerTypes": ["full", "itpro"],
       "defaultEnabled": true
@@ -323,7 +329,7 @@
       "panelId": "viewInstalledAppsPanel",
       "description": "Software inventory, folder size calculator, uninstall/modify controls, and cross-drive App Mover.",
       "files": [
-        "modules\\tabs\\InstalledAppsManager.ps1"
+        "src\\installed_apps.rs"
       ],
       "installerTypes": ["full", "essentials", "itpro", "developer"],
       "defaultEnabled": true
@@ -339,7 +345,7 @@
       "panelId": "viewAppInstallerPanel",
       "description": "Curated software catalog, WinGet search, batch installs, bulk upgrades, and direct app launching.",
       "files": [
-        "modules\\tabs\\AppInstallerManager.ps1"
+        "src\\app_installer.rs"
       ],
       "installerTypes": ["full", "essentials", "itpro", "developer"],
       "defaultEnabled": true
@@ -355,9 +361,9 @@
       "panelId": "viewDiskMapPanel",
       "description": "Multithreaded WizTree-style visual storage treemap, largest files, and extension breakdown.",
       "files": [
-        "modules\\tabs\\DiskMapper.ps1"
+        "src\\disk_map.rs"
       ],
-      "installerTypes": ["full", "essentials", "itpro", "developer"],
+      "installerTypes": ["full", "essentials", "gamer", "itpro", "developer"],
       "defaultEnabled": true
     },
     {
@@ -371,7 +377,7 @@
       "panelId": "viewSystemDevicesPanel",
       "description": "Hardware device tree, driver age/version inspector, enable/disable/restart, and official driver links.",
       "files": [
-        "modules\\tabs\\DeviceManager.ps1"
+        "src\\devices_tree.rs"
       ],
       "installerTypes": ["full", "itpro"],
       "defaultEnabled": true
@@ -387,7 +393,7 @@
       "panelId": "viewFileOrganizerPanel",
       "description": "Rule-based automated file sorting with dry-run preview and 1-click undo.",
       "files": [
-        "modules\\tabs\\FileOrganizer.ps1"
+        "src\\file_organizer.rs"
       ],
       "installerTypes": ["full", "essentials"],
       "defaultEnabled": true
@@ -403,9 +409,12 @@
       "panelId": "viewRgbStudioPanel",
       "description": "Standalone native RGB controller (USB HID · NVIDIA NVAPI · PawnIO SMBus · Win11 Dynamic Lighting) with Live Thermal Reactive, Theme Accent Sync, and System Profile presets.",
       "files": [
-        "src\\rgb_studio.rs"
+        "src\\rgb_studio.rs",
+        "src\\rgb_hid.rs",
+        "src\\rgb_nvapi.rs",
+        "src\\rgb_smbus.rs"
       ],
-      "installerTypes": ["full", "essentials", "developer"],
+      "installerTypes": ["full", "essentials", "gamer", "developer"],
       "defaultEnabled": true
     }
   ]

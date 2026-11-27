@@ -1066,16 +1066,16 @@ button.adapter-status-badge.status-off:hover {
     color: var(--cw-on-accent);
 }
 
-.diag-pill.clickable-pill {
+.diag-pill.clickable-pill:not(:disabled) {
     cursor: pointer;
     transition: filter 0.15s ease, transform 0.1s ease;
     -webkit-app-region: no-drag;
 }
-.diag-pill.clickable-pill:hover {
+.diag-pill.clickable-pill:not(:disabled):hover {
     filter: brightness(1.25);
     transform: translateY(-0.5px);
 }
-.diag-pill.clickable-pill:active {
+.diag-pill.clickable-pill:not(:disabled):active {
     transform: scale(0.95);
 }
 

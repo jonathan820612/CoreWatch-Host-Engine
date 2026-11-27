@@ -60,7 +60,7 @@ function wallpaperFade(theme) {
 
 let lastEmittedThemeAccent = null;
 
-function applyDashboardTheme(theme, wallpaperUrl) {
+function applyDashboardTheme(theme, wallpaperUrl, emitAccentEvent = true) {
     const style = document.documentElement.style;
     for (const [key] of dashboardColors) {
         const token = "--cw-" + key.replace(/[A-Z]/g, (letter) => "-" + letter.toLowerCase());
@@ -94,7 +94,7 @@ function applyDashboardTheme(theme, wallpaperUrl) {
     const isLight = relativeLuminance(rgb(theme.bgInset)) > 0.45;
     document.documentElement.style.colorScheme = isLight ? "light" : "dark";
     document.documentElement.dataset.colorScheme = isLight ? "light" : "dark";
-    if (theme.accent !== lastEmittedThemeAccent) {
+    if (emitAccentEvent && theme.accent !== lastEmittedThemeAccent) {
         lastEmittedThemeAccent = theme.accent;
         window.dispatchEvent(new CustomEvent("cw-theme-changed", { detail: { accent: theme.accent, presetId: theme.presetId } }));
     }
@@ -126,8 +126,8 @@ function createDashboardAppearance(core, save) {
         return core.convertFileSrc("wallpaper", "corewatch-wallpaper") + "?v=" + wallpaperVersion;
     }
 
-    function paint() {
-        applyDashboardTheme(draft, wallpaperUrl());
+    function paint(emitAccentEvent = true) {
+        applyDashboardTheme(draft, wallpaperUrl(), emitAccentEvent);
         for (const [key, [input, hex]] of colorInputs) {
             input.value = draft[key];
             if (document.activeElement !== hex) hex.value = draft[key].toUpperCase();
@@ -277,7 +277,7 @@ function createDashboardAppearance(core, save) {
 
     async function changeWallpaper(operation, isSelect = false) {
         imageBusy = true;
-        paint();
+        paint(false);
         try {
             const nextVersion = await operation();
             const changed = nextVersion !== wallpaperVersion;
@@ -291,7 +291,7 @@ function createDashboardAppearance(core, save) {
             status.textContent = String(error);
         } finally {
             imageBusy = false;
-            paint();
+            paint(false);
         }
     }
 
@@ -302,12 +302,12 @@ function createDashboardAppearance(core, save) {
         return null;
     }));
 
-    paint();
+    paint(false);
     return {
         setTheme,
         setWallpaperVersion(version) {
             wallpaperVersion = version;
-            paint();
+            paint(false);
         },
         applyPresetById(id) {
             const found = appearancePalettes.find(([pid]) => pid === id);

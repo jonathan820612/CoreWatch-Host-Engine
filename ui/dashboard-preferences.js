@@ -168,7 +168,7 @@ function createDashboardPreferences(core, nativeWindow, temperatureChanged, modu
     byId("import-dashboard-settings").addEventListener("click", async (event) => {
         const button = event.currentTarget;
         if (!await askDashboard("Import dashboard preferences",
-            "Apply the PowerShell version’s layout, colors, directories, and telemetry preferences to CoreWatch Rust?")) return;
+            "Apply the Legacy PowerShell Edition’s layout, colors, directories, and telemetry preferences to RustCoreWatch?")) return;
         button.disabled = true;
         try {
             apply(await enqueue(() => core.invoke("import_dashboard_preferences")));

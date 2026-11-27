@@ -298,7 +298,7 @@ pub fn http_request(
     max_bytes: usize,
 ) -> Result<HttpResponse, String> {
     let parsed = parse_url(url)?;
-    let agent = wide("RustCoreWatch/1.0");
+    let agent = wide(concat!("RustCoreWatch/", env!("CARGO_PKG_VERSION")));
     let host_w = wide(parsed.host);
     let method_w = wide(method);
     let path_w = wide(parsed.path);

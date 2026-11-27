@@ -172,7 +172,7 @@ pub fn scan_repos(projects_root: &str) -> GitHubState {
             let o = &out;
             s.spawn(move || {
                 loop {
-                    let next = q.lock().unwrap().pop();
+                    let next = q.lock().unwrap_or_else(|e| e.into_inner()).pop();
                     let Some(repo_dir) = next else { break };
                     let name = repo_dir
                         .file_name()
@@ -186,7 +186,7 @@ pub fn scan_repos(projects_root: &str) -> GitHubState {
                     } else {
                         (0, 0, 0, String::new())
                     };
-                    o.lock().unwrap().push(LocalRepo {
+                    o.lock().unwrap_or_else(|e| e.into_inner()).push(LocalRepo {
                         name,
                         path: repo_dir.to_string_lossy().into_owned(),
                         branch,
@@ -200,7 +200,7 @@ pub fn scan_repos(projects_root: &str) -> GitHubState {
             });
         }
     });
-    let mut repos: Vec<LocalRepo> = out.into_inner().unwrap();
+    let mut repos: Vec<LocalRepo> = out.into_inner().unwrap_or_else(|e| e.into_inner());
 
     repos.sort_by_key(|r| r.name.to_ascii_lowercase());
     GitHubState {

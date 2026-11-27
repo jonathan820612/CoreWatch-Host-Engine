@@ -912,13 +912,13 @@ fn scan_tree(path: PathBuf, cancel: &AtomicBool) -> Result<CachedTree, String> {
     let results: Mutex<Vec<SubtreeResult>> = Mutex::new(Vec::new());
 
     if workers <= 1 {
-        let items = queue.into_inner().unwrap();
+        let items = queue.into_inner().unwrap_or_else(|e| e.into_inner());
         let mut out = Vec::with_capacity(items.len());
         for dir in items {
             let child_path = join_display_path(&root_str, &dir.name);
             out.push(walk_subtree(dir.name, child_path, dir.modified_ms, &limits));
         }
-        *results.lock().unwrap() = out;
+        *results.lock().unwrap_or_else(|e| e.into_inner()) = out;
     } else {
         std::thread::scope(|s| {
             for _ in 0..workers {
@@ -928,11 +928,11 @@ fn scan_tree(path: PathBuf, cancel: &AtomicBool) -> Result<CachedTree, String> {
                 let root_ref = &root_str;
                 s.spawn(move || {
                     loop {
-                        let next = queue.lock().unwrap().pop();
+                        let next = queue.lock().unwrap_or_else(|e| e.into_inner()).pop();
                         let Some(dir) = next else { break };
                         let child_path = join_display_path(root_ref, &dir.name);
                         let sub = walk_subtree(dir.name, child_path, dir.modified_ms, limits);
-                        results.lock().unwrap().push(sub);
+                        results.lock().unwrap_or_else(|e| e.into_inner()).push(sub);
                     }
                 });
             }
@@ -962,7 +962,7 @@ fn scan_tree(path: PathBuf, cancel: &AtomicBool) -> Result<CachedTree, String> {
         nodes[0].children.push(idx as u32);
     }
 
-    for sub in results.into_inner().unwrap() {
+    for sub in results.into_inner().unwrap_or_else(|e| e.into_inner()) {
         inaccessible += sub.inaccessible;
         skipped_links += sub.skipped_links;
         if partial.is_none() && sub.partial.is_some() {

@@ -101,6 +101,7 @@ function createDiskMap(invoke) {
             const free = Math.max(0, v.total - v.used);
             const card = document.createElement("button");
             card.type = "button";
+            card.dataset.mount = v.mount;
             card.className = "disk-map-drive-card" + (root && root.toLowerCase().startsWith(v.mount.toLowerCase()) ? " active" : "");
             const top = element("div", "disk-map-drive-top");
             top.append(element("span", "", `${v.removable ? "🟢" : "💾"} ${v.mount.slice(0, 2)} ${v.label || "Local Disk"}`), element("span", "", `${pct}%`));
@@ -423,6 +424,10 @@ function createDiskMap(invoke) {
         }
         up.disabled = scanning || !result?.parent || result.root === root;
         home.disabled = scanning || !root || result?.root === root;
+        for (const card of drivesStrip?.querySelectorAll(".disk-map-drive-card") || []) {
+            const mount = card.dataset.mount || "";
+            card.classList.toggle("active", Boolean(root && mount && root.toLowerCase().startsWith(mount.toLowerCase())));
+        }
         if (!result) return;
 
         renderBreadcrumbs();
@@ -547,8 +552,8 @@ function createDiskMap(invoke) {
         const item = hit.item;
         const pct = result?.bytes > 0 ? ((item.bytes * 100) / result.bytes).toFixed(1) : "0.0";
         const bounds = map.getBoundingClientRect();
-        const tx = Math.min(bounds.width - 260, Math.max(8, ev.clientX - bounds.left + 14));
-        const ty = Math.min(bounds.height - 86, Math.max(8, ev.clientY - bounds.top + 14));
+        const tx = Math.max(8, Math.min(bounds.width - 260, ev.clientX - bounds.left + 14));
+        const ty = Math.max(8, Math.min(bounds.height - 96, ev.clientY - bounds.top + 14));
         tooltip.style.left = tx + "px";
         tooltip.style.top = ty + "px";
         tooltip.replaceChildren(
@@ -695,7 +700,18 @@ function createDiskMap(invoke) {
                     result = null;
                     root = null;
                     selectedItem = null;
+                    map.hidden = true;
+                    const table = byId("disk-map-table");
+                    if (table) table.hidden = true;
+                    if (selBar) selBar.hidden = true;
+                    byId("disk-map-stats")?.replaceChildren();
+                    breadcrumbs?.replaceChildren();
                     rows.replaceChildren();
+                    up.disabled = home.disabled = true;
+                    status.textContent = "Scan cache released while idle. Select a drive or click Scan to analyze.";
+                    for (const card of drivesStrip?.querySelectorAll(".disk-map-drive-card") || []) {
+                        card.classList.remove("active");
+                    }
                     invoke("disk_map_clear").catch(() => {});
                 }, 30000);
             }

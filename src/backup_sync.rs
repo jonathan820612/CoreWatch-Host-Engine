@@ -198,7 +198,7 @@ impl BackupManager {
                     decode_robocopy_exit(code)
                 );
                 let ts = now_ms();
-                let mut guard = self.state.lock().unwrap();
+                let mut guard = self.lock();
                 if let Some(j) = guard.jobs.iter_mut().find(|j| j.id == id) {
                     j.last_run_ms = Some(ts);
                     j.last_status = Some(summary.clone());

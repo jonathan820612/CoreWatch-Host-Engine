@@ -38,9 +38,17 @@ pub struct Startup {
     detail: &'static str,
 }
 
-fn launch_command() -> Result<String, String> {
-    let exe = std::env::current_exe().map_err(|error| error.to_string())?;
-    Ok(format!("\"{}\" --autostart", exe.display()))
+fn launch_command_for(exe: &Path) -> String {
+    format!("\"{}\" --autostart", exe.display())
+}
+
+fn extract_run_exe(value: &str) -> &str {
+    let trimmed = value.trim();
+    if let Some(rest) = trimmed.strip_prefix('"') {
+        rest.split('"').next().unwrap_or(rest)
+    } else {
+        trimmed.split_whitespace().next().unwrap_or(trimmed)
+    }
 }
 
 pub fn startup() -> Result<Startup, String> {
@@ -48,8 +56,12 @@ pub fn startup() -> Result<Startup, String> {
     let value = user
         .open_subkey(RUN)
         .and_then(|key| key.get_value::<String, _>(STARTUP_NAME));
+    let current_exe = std::env::current_exe()
+        .map_err(|error| error.to_string())?
+        .to_string_lossy()
+        .into_owned();
     match value {
-        Ok(value) if value.eq_ignore_ascii_case(&launch_command()?) => {
+        Ok(value) if extract_run_exe(&value).eq_ignore_ascii_case(&current_exe) => {
             let disabled = user
                 .open_subkey(APPROVED)
                 .and_then(|key| key.get_raw_value(STARTUP_NAME))
@@ -67,7 +79,7 @@ pub fn startup() -> Result<Startup, String> {
         }
         Ok(_) => Ok(Startup {
             enabled: false,
-            detail: "Startup entry points to a different Rust build",
+            detail: "Startup entry points to another installation",
         }),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Startup {
             enabled: false,
@@ -78,6 +90,11 @@ pub fn startup() -> Result<Startup, String> {
 }
 
 pub fn set_startup(enabled: bool) -> Result<(), String> {
+    let exe = std::env::current_exe().map_err(|error| error.to_string())?;
+    set_startup_for_exe(&exe, enabled)
+}
+
+pub fn set_startup_for_exe(exe: &Path, enabled: bool) -> Result<(), String> {
     let user = RegKey::predef(HKEY_CURRENT_USER);
     let (run, _) = user.create_subkey(RUN).map_err(|error| error.to_string())?;
     if enabled {
@@ -85,7 +102,7 @@ pub fn set_startup(enabled: bool) -> Result<(), String> {
             ignore_missing(approved.delete_value(STARTUP_NAME))
                 .map_err(|error| error.to_string())?;
         }
-        run.set_value(STARTUP_NAME, &launch_command()?)
+        run.set_value(STARTUP_NAME, &launch_command_for(exe))
             .map_err(|error| error.to_string())
     } else {
         ignore_missing(run.delete_value(STARTUP_NAME)).map_err(|error| error.to_string())
@@ -170,6 +187,13 @@ pub fn tray(app: &AppHandle) -> tauri::Result<()> {
                         if mode_id != "revert" {
                             rgb.on_profile_activated(&mode_id);
                         }
+                        let bg_active = handle
+                            .state::<std::sync::Arc<crate::smart_alerts::AlertsEngine>>()
+                            .has_enabled_rules()
+                            || rgb.needs_thermal_telemetry();
+                        handle
+                            .state::<std::sync::Arc<crate::Dashboard>>()
+                            .sync_watchdog(bg_active);
                         let _ = handle.emit_to("main", "profiles-changed", ());
                     }
                 });
@@ -251,10 +275,10 @@ pub fn detect_editor(editor: Editor) -> Option<PathBuf> {
     let (exe, local, system) = match editor {
         Editor::VsCode => (
             "Code.exe",
-            "Programs/Microsoft VS Code",
+            r"Programs\Microsoft VS Code",
             "Microsoft VS Code",
         ),
-        Editor::Cursor => ("Cursor.exe", "Programs/cursor", "Cursor"),
+        Editor::Cursor => ("Cursor.exe", r"Programs\cursor", "Cursor"),
     };
     let key = format!(r"Software\Microsoft\Windows\CurrentVersion\App Paths\{exe}");
     use winreg::enums::HKEY_LOCAL_MACHINE;
@@ -386,10 +410,76 @@ pub fn open_location(location: Location, directories: &Directories) -> Result<()
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ReleaseStatus {
-    current: &'static str,
-    latest: Option<String>,
-    rust_release: Option<String>,
+    pub current: &'static str,
+    pub latest: Option<String>,
+    pub rust_release: Option<String>,
+    pub update_available: bool,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct SemVer {
+    major: u64,
+    minor: u64,
+    patch: u64,
+    pre: Vec<String>,
+}
+
+fn parse_semver(raw: &str) -> Option<SemVer> {
+    let trimmed = raw.trim().trim_start_matches(['v', 'V']);
+    let without_build = trimmed.split('+').next().unwrap_or(trimmed);
+    let (core, pre_str) = match without_build.split_once('-') {
+        Some((c, p)) => (c, Some(p)),
+        None => (without_build, None),
+    };
+    let mut nums = core.split('.').map(|s| s.parse::<u64>().ok());
+    let major = nums.next()??;
+    let minor = nums.next().flatten().unwrap_or(0);
+    let patch = nums.next().flatten().unwrap_or(0);
+    let pre = pre_str
+        .map(|p| {
+            p.split('.')
+                .filter(|seg| !seg.is_empty())
+                .map(|seg| seg.to_ascii_lowercase())
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(SemVer {
+        major,
+        minor,
+        patch,
+        pre,
+    })
+}
+
+pub fn compare_semver(a: &str, b: &str) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    let (Some(va), Some(vb)) = (parse_semver(a), parse_semver(b)) else {
+        return Ordering::Equal;
+    };
+    match (va.major, va.minor, va.patch).cmp(&(vb.major, vb.minor, vb.patch)) {
+        Ordering::Equal => match (va.pre.is_empty(), vb.pre.is_empty()) {
+            (true, true) => Ordering::Equal,
+            (true, false) => Ordering::Greater, // 1.0.0 > 1.0.0-beta.1
+            (false, true) => Ordering::Less,
+            (false, false) => {
+                for (sa, sb) in va.pre.iter().zip(vb.pre.iter()) {
+                    let ord = match (sa.parse::<u64>(), sb.parse::<u64>()) {
+                        (Ok(na), Ok(nb)) => na.cmp(&nb),
+                        (Ok(_), Err(_)) => Ordering::Less,
+                        (Err(_), Ok(_)) => Ordering::Greater,
+                        (Err(_), Err(_)) => sa.cmp(sb),
+                    };
+                    if ord != Ordering::Equal {
+                        return ord;
+                    }
+                }
+                va.pre.len().cmp(&vb.pre.len())
+            }
+        },
+        other => other,
+    }
 }
 
 pub fn release_status() -> Result<ReleaseStatus, String> {
@@ -435,10 +525,15 @@ pub fn release_status() -> Result<ReleaseStatus, String> {
                 })
         })
         .map(|release| release.tag_name);
+    let current = env!("CARGO_PKG_VERSION");
+    let update_available = rust_release
+        .as_deref()
+        .is_some_and(|tag| compare_semver(tag, current) == std::cmp::Ordering::Greater);
     Ok(ReleaseStatus {
-        current: env!("CARGO_PKG_VERSION"),
+        current,
         latest,
         rust_release,
+        update_available,
     })
 }
 
@@ -486,4 +581,19 @@ pub fn set_opacity(window: &tauri::WebviewWindow, percent: u8) -> Result<(), Str
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cmp::Ordering;
+
+    #[test]
+    fn semver_orders_betas_and_stable_releases_accurately() {
+        assert_eq!(compare_semver("v1.0.0-beta.2", "1.0.0-beta.1"), Ordering::Greater);
+        assert_eq!(compare_semver("1.0.0", "1.0.0-beta.9"), Ordering::Greater);
+        assert_eq!(compare_semver("v1.0.0-beta.1", "v0.9.3"), Ordering::Greater);
+        assert_eq!(compare_semver("v1.0.0-beta.10", "v1.0.0-beta.2"), Ordering::Greater);
+        assert_eq!(compare_semver("v1.0.0-beta.1", "1.0.0-beta.1"), Ordering::Equal);
+    }
 }

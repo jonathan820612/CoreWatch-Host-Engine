@@ -31,6 +31,17 @@ Built in **native Rust**, **Tauri v2**, **WebView2**, and direct **Win32 / USB H
 - **Rust MSVC toolchain** (`rustup`) + **Visual Studio C++ Build Tools** (*Desktop development with C++*)
 - Optional: **PawnIO signed driver** (`winget install namazso.PawnIO`) for Ryzen/Intel CPU die temperatures and SMBus DRAM RGB control (requires Administrator)
 
+### Build Modular Beta Installer & Portable Package
+
+```powershell
+# Runs Clippy + unit tests + optimized Release build + stages optional CPU sensor helper,
+# renders high-DPI Light/Dark wizard artwork, and compiles:
+#   - dist\RustCoreWatch-1.0.0-beta.1-Setup.exe     (Modular Windows 11 Dark/Light Installer)
+#   - dist\RustCoreWatch-1.0.0-beta.1-Portable.zip  (Self-contained portable package)
+#   - dist\RustCoreWatch-1.0.0-beta.1-SHA256SUMS.txt
+.\build\Build-Beta.ps1
+```
+
 ### Build & Launch Optimized Release (`RustCoreWatch.exe`)
 
 ```powershell
@@ -43,6 +54,9 @@ cargo build --locked --release
 # 3. Launch RustCoreWatch (native GUI subsystem — zero console window)
 .\target\release\RustCoreWatch.exe
 ```
+
+> [!TIP]
+> **Low-Memory Mode** can be enabled in **Settings → General** (or during Setup) to disable Chromium's WebView2 GPU compositor process, cutting committed RAM by ~58% (~177 MB Private RAM vs. ~334 MB with GPU acceleration enabled).
 
 ### Development Build & Verification
 

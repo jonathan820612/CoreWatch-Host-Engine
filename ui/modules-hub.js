@@ -1106,7 +1106,7 @@ function createModulesHub(invoke, helpers) {
                                 const btn = element("button", "mod-port-link", seg);
                                 btn.type = "button";
                                 btn.title = "Inspect sockets in Tasks & Ports";
-                                btn.addEventListener("click", () => void window.cwApp?.selectView("tasksports"));
+                                btn.addEventListener("click", () => void window.cwApp?.openTaskSockets?.());
                                 portsTd.append(btn);
                             }
                         } else {
@@ -1351,6 +1351,14 @@ function createModulesHub(invoke, helpers) {
             (!hidePinned || !u.ignored)
             && (!q || u.name.toLowerCase().includes(q) || u.id.toLowerCase().includes(q))
         );
+        const selectAll = byId("updates-select-all");
+        if (selectAll) {
+            const selectable = filtered.filter((u) => !u.ignored);
+            const checkedCount = selectable.filter((u) => selectedUpgradeIds.has(u.id)).length;
+            selectAll.disabled = !selectable.length;
+            selectAll.checked = selectable.length > 0 && checkedCount === selectable.length;
+            selectAll.indeterminate = checkedCount > 0 && checkedCount < selectable.length;
+        }
         const tbody = byId("updates-rows");
         tbody.replaceChildren();
         if (!filtered.length) {
@@ -1368,6 +1376,7 @@ function createModulesHub(invoke, helpers) {
             cb.type = "checkbox";
             cb.disabled = u.ignored;
             cb.checked = !u.ignored && selectedUpgradeIds.has(u.id);
+            cb.setAttribute("aria-label", `Select ${u.name} for upgrade`);
             cb.addEventListener("change", () => {
                 if (cb.checked) selectedUpgradeIds.add(u.id);
                 else selectedUpgradeIds.delete(u.id);
@@ -1431,12 +1440,21 @@ function createModulesHub(invoke, helpers) {
                         : "Could not check PowerShell releases.")
                 );
                 const cwCard = element("div", "mod-card");
-                cwCard.append(
-                    element("strong", "", "🛡️ CoreWatch Releases"),
-                    element("div", "mod-card-sub", data.corewatch
-                        ? `Current Rust v${data.corewatch.current} · Latest GitHub: ${data.corewatch.latest || "—"}`
-                        : "Release status unavailable.")
-                );
+                const cw = data.corewatch;
+                const rustTag = cw?.rustRelease ?? cw?.rust_release;
+                const cwText = cw
+                    ? rustTag
+                        ? cw.updateAvailable
+                            ? `Update available: ${rustTag} (installed v${cw.current})`
+                            : `Up to date · v${cw.current} (latest Rust: ${rustTag})`
+                        : `Installed v${cw.current} · latest GitHub tag: ${cw.latest || "—"}`
+                    : "Release status unavailable.";
+                const cwHead = element("div", "mod-card-head");
+                const relBtn = actionButton("Open Releases", () => {
+                    invoke("settings_action", { action: { kind: "open_releases" } }).catch((e) => show("updates-status", String(e)));
+                });
+                cwHead.append(element("strong", "", "🛡️ RustCoreWatch Releases"), relBtn);
+                cwCard.append(cwHead, element("div", "mod-card-sub", cwText));
                 cards.append(psCard, cwCard);
 
                 renderUpdatesTable();
@@ -1451,8 +1469,12 @@ function createModulesHub(invoke, helpers) {
     byId("updates-select-all")?.addEventListener("change", (ev) => {
         if (!lastUpdateScan) return;
         const checked = ev.currentTarget.checked;
+        const q = (byId("updates-search")?.value || "").trim().toLowerCase();
+        const hidePinned = byId("updates-hide-pinned")?.checked ?? false;
         for (const u of lastUpdateScan.upgrades) {
             if (u.ignored) continue;
+            if (hidePinned && u.ignored) continue;
+            if (q && !u.name.toLowerCase().includes(q) && !u.id.toLowerCase().includes(q)) continue;
             if (checked) selectedUpgradeIds.add(u.id);
             else selectedUpgradeIds.delete(u.id);
         }
@@ -1467,7 +1489,14 @@ function createModulesHub(invoke, helpers) {
             selectedUpgradeIds.clear();
             await loadUpdates();
             show("updates-status", msg);
-            toast(`Batch upgraded ${ids.length} package(s)`, "ok");
+            const match = String(msg).match(/(\d+)\/(\d+) succeeded/);
+            if (match) {
+                const ok = Number(match[1]);
+                const total = Number(match[2]);
+                toast(`Batch upgrade: ${ok}/${total} succeeded`, ok === total ? "ok" : ok > 0 ? "warn" : "crit");
+            } else {
+                toast(`Batch upgraded ${ids.length} package(s)`, "ok");
+            }
         } catch (err) {
             show("updates-status", String(err));
             toast(String(err), "crit");
@@ -1614,9 +1643,9 @@ function createModulesHub(invoke, helpers) {
                 if (ev.key !== "/" || ev.ctrlKey || ev.metaKey || ev.altKey) return;
                 const activeEl = document.activeElement;
                 if (activeEl && (["INPUT", "TEXTAREA", "SELECT"].includes(activeEl.tagName) || activeEl.isContentEditable)) return;
-                if (document.querySelector("dialog[open]")) return;
+                if (document.querySelector("dialog[open], [popover]:popover-open")) return;
                 const activePanel = document.querySelector(".tab-view-panel:not([hidden])");
-                const search = activePanel?.querySelector('input[type="search"], input.tab-search-input');
+                const search = activePanel?.querySelector('input[type="search"]');
                 if (search && search.getClientRects().length) {
                     ev.preventDefault();
                     search.focus();
@@ -1641,6 +1670,9 @@ function createModulesHub(invoke, helpers) {
                 byId("ssh-keys-list")?.replaceChildren();
             } else if (viewName === "updates") {
                 lastUpdateScan = null;
+                selectedUpgradeIds.clear();
+                const selAll = byId("updates-select-all");
+                if (selAll) { selAll.checked = false; selAll.indeterminate = false; }
                 byId("updates-rows")?.replaceChildren();
             } else if (viewName === "snapshots") {
                 byId("snap-diff-visual")?.replaceChildren();

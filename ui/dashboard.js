@@ -724,6 +724,9 @@ async function start() {
                 trigger?.setAttribute("aria-expanded", "true");
                 const rect = menu.getBoundingClientRect();
                 if (rect.left < 8) menu.classList.add("align-left");
+                if (menu.getBoundingClientRect().right > window.innerWidth - 8) {
+                    menu.classList.remove("align-left");
+                }
             }
         });
     }
@@ -760,6 +763,7 @@ async function start() {
     const preferences = createDashboardPreferences(tauri.core, nativeWindow, (unit) => {
         temperatureUnit = unit;
         renderTemperatures();
+        rgbStudio?.setTemperatureUnit?.(unit);
     }, (disabled) => {
         hiddenModules = disabled;
         diskMapAvailable = !disabled.includes("diskmap");
@@ -769,7 +773,15 @@ async function start() {
         const modeDropdown = byId("navModePillDropdown");
         if (modeDropdown) modeDropdown.hidden = disabled.includes("profiles");
         const netAssign = byId("lblNetAssignment");
-        if (netAssign) netAssign.disabled = disabled.includes("netmanager");
+        if (netAssign) {
+            const netHidden = disabled.includes("netmanager");
+            netAssign.disabled = netHidden;
+            netAssign.title = netHidden ? "Network Manager module is hidden" : "Open Adapters & IP";
+        }
+        const rgbDisabled = disabled.includes("rgbstudio");
+        const themeSyncRgb = byId("theme-sync-rgb");
+        if (themeSyncRgb) themeSyncRgb.hidden = rgbDisabled;
+        rgbStudio?.setEnabled?.(!rgbDisabled);
         renderCrash();
         for (const entry of volumeRows.values()) entry.map.hidden = !diskMapAvailable || !mapEligible(entry.volume);
         for (const [, button, , module] of views) {
@@ -796,6 +808,7 @@ async function start() {
 
     let viewSeq = 0;
     async function selectView(name, subview) {
+        if (!views.some(([view]) => view === name)) return;
         if (views.some(([view, , , module]) => view === name && hiddenModules.includes(module))) return;
         const seq = ++viewSeq;
         const prevView = currentView;
@@ -844,11 +857,19 @@ async function start() {
             await selectView("tasks");
             tasks.inspect(pid);
         },
+        openTaskSockets: async () => {
+            if (hiddenModules.includes("tasksports")) return;
+            await selectView("tasks");
+            document.querySelector('[data-task-pane="socket"]')?.click();
+        },
         syncRgbAccent: async (hex) => {
+            if (hiddenModules.includes("rgbstudio")) return false;
             if (rgbStudio?.syncThemeAccent) {
-                await rgbStudio.syncThemeAccent(hex);
-                showToast(`RGB synced to ${hex}`, "ok");
+                const ok = await rgbStudio.syncThemeAccent(hex);
+                showToast(ok ? `RGB synced to ${hex}` : "RGB accent sync failed", ok ? "ok" : "crit");
+                return ok;
             }
+            return false;
         }
     };
 
@@ -893,22 +914,22 @@ async function start() {
         { cat: "Mode", label: "🎮 Mode: Gaming", hint: "High performance + RGB sync", hidden: () => hiddenModules.includes("profiles"), run: () => void switchProfile("gaming", "Gaming") },
         { cat: "Mode", label: "🎥 Mode: Streaming", hint: "High performance + stay awake", hidden: () => hiddenModules.includes("profiles"), run: () => void switchProfile("streaming", "Streaming") },
         { cat: "Mode", label: "🌙 Mode: Night / Quiet", hint: "Power saver + Night Light", hidden: () => hiddenModules.includes("profiles"), run: () => void switchProfile("night", "Night") },
-        { cat: "Mode", label: "↩ Revert System Mode Baseline", hint: "Restore previous power & display state", hidden: () => hiddenModules.includes("profiles"), run: () => void invoke("profiles_action", { action: { kind: "revert" } }).then(() => showToast("Reverted to baseline", "ok")).catch((e) => showToast(String(e), "crit")) },
+        { cat: "Mode", label: "↩ Revert System Mode Baseline", hint: "Restore previous power & display state", hidden: () => hiddenModules.includes("profiles"), run: () => void invoke("profiles_action", { action: { kind: "revert_baseline" } }).then(() => { showToast("Reverted to baseline", "ok"); void modulesHub.refreshHeaderMode?.(); }).catch((e) => showToast(String(e), "crit")) },
         // RGB Actions
-        { cat: "RGB", label: "⬛ RGB Stealth Blackout", hint: "Turn off all connected RGB LEDs", run: () => { void rgbStudio.blackout(); showToast("RGB Stealth Blackout active", "info"); } },
-        { cat: "RGB", label: "🎨 Sync RGB to Theme Accent", hint: "Match all RGB hardware to current UI accent", run: () => void window.cwApp.syncRgbAccent(getComputedStyle(document.documentElement).getPropertyValue("--cw-accent").trim() || "#3182ce") },
-        { cat: "RGB", label: "💙 RGB Preset: Cyber Blue", hint: "Apply Cyber Blue lighting", run: () => { void rgbStudio.applyPreset?.("cyber_blue"); showToast("RGB: Cyber Blue", "ok"); } },
-        { cat: "RGB", label: "💚 RGB Preset: Emerald Matrix", hint: "Apply Emerald Matrix lighting", run: () => { void rgbStudio.applyPreset?.("emerald_matrix"); showToast("RGB: Emerald Matrix", "ok"); } },
-        { cat: "RGB", label: "🌡️ RGB Preset: Thermal Reactive", hint: "Color hardware by live CPU/GPU temp", run: () => { void rgbStudio.applyPreset?.("thermal_guard"); showToast("RGB: Thermal Reactive", "ok"); } },
-        { cat: "RGB", label: "🌈 RGB Preset: Rainbow Spectrum", hint: "Smooth 15 Hz spectrum wave", run: () => { void rgbStudio.applyPreset?.("rainbow_spectrum"); showToast("RGB: Rainbow Spectrum", "ok"); } },
+        { cat: "RGB", label: "⬛ RGB Stealth Blackout", hint: "Turn off all connected RGB LEDs", hidden: () => hiddenModules.includes("rgbstudio"), run: () => void rgbStudio.blackout().then((ok) => showToast(ok ? "RGB Stealth Blackout active" : "RGB blackout failed", ok ? "info" : "crit")) },
+        { cat: "RGB", label: "🎨 Sync RGB to Theme Accent", hint: "Match all RGB hardware to current UI accent", hidden: () => hiddenModules.includes("rgbstudio"), run: () => void window.cwApp.syncRgbAccent(getComputedStyle(document.documentElement).getPropertyValue("--cw-accent").trim() || "#3182ce") },
+        { cat: "RGB", label: "💙 RGB Preset: CoreWatch Cyber", hint: "Apply CoreWatch Cyber dual pulse", hidden: () => hiddenModules.includes("rgbstudio"), run: () => void rgbStudio.applyPreset?.("corewatch-cyber").then((ok) => showToast(ok ? "RGB: CoreWatch Cyber" : "RGB preset failed", ok ? "ok" : "crit")) },
+        { cat: "RGB", label: "💚 RGB Preset: Emerald Breathe", hint: "Apply Emerald Breathe lighting", hidden: () => hiddenModules.includes("rgbstudio"), run: () => void rgbStudio.applyPreset?.("emerald-pulse").then((ok) => showToast(ok ? "RGB: Emerald Breathe" : "RGB preset failed", ok ? "ok" : "crit")) },
+        { cat: "RGB", label: "🌡️ RGB Preset: Thermal GPU Guard", hint: "Color hardware by live GPU temperature", hidden: () => hiddenModules.includes("rgbstudio"), run: () => void rgbStudio.applyPreset?.("thermal-gpu").then((ok) => showToast(ok ? "RGB: Thermal GPU Guard" : "RGB preset failed", ok ? "ok" : "crit")) },
+        { cat: "RGB", label: "🌈 RGB Preset: Rainbow Wave", hint: "Smooth 15 Hz spectrum wave", hidden: () => hiddenModules.includes("rgbstudio"), run: () => void rgbStudio.applyPreset?.("rainbow-wave").then((ok) => showToast(ok ? "RGB: Rainbow Wave" : "RGB preset failed", ok ? "ok" : "crit")) },
         // Actions & Tools
         { cat: "Action", label: "💿 Disk Partitioner (Floating)", hint: "Pauses live telemetry while open", run: () => void diskPartitioner.open() },
         { cat: "Action", label: "🧹 Flush Windows DNS Cache", hint: "Native DnsFlushResolverCache", run: () => void dashboardCommand("check_dns", { flush: true }, "Windows DNS cache flushed.") },
         { cat: "Action", label: "↻ Refresh Telemetry Now", hint: "Force immediate sensor & metric poll", run: () => byId("refresh").click() },
         { cat: "Action", label: "🌐 Test Network Mesh", hint: "Cloudflare Latency, Jitter & Speed test", run: () => { void selectView("dashboard").then(() => byId("test-network").click()); } },
         { cat: "Action", label: "📋 Copy System Logs", hint: "Copy console output to clipboard", run: () => byId("copy-logs").click() },
-        { cat: "Action", label: "🔄 Scan All Updates (WinGet + PS)", hint: "Open Unified Update Center and scan", hidden: () => hiddenModules.includes("updates"), run: () => void selectView("updates").then(() => byId("upd-scan-btn")?.click()) },
-        { cat: "Action", label: "🌐 Probe All Homelab Nodes", hint: "Check reachability across all hosts", hidden: () => hiddenModules.includes("homelab"), run: () => void selectView("homelab").then(() => byId("hl-probe-all-btn")?.click()) },
+        { cat: "Action", label: "🔄 Scan All Updates (WinGet + PS)", hint: "Open Unified Update Center and scan", hidden: () => hiddenModules.includes("updates"), run: () => void selectView("updates") },
+        { cat: "Action", label: "🌐 Probe All Homelab Nodes", hint: "Check reachability across all hosts", hidden: () => hiddenModules.includes("homelab"), run: () => void selectView("homelab").then(() => byId("homelab-probe-all")?.click()) },
         // Window & Layout
         { cat: "Window", label: "⚙️ Application Settings (Ctrl+,)", hint: "General, Font Size, Directories, Modules", run: () => preferences.openPanel("preferences") },
         { cat: "Window", label: "🎨 Theme & Appearance Studio", hint: "Presets, Colors, Wallpaper", run: () => preferences.openPanel("appearance") },
@@ -1101,9 +1122,9 @@ async function start() {
             show("cpu-sensor-source", latestTemperature.cpuTempSource
                 ?? (direct ? "LibreHardwareMonitor helper · " + (status.reading.sensor || "CPU die") : "No CPU reading"));
             const message = direct || latestTemperature.cpuTempSource ? "A CPU temperature reading is available."
-                : !status.helper_available ? "Run .\\prepare-sensors.ps1 from the repository root to stage the sensor helper and its libraries."
+                : !status.helper_available ? "Optional Hardware CPU Sensor Helper is not installed. Re-run RustCoreWatch Setup and select Hardware CPU Sensor Helper to enable CPU die temperatures."
                 : status.pawn_io !== "Running" ? "Check the PawnIO installation and driver status."
-                : !status.elevated ? "Try restarting CoreWatch as administrator to read the CPU die sensor."
+                : !status.elevated ? "Try restarting RustCoreWatch as administrator to read the CPU die sensor."
                 : "The helper has not reported a CPU die temperature for this hardware.";
             show("cpu-sensor-message", status.error ?? message);
             byId("cpu-sensor-elevate").hidden = status.elevated || !status.helper_available || status.pawn_io !== "Running";

@@ -36,7 +36,7 @@
         <div class="header-left-group" data-tauri-drag-region>
             <button id="corewatch-project" class="icon-square-frame" type="button" aria-label="Open RustCoreWatch on GitHub" title="Open CoreWatch on GitHub (https://github.com/jonathan820612/CoreWatch-Host-Engine)"><img src="icon-64.png" class="header-corner-brand" alt="" draggable="false"></button>
             <span class="header-brand-title" data-tauri-drag-region>RUSTCOREWATCH</span>
-            <small class="rust-version" data-tauri-drag-region>v0.1 Beta</small>
+            <small id="header-version" class="rust-version" data-tauri-drag-region>v1.0 Beta 1</small>
             <button id="cmd-palette-toggle" class="tab-btn nav-cmdk-btn" type="button" title="Quick Command Palette (Ctrl+K)" aria-label="Quick Command Palette">⌘ <span class="nav-btn-label">Ctrl+K</span></button>
         </div>
         <nav class="modular-tabs" aria-label="RustCoreWatch views">
@@ -96,8 +96,8 @@
                 </button>
                 <div class="nav-dropdown-menu nav-mode-menu" id="navModePillMenu" role="menu"></div>
             </div>
-            <button id="btnHeaderAlertsBell" class="tab-btn nav-alert-btn" type="button" title="Smart Alerts &amp; Watchdog Rules">🔔<span id="lblHeaderAlertsCount" class="nav-alert-count" hidden>0</span></button>
-            <button id="dock-toggle" class="tab-btn" type="button" aria-controls="dashboard-dock" aria-expanded="false" title="Telemetry dock" hidden>◫ <span id="dock-count"></span></button>
+            <button id="btnHeaderAlertsBell" class="tab-btn nav-alert-btn" type="button" aria-label="Smart Alerts &amp; Watchdog Rules" title="Smart Alerts &amp; Watchdog Rules">🔔<span id="lblHeaderAlertsCount" class="nav-alert-count" hidden>0</span></button>
+            <button id="dock-toggle" class="tab-btn" type="button" aria-label="Toggle Telemetry Dock" aria-controls="dashboard-dock" aria-expanded="false" title="Telemetry dock" hidden>◫ <span id="dock-count"></span></button>
             <button id="layout-toggle" class="tab-btn nav-util-btn" type="button" aria-label="Dashboard layout" aria-controls="layout-panel" aria-expanded="false" title="Dashboard layout">✏️<span class="nav-btn-label"> Layout</span></button>
             <button id="appearance-toggle" class="tab-btn" type="button" aria-label="Appearance" aria-controls="appearance-panel" aria-expanded="false" title="Theme &amp; Appearance Studio">🎨</button>
             <button id="refresh" class="tab-btn" type="button" aria-label="Refresh telemetry" title="Refresh telemetry">↻</button>
@@ -1428,10 +1428,6 @@
                         <button type="button" class="filter-pill" data-bg-fit="center">Center</button>
                         <button type="button" class="filter-pill" data-bg-fit="tile">Tile</button>
                     </div>
-                    <label>Fit <select id="wallpaper-fit" name="bgFit">
-                        <option value="cover">Cover</option><option value="contain">Contain</option>
-                        <option value="stretch">Stretch</option><option value="center">Center</option><option value="tile">Tile</option>
-                    </select></label>
                     <label>Fade <select id="wallpaper-fade" name="bgFadeMode">
                         <option value="none">None</option><option value="uniform">Uniform</option><option value="vignette">Vignette</option>
                         <option value="top">Top</option><option value="bottom">Bottom</option>
@@ -1485,7 +1481,7 @@
                 <p id="settings-update-status" class="dashboard-hint" role="status"></p>
                 <div class="panel-actions"><button class="console-clear-btn" id="settings-check-update" type="button">Check for Updates</button><button class="console-clear-btn" id="settings-open-releases" type="button">Release Notes</button><button class="console-clear-btn" id="settings-data-folder" type="button">Open Data Folder</button></div>
             </fieldset>
-            <button id="import-dashboard-settings" type="button" class="console-clear-btn">Import from PowerShell version…</button>
+            <button id="import-dashboard-settings" type="button" class="console-clear-btn">Import from Legacy PowerShell Edition…</button>
         </div>
         <div class="dashboard-panel-body" id="settings-pane-directories" role="tabpanel" aria-labelledby="settings-tab-directories" hidden><div id="settings-directories" class="settings-directories"></div></div>
         <div class="dashboard-panel-body" id="settings-pane-telemetry" role="tabpanel" aria-labelledby="settings-tab-telemetry" hidden>
