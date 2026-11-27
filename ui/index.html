@@ -1333,11 +1333,23 @@
         </div>
         <div id="thermal-aio-strip" class="thermal-aio-card"></div>
         <div>
-            <div class="thermal-section-title"><h3>🌀 Cooling Fans, AIO Pumps &amp; PWM Control</h3><span id="thermal-fans-count">0 detected</span></div>
+            <div class="thermal-section-title">
+                <h3>🌀 Cooling Fans, AIO Pumps &amp; PWM Control</h3>
+                <div class="panel-actions">
+                    <button id="thermal-toggle-hidden-fans" type="button" class="card-ctrl-btn" hidden>👁️ Show Hidden (0)</button>
+                    <span id="thermal-fans-count">0 detected</span>
+                </div>
+            </div>
             <div id="thermal-fans-grid" class="thermal-fans-grid"></div>
         </div>
         <div>
-            <div class="thermal-section-title"><h3>🌡️ System-Wide Temperature Sensors</h3><span id="thermal-temps-count">0 live sensors</span></div>
+            <div class="thermal-section-title">
+                <h3>🌡️ System-Wide Temperature Sensors</h3>
+                <div class="panel-actions">
+                    <button id="thermal-toggle-hidden-temps" type="button" class="card-ctrl-btn" hidden>👁️ Show Hidden (0)</button>
+                    <span id="thermal-temps-count">0 live sensors</span>
+                </div>
+            </div>
             <div id="thermal-temps-groups" class="thermal-temps-groups"></div>
         </div>
         <div id="thermal-powers-strip" class="panel-actions" hidden></div>

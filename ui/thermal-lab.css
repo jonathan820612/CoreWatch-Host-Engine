@@ -229,6 +229,31 @@
 }
 .thermal-fan-card.is-warn { border-color: rgba(236, 201, 75, 0.55); }
 .thermal-fan-card.is-crit { border-color: rgba(245, 101, 101, 0.65); }
+.thermal-fan-card.is-hidden-card,
+.thermal-temp-card.is-hidden-card {
+    opacity: 0.56;
+    border-style: dashed;
+}
+.thermal-temp-card-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    flex-shrink: 0;
+}
+.thermal-temp-hide-btn {
+    padding: 0 5px;
+    min-width: 20px;
+    height: 19px;
+    line-height: 1;
+    font-size: calc(10px * var(--cw-font-scale, 1));
+    opacity: 0.45;
+    transition: opacity 0.15s ease;
+}
+.thermal-temp-card:hover .thermal-temp-hide-btn,
+.thermal-temp-card.is-hidden-card .thermal-temp-hide-btn,
+.thermal-temp-hide-btn:focus-visible {
+    opacity: 1;
+}
 .thermal-fan-head {
     display: flex;
     align-items: flex-start;

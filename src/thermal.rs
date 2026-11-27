@@ -64,6 +64,8 @@ pub struct ThermalConfig {
     pub active_preset: String,
     pub channels: HashMap<String, ControlMode>,
     pub aliases: HashMap<String, ChannelAlias>,
+    pub hidden_fans: Vec<String>,
+    pub hidden_temps: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -98,6 +100,7 @@ pub struct TempSensor {
     pub crit_c: f64,
     pub status: &'static str, // "cool" | "warm" | "hot"
     pub history: Vec<f64>,
+    pub hidden: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -126,6 +129,7 @@ pub struct FanChannel {
     pub rpm_jitter_pct: f64,
     pub baseline_samples: u32,
     pub issues: Vec<HealthFinding>,
+    pub hidden: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -197,6 +201,15 @@ pub enum ThermalAction {
         label: Option<String>,
         role: Option<String>,
     },
+    SetChannelHidden {
+        channel_id: String,
+        hidden: bool,
+    },
+    SetTempHidden {
+        temp_id: String,
+        hidden: bool,
+    },
+    UnhideAll,
     ApplyPreset { preset: String },
     ResetAllAuto,
     RunHealthCheck,
@@ -549,6 +562,45 @@ pub fn classify_fan_role(name: &str, hardware: &str, category: &str) -> &'static
         return "vrm";
     }
     "chassis"
+}
+
+/// Returns true for static firmware threshold/limit/margin sensors (e.g. NVMe WCTEMP/CCTEMP
+/// "Warning Temperature" / "Critical Temperature", CPU "Distance to TjMax") that hardware
+/// libraries report under SensorType.Temperature even though they are NOT live temperatures.
+pub fn is_non_live_temp_sensor(name: &str) -> bool {
+    let n = name.trim().to_ascii_lowercase();
+    n.contains("warning temp")
+        || n.contains("critical temp")
+        || n.contains("warning composite")
+        || n.contains("critical composite")
+        || n.contains("threshold")
+        || n.contains("temp limit")
+        || n.contains("temperature limit")
+        || n.contains("thermal limit")
+        || n.contains("distance to tj")
+        || n.contains("tjmax")
+        || n.contains("tj max")
+        || n.contains("thermal margin")
+        || n == "tcontrol"
+}
+
+fn is_bogus_temp_reading(category: &str, name: &str, value_c: f64) -> bool {
+    if !value_c.is_finite() || value_c <= 1.0 || value_c >= 145.0 {
+        return true;
+    }
+    // Unconnected motherboard SuperIO thermistor pins commonly float at 125–128°C (0x7F/0x80 ADC rail)
+    if category == "motherboard" {
+        let n = name.to_ascii_lowercase();
+        if (n.starts_with("temperature #") || n.starts_with("board temp #"))
+            && (value_c >= 120.0 || value_c <= 3.0)
+        {
+            return true;
+        }
+        if (value_c - 127.0).abs() < 0.15 || (value_c - 128.0).abs() < 0.15 {
+            return true;
+        }
+    }
+    false
 }
 
 fn temp_thresholds(category: &str, name: &str) -> (f64, f64) {
@@ -907,6 +959,8 @@ impl ThermalEngine {
                 active_preset: "auto".into(),
                 channels: HashMap::new(),
                 aliases: HashMap::new(),
+                hidden_fans: Vec::new(),
+                hidden_temps: Vec::new(),
             });
         let baselines = dir
             .as_ref()
@@ -1179,11 +1233,24 @@ impl ThermalEngine {
             max: Option<f64>,
         }
         // Build temperature list from LHM Helper + HWiNFO64 SM2 + LHM/OHM WMI + PawnIO SuperIO + NVML + SMART + ACPI
+        // Extract static NVMe/hardware firmware Warning/Critical limits as real thresholds rather than fake live readings!
         let mut temp_map: HashMap<String, TempCandidate> = HashMap::new();
+        let mut hw_limits: HashMap<String, (Option<f64>, Option<f64>)> = HashMap::new();
         if let Some(ref frame) = guard.last_frame {
             for t in &frame.temperatures {
-                // Filter out invalid unprivileged 0°C placeholder readings
-                if t.value > 1.0 && t.value < 145.0 {
+                if is_non_live_temp_sensor(&t.name) {
+                    if t.value > 25.0 && t.value < 135.0 {
+                        let low = t.name.to_ascii_lowercase();
+                        let entry = hw_limits.entry(t.hardware.clone()).or_default();
+                        if low.contains("warning") {
+                            entry.0 = Some(t.value);
+                        } else if low.contains("critical") {
+                            entry.1 = Some(t.value);
+                        }
+                    }
+                    continue;
+                }
+                if !is_bogus_temp_reading(&t.category, &t.name, t.value) {
                     temp_map.insert(
                         t.id.clone(),
                         TempCandidate {
@@ -1191,8 +1258,8 @@ impl ThermalEngine {
                             hardware: t.hardware.clone(),
                             category: t.category.clone(),
                             value: t.value,
-                            min: t.min.filter(|&v| v > 1.0),
-                            max: t.max.filter(|&v| v > 1.0),
+                            min: t.min.filter(|&v| v > 1.0 && v < 145.0),
+                            max: t.max.filter(|&v| v > 1.0 && v < 145.0),
                         },
                     );
                 }
@@ -1203,6 +1270,11 @@ impl ThermalEngine {
             temps: &[crate::thermal_providers::ProviderTemp],
         ) {
             for t in temps {
+                if is_non_live_temp_sensor(&t.name)
+                    || is_bogus_temp_reading(&t.category, &t.name, t.value_c)
+                {
+                    continue;
+                }
                 let dup = temp_map.values().any(|e| {
                     e.category == t.category && e.name.eq_ignore_ascii_case(&t.name)
                 });
@@ -1317,7 +1389,13 @@ impl ThermalEngine {
                     }
                 })
                 .or_insert_with(|| (raw_min.unwrap_or(val).min(val), raw_max.unwrap_or(val).max(val)));
-            let (warn_c, crit_c) = temp_thresholds(&category, &name);
+            let (default_warn, default_crit) = temp_thresholds(&category, &name);
+            let (warn_c, crit_c) = if let Some(&(fw_warn, fw_crit)) = hw_limits.get(&hardware) {
+                (fw_warn.unwrap_or(default_warn), fw_crit.unwrap_or(default_crit))
+            } else {
+                (default_warn, default_crit)
+            };
+            let hidden = guard.config.hidden_temps.iter().any(|h| h == &id);
             let status = if val >= crit_c {
                 "hot"
             } else if val >= warn_c {
@@ -1326,18 +1404,20 @@ impl ThermalEngine {
                 "cool"
             };
             temp_lookup.insert(id.clone(), val);
-            if category == "cpu" {
-                cpu_max_c = Some(cpu_max_c.map_or(val, |m| m.max(val)));
-            } else if category == "gpu" && name.eq_ignore_ascii_case("GPU Core") {
-                gpu_max_c = Some(gpu_max_c.map_or(val, |m| m.max(val)));
-            }
-            let lower_n = name.to_ascii_lowercase();
-            if category == "cooler"
-                || lower_n.contains("liquid")
-                || lower_n.contains("coolant")
-                || lower_n.contains("water")
-            {
-                coolant_c = Some(coolant_c.map_or(val, |m| m.max(val)));
+            if !hidden {
+                if category == "cpu" {
+                    cpu_max_c = Some(cpu_max_c.map_or(val, |m| m.max(val)));
+                } else if category == "gpu" && name.eq_ignore_ascii_case("GPU Core") {
+                    gpu_max_c = Some(gpu_max_c.map_or(val, |m| m.max(val)));
+                }
+                let lower_n = name.to_ascii_lowercase();
+                if category == "cooler"
+                    || lower_n.contains("liquid")
+                    || lower_n.contains("coolant")
+                    || lower_n.contains("water")
+                {
+                    coolant_c = Some(coolant_c.map_or(val, |m| m.max(val)));
+                }
             }
             temperatures.push(TempSensor {
                 id,
@@ -1351,6 +1431,7 @@ impl ThermalEngine {
                 crit_c,
                 status,
                 history: history_vec,
+                hidden,
             });
         }
 
@@ -1703,8 +1784,11 @@ impl ThermalEngine {
                 }
             }
 
-            for issue in &eval.issues {
-                all_findings.push(issue.clone());
+            let hidden = guard.config.hidden_fans.iter().any(|h| h == &id);
+            if !hidden {
+                for issue in &eval.issues {
+                    all_findings.push(issue.clone());
+                }
             }
             fans_out.push(FanChannel {
                 id,
@@ -1730,6 +1814,7 @@ impl ThermalEngine {
                 rpm_jitter_pct: eval.jitter_pct,
                 baseline_samples: baseline_samples_now,
                 issues: eval.issues,
+                hidden,
             });
         }
 
@@ -1765,8 +1850,8 @@ impl ThermalEngine {
             self.save_baselines_locked(&guard.baselines);
         }
 
-        // Temperature & AIO heat-soak diagnostics
-        for t in &temperatures {
+        // Temperature & AIO heat-soak diagnostics (ignore user-hidden sensors)
+        for t in temperatures.iter().filter(|t| !t.hidden) {
             if t.value_c >= t.crit_c {
                 all_findings.push(HealthFinding {
                     severity: "crit",
@@ -1853,10 +1938,10 @@ impl ThermalEngine {
         // AIO / Liquid Loop summary & heat-soak delta detection
         let pump_rpms: Vec<u32> = fans_out
             .iter()
-            .filter(|f| f.role == "pump")
+            .filter(|f| !f.hidden && f.role == "pump")
             .filter_map(|f| f.rpm)
             .collect();
-        let pump_count = fans_out.iter().filter(|f| f.role == "pump").count();
+        let pump_count = fans_out.iter().filter(|f| !f.hidden && f.role == "pump").count();
         let max_pump_rpm = pump_rpms.iter().copied().max();
         let flow_lph = flows.first().map(|f| f.lph);
         let cpu_coolant_delta_c = match (cpu_max_c, coolant_c) {
@@ -1940,7 +2025,12 @@ impl ThermalEngine {
             "warn" => 1,
             _ => 2,
         });
-        let min_fan_score = fans_out.iter().map(|f| f.health_score).min().unwrap_or(100);
+        let min_fan_score = fans_out
+            .iter()
+            .filter(|f| !f.hidden)
+            .map(|f| f.health_score)
+            .min()
+            .unwrap_or(100);
         let crit_penalty = (all_findings
             .iter()
             .filter(|f| f.severity == "crit" && f.code == "OVER_TEMP")
@@ -1959,6 +2049,7 @@ impl ThermalEngine {
 
         let hottest_temp = temperatures
             .iter()
+            .filter(|t| !t.hidden)
             .max_by(|a, b| a.value_c.total_cmp(&b.value_c))
             .cloned();
 
@@ -2128,6 +2219,43 @@ impl ThermalEngine {
                 drop(guard);
                 Ok(self.tick_once())
             }
+            ThermalAction::SetChannelHidden { channel_id, hidden } => {
+                let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+                if hidden {
+                    if !guard.config.hidden_fans.iter().any(|h| h == &channel_id) {
+                        guard.config.hidden_fans.push(channel_id);
+                    }
+                } else {
+                    guard.config.hidden_fans.retain(|h| h != &channel_id);
+                }
+                let cfg = guard.config.clone();
+                self.save_config_locked(&cfg);
+                drop(guard);
+                Ok(self.tick_once())
+            }
+            ThermalAction::SetTempHidden { temp_id, hidden } => {
+                let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+                if hidden {
+                    if !guard.config.hidden_temps.iter().any(|h| h == &temp_id) {
+                        guard.config.hidden_temps.push(temp_id);
+                    }
+                } else {
+                    guard.config.hidden_temps.retain(|h| h != &temp_id);
+                }
+                let cfg = guard.config.clone();
+                self.save_config_locked(&cfg);
+                drop(guard);
+                Ok(self.tick_once())
+            }
+            ThermalAction::UnhideAll => {
+                let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+                guard.config.hidden_fans.clear();
+                guard.config.hidden_temps.clear();
+                let cfg = guard.config.clone();
+                self.save_config_locked(&cfg);
+                drop(guard);
+                Ok(self.tick_once())
+            }
             ThermalAction::ApplyPreset { preset } => {
                 if self.smoke_test {
                     return Ok(self.tick_once());
@@ -2155,7 +2283,7 @@ impl ThermalEngine {
                         .map(|t| t.id.clone())
                         .unwrap_or_else(|| default_cpu_sensor.clone());
                     for fan in &snap.fans {
-                        if !fan.controllable {
+                        if fan.hidden || !fan.controllable {
                             continue;
                         }
                         let Some(ref cid) = fan.control_id else {
@@ -2240,7 +2368,7 @@ impl ThermalEngine {
                 let controllable: Vec<(String, String, &'static str, u8)> = snap_before
                     .fans
                     .iter()
-                    .filter(|f| f.controllable && f.control_id.is_some())
+                    .filter(|f| !f.hidden && f.controllable && f.control_id.is_some())
                     .map(|f| {
                         (
                             f.id.clone(),
@@ -2428,5 +2556,20 @@ mod tests {
         }
         let cav = evaluate_channel_health("AIO_PUMP", "pump", Some(1980), Some(80.0), Some(55.0), &wobble, None);
         assert!(cav.issues.iter().any(|i| i.code == "PUMP_CAVITATION"));
+    }
+
+    #[test]
+    fn filters_static_nvme_thresholds_and_floating_superio_pins() {
+        assert!(is_non_live_temp_sensor("Warning Temperature"));
+        assert!(is_non_live_temp_sensor("Critical Temperature"));
+        assert!(is_non_live_temp_sensor("Distance to TjMax"));
+        assert!(!is_non_live_temp_sensor("Composite Temperature"));
+        assert!(!is_non_live_temp_sensor("Temperature #1"));
+        assert!(!is_non_live_temp_sensor("Core (Tctl/Tdie)"));
+
+        assert!(is_bogus_temp_reading("motherboard", "Temperature #5", 127.0));
+        assert!(is_bogus_temp_reading("motherboard", "Board Temp #4", 124.0));
+        assert!(!is_bogus_temp_reading("storage", "Composite Temperature", 45.0));
+        assert!(!is_bogus_temp_reading("motherboard", "VRM MOS", 52.0));
     }
 }

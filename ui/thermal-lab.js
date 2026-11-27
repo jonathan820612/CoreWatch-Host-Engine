@@ -9,6 +9,8 @@ function createThermalLab(invoke) {
     let busy = false;
     let tempUnit = "C";
     let lastSnap = null;
+    let showHiddenFans = false;
+    let showHiddenTemps = false;
     const expandedCurveId = new Set();
     const expandedAliasId = new Set();
 
@@ -192,10 +194,13 @@ function createThermalLab(invoke) {
         show("thermal-kpi-health-sub", snap.findings.length
             ? `${snap.findings.length} active diagnostic alert${snap.findings.length === 1 ? "" : "s"}`
             : "All fans & sensors operating cleanly");
-        const spinning = snap.fans.filter((f) => (f.rpm || 0) > 0).length;
-        const controllableCount = snap.fans.filter((f) => f.controllable).length;
-        show("thermal-kpi-fans", `${snap.fans.length} ch`);
-        show("thermal-kpi-fans-sub", `${spinning} spinning · ${controllableCount} PWM controllable`);
+        const visibleFans = snap.fans.filter((f) => !f.hidden);
+        const hiddenFanCount = snap.fans.length - visibleFans.length;
+        const spinning = visibleFans.filter((f) => (f.rpm || 0) > 0).length;
+        const controllableCount = visibleFans.filter((f) => f.controllable).length;
+        show("thermal-kpi-fans", `${visibleFans.length} ch`);
+        show("thermal-kpi-fans-sub", `${spinning} spinning · ${controllableCount} PWM controllable`
+            + (hiddenFanCount > 0 ? ` · ${hiddenFanCount} hidden` : ""));
         const aio = snap.aioSummary;
         show("thermal-kpi-aio", aio?.detected
             ? (aio.maxPumpRpm ? `${aio.maxPumpRpm} RPM` : aio.coolantTempC != null ? fmtTemp(aio.coolantTempC) : aio.status)
@@ -247,23 +252,55 @@ function createThermalLab(invoke) {
 
         // Fans & Pumps Control Cards
         const fansBox = byId("thermal-fans-grid");
-        show("thermal-fans-count", `${snap.fans.length} detected · ${controllableCount} controllable`);
+        const hiddenFansBtn = byId("thermal-toggle-hidden-fans");
+        if (hiddenFansBtn) {
+            hiddenFansBtn.hidden = hiddenFanCount === 0;
+            hiddenFansBtn.classList.toggle("active", showHiddenFans);
+            hiddenFansBtn.textContent = showHiddenFans
+                ? `👁️ Hide Hidden (${hiddenFanCount})`
+                : `👁️ Show Hidden (${hiddenFanCount})`;
+        }
+        const displayedFans = showHiddenFans
+            ? [...visibleFans, ...snap.fans.filter((f) => f.hidden)]
+            : visibleFans;
+        show("thermal-fans-count", `${visibleFans.length} visible · ${controllableCount} controllable`
+            + (hiddenFanCount > 0 ? ` · ${hiddenFanCount} hidden` : ""));
         if (fansBox) {
-            if (!snap.fans.length) {
+            if (!displayedFans.length) {
                 fansBox.replaceChildren(element("div", "driver-text-node",
-                    "No fan or pump tachometer channels detected yet. Run RustCoreWatch as Administrator (with PawnIO) to read motherboard SuperIO fans and AIO pumps."));
+                    hiddenFanCount > 0
+                        ? `All ${hiddenFanCount} fan channel(s) are hidden. Click "Show Hidden" above to restore any header.`
+                        : "No fan or pump tachometer channels detected yet. Run RustCoreWatch as Administrator (with PawnIO) to read motherboard SuperIO fans and AIO pumps."));
             } else {
-                const fanNodes = snap.fans.map((fan) => buildFanCard(fan, snap.temperatures));
+                const visibleTemps = snap.temperatures.filter((t) => !t.hidden);
+                const fanNodes = displayedFans.map((fan) => buildFanCard(fan, visibleTemps));
                 fansBox.replaceChildren(...fanNodes);
             }
         }
 
         // System-Wide Temperature Groups
         const tempsHost = byId("thermal-temps-groups");
-        show("thermal-temps-count", `${snap.temperatures.length} live sensors`);
+        const visibleTemps = snap.temperatures.filter((t) => !t.hidden);
+        const hiddenTempCount = snap.temperatures.length - visibleTemps.length;
+        const hiddenTempsBtn = byId("thermal-toggle-hidden-temps");
+        if (hiddenTempsBtn) {
+            hiddenTempsBtn.hidden = hiddenTempCount === 0;
+            hiddenTempsBtn.classList.toggle("active", showHiddenTemps);
+            hiddenTempsBtn.textContent = showHiddenTemps
+                ? `👁️ Hide Hidden (${hiddenTempCount})`
+                : `👁️ Show Hidden (${hiddenTempCount})`;
+        }
+        const displayedTemps = showHiddenTemps
+            ? [...visibleTemps, ...snap.temperatures.filter((t) => t.hidden)]
+            : visibleTemps;
+        show("thermal-temps-count", `${visibleTemps.length} live sensors`
+            + (hiddenTempCount > 0 ? ` · ${hiddenTempCount} hidden` : ""));
         if (tempsHost) {
-            if (!snap.temperatures.length) {
-                tempsHost.replaceChildren(element("div", "driver-text-node", "No live temperature sensors reported yet."));
+            if (!displayedTemps.length) {
+                tempsHost.replaceChildren(element("div", "driver-text-node",
+                    hiddenTempCount > 0
+                        ? `All ${hiddenTempCount} temperature sensor(s) are hidden. Click "Show Hidden" above to restore.`
+                        : "No live temperature sensors reported yet."));
             } else {
                 const catOrder = ["cpu", "gpu", "cooler", "motherboard", "storage", "memory", "psu", "other"];
                 const catTitles = {
@@ -277,7 +314,7 @@ function createThermalLab(invoke) {
                     other: "🌡️ Other Sensors"
                 };
                 const grouped = new Map();
-                for (const t of snap.temperatures) {
+                for (const t of displayedTemps) {
                     const c = catTitles[t.category] ? t.category : "other";
                     if (!grouped.has(c)) grouped.set(c, []);
                     grouped.get(c).push(t);
@@ -291,12 +328,23 @@ function createThermalLab(invoke) {
                     hdr.append(element("h3", "", catTitles[cat]), element("span", "", `${list.length} sensor${list.length === 1 ? "" : "s"}`));
                     const grid = element("div", "thermal-temp-grid");
                     for (const t of list) {
-                        const card = element("div", "thermal-temp-card");
+                        const card = element("div", "thermal-temp-card" + (t.hidden ? " is-hidden-card" : ""));
                         const top = element("div", "thermal-temp-top");
                         const left = element("div", "thermal-fan-title");
                         left.append(element("div", "thermal-temp-name", t.name), element("div", "thermal-temp-hw", t.hardware));
+                        const rightWrap = element("div", "thermal-temp-card-actions");
                         const valEl = element("div", `thermal-temp-val is-${t.status}`, fmtTemp(t.valueC));
-                        top.append(left, valEl);
+                        const hideTempBtn = actionButton(t.hidden ? "👁️" : "×", () => {
+                            void runAction(
+                                { kind: "set_temp_hidden", temp_id: t.id, hidden: !t.hidden },
+                                t.hidden ? `Restored sensor: ${t.name}` : `Hidden sensor: ${t.name}`
+                            );
+                        });
+                        hideTempBtn.className = "card-ctrl-btn thermal-temp-hide-btn";
+                        hideTempBtn.title = t.hidden ? `Show ${t.name}` : `Hide ${t.name} from Thermal Lab`;
+                        hideTempBtn.setAttribute("aria-label", t.hidden ? `Show ${t.name}` : `Hide ${t.name}`);
+                        rightWrap.append(valEl, hideTempBtn);
+                        top.append(left, rightWrap);
                         const foot = element("div", "thermal-temp-foot");
                         foot.append(
                             element("span", "", `Min ${fmtTempShort(t.minC)} · Max ${fmtTempShort(t.maxC)}`),
@@ -328,6 +376,7 @@ function createThermalLab(invoke) {
 
     function buildFanCard(fan, temperatures) {
         const card = element("div", "thermal-fan-card"
+            + (fan.hidden ? " is-hidden-card" : "")
             + (fan.healthScore <= 45 ? " is-crit" : fan.healthScore <= 80 ? " is-warn" : ""));
         const [rLabel, rCls] = roleBadge(fan.role);
 
@@ -346,10 +395,22 @@ function createThermalLab(invoke) {
         tagBtn.className = "card-ctrl-btn";
         tagBtn.title = "Rename header & assign role (e.g. Arctic AIO Pump, Radiator, Intake)";
         tagBtn.setAttribute("aria-label", `Rename or tag ${fan.name}`);
+        const hideBtn = actionButton(fan.hidden ? "👁️ Show" : "🙈", () => {
+            expandedAliasId.delete(fan.id);
+            if (fan.controlId) expandedCurveId.delete(fan.controlId);
+            void runAction(
+                { kind: "set_channel_hidden", channel_id: fan.id, hidden: !fan.hidden },
+                fan.hidden ? `Restored fan header: ${fan.name}` : `Hidden fan header: ${fan.name}`
+            );
+        });
+        hideBtn.className = "card-ctrl-btn";
+        hideBtn.title = fan.hidden ? `Unhide ${fan.name}` : `Hide ${fan.name} header from Thermal Lab`;
+        hideBtn.setAttribute("aria-label", fan.hidden ? `Unhide ${fan.name}` : `Hide ${fan.name}`);
         badges.append(
             element("span", `diag-pill ${rCls}`, rLabel),
             element("span", `diag-pill ${healthPillClass(fan.healthStatus)}`, fan.healthStatus),
-            tagBtn
+            tagBtn,
+            hideBtn
         );
         head.append(title, badges);
 
@@ -595,6 +656,14 @@ function createThermalLab(invoke) {
     });
     byId("thermal-reset-baselines")?.addEventListener("click", () =>
         void runAction({ kind: "reset_baselines" }, "Learned fan/pump baselines cleared"));
+    byId("thermal-toggle-hidden-fans")?.addEventListener("click", () => {
+        showHiddenFans = !showHiddenFans;
+        if (lastSnap) render(lastSnap);
+    });
+    byId("thermal-toggle-hidden-temps")?.addEventListener("click", () => {
+        showHiddenTemps = !showHiddenTemps;
+        if (lastSnap) render(lastSnap);
+    });
     byId("thermal-banner-elevate")?.addEventListener("click", async () => {
         if (await askDashboard("Restart as Administrator", "Restart RustCoreWatch as Administrator to unlock CPU die, Motherboard SuperIO/VRM, Arctic/PWM AIO headers, and fan control?")) {
             await invoke("elevate").catch((e) => window.cwApp?.showToast?.(String(e), "warn"));

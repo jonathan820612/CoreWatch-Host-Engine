@@ -215,7 +215,7 @@ pub fn parse_hwinfo_sm2_bytes(bytes: &[u8]) -> Option<ProviderFrame> {
                 } else {
                     val
                 };
-                if c > 1.0 && c < 145.0 {
+                if c > 1.0 && c < 145.0 && !crate::thermal::is_non_live_temp_sensor(&label) {
                     frame.temperatures.push(ProviderTemp {
                         id: format!("hwinfo/temp/{s_idx}/{r_id}"),
                         name: label,
@@ -382,7 +382,7 @@ pub fn read_lhm_ohm_wmi() -> Option<(&'static str, ProviderFrame)> {
                 _ => categorize_hardware(&hw_name, name),
             };
             match stype {
-                "Temperature" if val > 1.0 && val < 145.0 => {
+                "Temperature" if val > 1.0 && val < 145.0 && !crate::thermal::is_non_live_temp_sensor(name) => {
                     frame.temperatures.push(ProviderTemp {
                         id: format!("wmi:{id}"),
                         name: name.to_owned(),
